@@ -1,0 +1,19 @@
+{
+  "name": "personal-multimodal-rag",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"npm:dev:backend\" \"npm:dev:frontend\"",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "dev:backend": "cd backend && python3 -m uvicorn app.main:app --reload --port 8010",
+    "demo:bootstrap": "python3 scripts/bootstrap_portfolio_demo.py",
+    "test": "python3 -m pytest -q",
+    "test:demo": "python3 -m pytest backend/tests/test_demo_smoke.py -q",
+    "build": "npm --prefix frontend run build",
+    "preview": "npm --prefix frontend run preview"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}

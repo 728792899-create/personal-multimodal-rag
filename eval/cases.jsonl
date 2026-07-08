@@ -1,0 +1,30 @@
+{"question":"如何优化 RAG 的召回质量？","expected_keywords":["BM25","向量检索","Rerank"],"expected_source":"rag-notes.md"}
+{"question":"RAG 评测指标有哪些？","expected_keywords":["MRR","引用准确率"],"expected_source":"rag-notes.md"}
+{"question":"RAG 系统通常包含哪些环节？","expected_keywords":["文档解析","文本切分","索引构建"],"expected_source":"rag-notes.md"}
+{"question":"离线索引阶段需要做什么？","expected_keywords":["清洗","切分","chunk"],"expected_source":"rag-notes.md"}
+{"question":"为什么切分时要控制 chunk 长度？","expected_keywords":["语义被截断","chunk"],"expected_source":"rag-notes.md"}
+{"question":"overlap 在 RAG 切分中有什么作用？","expected_keywords":["overlap","语义被截断"],"expected_source":"rag-notes.md"}
+{"question":"常见的检索方式有哪些？","expected_keywords":["BM25","向量检索","混合检索"],"expected_source":"rag-notes.md"}
+{"question":"BM25 更适合什么场景？","expected_keywords":["关键词精确匹配"],"expected_source":"rag-notes.md"}
+{"question":"向量检索更适合什么场景？","expected_keywords":["语义相近"],"expected_source":"rag-notes.md"}
+{"question":"混合检索为什么有价值？","expected_keywords":["BM25","向量检索"],"expected_source":"rag-notes.md"}
+{"question":"在线检索阶段可以先做什么？","expected_keywords":["查询改写","多路召回"],"expected_source":"rag-notes.md"}
+{"question":"多路召回解决什么问题？","expected_keywords":["多路召回","查询改写"],"expected_source":"rag-notes.md"}
+{"question":"Rerank 的作用是什么？","expected_keywords":["Rerank","上下文相关性"],"expected_source":"rag-notes.md"}
+{"question":"RAGAS 可以用于什么？","expected_keywords":["RAGAS","自动化评测"],"expected_source":"rag-notes.md"}
+{"question":"轻量评测可以怎么做？","expected_keywords":["关键词命中","人工样例"],"expected_source":"rag-notes.md"}
+{"question":"RAG 项目容易出现哪些工程风险？","expected_keywords":["上下文缺失","噪声过多","幻觉"],"expected_source":"rag-notes.md"}
+{"question":"切分过碎会带来什么问题？","expected_keywords":["上下文缺失"],"expected_source":"rag-notes.md"}
+{"question":"切分过长会带来什么问题？","expected_keywords":["噪声过多"],"expected_source":"rag-notes.md"}
+{"question":"向量检索有什么风险？","expected_keywords":["误召回"],"expected_source":"rag-notes.md"}
+{"question":"为什么要展示引用来源？","expected_keywords":["引用来源","引用来源不准确"],"expected_source":"rag-notes.md"}
+{"question":"如何降低 LLM 幻觉风险？","expected_keywords":["LLM 幻觉","引用来源"],"expected_source":"rag-notes.md"}
+{"question":"记录检索链路有什么用？","expected_keywords":["记录检索链路"],"expected_source":"rag-notes.md"}
+{"question":"缓存高频查询能优化什么？","expected_keywords":["缓存高频查询","响应速度"],"expected_source":"rag-notes.md"}
+{"question":"答案生成前要经过哪些上游步骤？","expected_keywords":["检索召回","重排序","上下文拼接"],"expected_source":"rag-notes.md"}
+{"question":"引用核查在 RAG 中属于哪个环节？","expected_keywords":["引用核查"],"expected_source":"rag-notes.md"}
+{"question":"这份资料有没有提到 Kubernetes 部署？","expected_keywords":[],"expected_source":""}
+{"question":"资料中是否讨论了 Redis 集群配置？","expected_keywords":[],"expected_source":""}
+{"question":"资料有没有说明用户权限 RBAC 的表设计？","expected_keywords":[],"expected_source":""}
+{"question":"文档是否提到 iOS 原生开发？","expected_keywords":[],"expected_source":""}
+{"question":"这份资料有没有介绍支付系统对账？","expected_keywords":[],"expected_source":""}
