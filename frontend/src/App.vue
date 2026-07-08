@@ -103,14 +103,14 @@ const loadingContext = ref(false)
 const questionPresets = [
   '如何优化 RAG 的召回质量？',
   '这份资料有没有提到 Redis 集群配置？',
-  '王文通有哪些和 AI 工作流相关的项目经历？',
+  '这套系统如何展示引用可信度？',
 ]
 
 const demoQuestions = [
-  '这个 RAG 项目最适合写进简历的技术亮点是什么？',
-  '如果面试官追问引用可信度，这个系统怎么降低幻觉？',
+  '这个 RAG 系统的核心工程亮点是什么？',
+  '这个系统如何通过引用和拒答机制降低幻觉？',
   '这份资料有没有提到 Kubernetes 部署？',
-  '杭州 AIGC 应用开发岗位更看重哪些能力？',
+  'AIGC 工作流资料里提到了哪些工程能力？',
 ]
 
 const totalChunks = computed(() => documents.value.reduce((sum, item) => sum + item.chunk_count, 0))
@@ -1016,8 +1016,8 @@ onMounted(bootDemoFromUrl)
             <div class="feedback-actions">
               <button class="ghost-btn" :disabled="rewriting" @click="handleRewrite('short')">更短</button>
               <button class="ghost-btn" :disabled="rewriting" @click="handleRewrite('detailed')">更详细</button>
-              <button class="ghost-btn" :disabled="rewriting" @click="handleRewrite('interview')">面试回答</button>
-              <button class="ghost-btn" :disabled="rewriting" @click="handleRewrite('resume')">简历 Bullet</button>
+              <button class="ghost-btn" :disabled="rewriting" @click="handleRewrite('briefing')">项目说明</button>
+              <button class="ghost-btn" :disabled="rewriting" @click="handleRewrite('highlights')">要点列表</button>
               <button class="ghost-btn" :disabled="rewriting" @click="handleRewrite('study')">学习笔记</button>
               <button class="ghost-btn" :disabled="rewriting" @click="handleRewrite('faq')">FAQ</button>
             </div>
@@ -1140,7 +1140,7 @@ onMounted(bootDemoFromUrl)
                 <p>{{ shortText(item.answer, 90) }}</p>
               </article>
             </div>
-            <p v-else class="empty">好答案可以保存为卡片，用于复习和作品集沉淀。</p>
+            <p v-else class="empty">好答案可以保存为卡片，用于复习、复盘和后续整理。</p>
           </section>
 
           <section class="debug-section">

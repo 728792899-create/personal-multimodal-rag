@@ -4,8 +4,7 @@ from app.services.text_utils import tokenize
 
 
 INTENT_RULES = [
-    ("resume", "简历表达", {"简历", "bullet", "经历", "亮点", "岗位", "jd", "求职"}),
-    ("interview", "面试回答", {"面试", "追问", "回答", "讲", "技术故事", "难点"}),
+    ("implementation", "实现说明", {"实现", "方案", "架构", "技术", "亮点", "难点", "工程"}),
     ("summary", "总结归纳", {"总结", "概括", "梳理", "归纳", "核心", "一句话"}),
     ("comparison", "对比分析", {"对比", "比较", "区别", "差异", "优劣", "哪个"}),
     ("gap", "资料缺口", {"缺", "没有", "不足", "风险", "优化", "补充"}),
@@ -38,12 +37,12 @@ def analyze_query(query: str) -> dict:
 
 
 def _recommended_profile(intent_id: str, token_count: int) -> dict:
-    if intent_id in {"fact", "resume"}:
+    if intent_id in {"fact", "implementation"}:
         return {
             "search_profile": "precision",
             "search_mode": "hybrid",
             "candidate_k": 24,
-            "reason": "事实定位和简历表达更依赖精准证据，优先减少弱相关片段。",
+            "reason": "事实定位和实现说明更依赖精准证据，优先减少弱相关片段。",
         }
     if intent_id in {"summary", "comparison", "gap"}:
         return {

@@ -21,8 +21,8 @@ GAP_PATTERNS = {
 REWRITE_TEMPLATES = {
     "short": ("更短", "请用 3 条以内要点表达，保留证据编号。"),
     "detailed": ("更详细", "请展开为背景、方法、结果、限制四段。"),
-    "interview": ("面试回答", "请改写成 1 分钟面试口播，突出问题、方案、结果和反思。"),
-    "resume": ("简历 Bullet", "请改写成 2-3 条简历 bullet，突出动词、技术栈和结果。"),
+    "briefing": ("项目说明", "请改写成 1 分钟项目说明，突出问题、方案、结果和限制。"),
+    "highlights": ("要点列表", "请改写成 2-3 条结构化要点，突出动作、技术方案和结果。"),
     "study": ("学习笔记", "请改写成学习笔记，包含概念、步骤、易错点。"),
     "faq": ("FAQ", "请改写成 3 个常见问答。"),
 }
@@ -141,18 +141,18 @@ def analyze_knowledge_gaps(
 def _rule_based_rewrite(answer: str, style: str, question: str, citations: list[dict]) -> str:
     cleaned = answer.strip()
     evidence = citations[:3]
-    if style == "resume":
+    if style == "highlights":
         bullets = []
         for item in evidence:
             source = item.get("filename", "资料")
             snippet = _shorten(item.get("snippet") or item.get("text") or "", 86)
             bullets.append(f"- 基于 {source} 梳理知识证据：{snippet}")
         return "\n".join(bullets or [f"- 围绕“{question}”完成资料检索、证据引用和可信度判断。"])
-    if style == "interview":
+    if style == "briefing":
         return (
-            f"我会这样讲：这个问题是“{question}”。我先通过混合检索定位资料，再用重排和引用审计筛掉弱证据。"
+            f"这个问题是“{question}”。系统先通过混合检索定位资料，再用重排和引用审计筛掉弱证据。"
             f"从当前证据看，核心结论是：{_shorten(cleaned, 180)}"
-            "如果证据不足，我会明确拒答并把失败样本沉淀到评测集。"
+            "如果证据不足，系统会明确拒答并把失败样本沉淀到评测集。"
         )
     if style == "study":
         return f"学习笔记\n\n概念：{_shorten(question, 60)}\n\n要点：\n{_bulletize(cleaned, 4)}\n\n易错点：注意区分检索证据和模型推断。"

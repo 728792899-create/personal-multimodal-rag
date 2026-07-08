@@ -10,20 +10,20 @@ from urllib import request
 
 ROOT = Path(__file__).resolve().parents[1]
 API_BASE = os.getenv("RAG_API_BASE", "http://127.0.0.1:8010").rstrip("/")
-SAMPLES = ROOT / "samples" / "portfolio-demo"
+SAMPLES = ROOT / "samples" / "demo-documents"
 
 
 DEMO_CASES = [
     {
-        "question": "这个 RAG 项目最适合写进简历的技术亮点是什么？",
+        "question": "这个 RAG 系统的核心工程亮点是什么？",
         "expected_keywords": ["混合检索", "引用审计", "反馈评测"],
     },
     {
-        "question": "如果面试官追问引用可信度，这个系统怎么降低幻觉？",
+        "question": "这个系统如何通过引用和拒答机制降低幻觉？",
         "expected_keywords": ["引用", "拒答", "评测"],
     },
     {
-        "question": "杭州 AIGC 应用开发岗位更看重哪些能力？",
+        "question": "AIGC 工作流资料里提到了哪些工程能力？",
         "expected_keywords": ["Vue", "RAG", "工程"],
     },
     {
@@ -42,7 +42,7 @@ def main() -> None:
     if not files:
         raise SystemExit(f"No demo files found under {SAMPLES}")
 
-    print("Uploading portfolio demo documents...")
+    print("Uploading demo documents...")
     for file_path in files:
         result = upload_file(file_path)
         doc = result.get("document", {})
@@ -79,7 +79,7 @@ def post_json(path: str, payload: dict) -> dict:
 
 
 def upload_file(file_path: Path) -> dict:
-    boundary = "----PortfolioDemoBoundary"
+    boundary = "----DemoDocumentsBoundary"
     content_type = mimetypes.guess_type(file_path.name)[0] or "text/markdown"
     body = b"".join(
         [

@@ -125,7 +125,7 @@ class FeedbackRequest(BaseModel):
 class RewriteRequest(BaseModel):
     question: str = ""
     answer: str = Field(..., min_length=1)
-    style: Literal["short", "detailed", "interview", "resume", "study", "faq"] = "short"
+    style: Literal["short", "detailed", "briefing", "highlights", "study", "faq"] = "short"
     citations: list[ChunkOut] = Field(default_factory=list)
 
 

@@ -112,7 +112,7 @@ def test_ingest_ask_and_delete(monkeypatch):
         json={
             "question": "What does RAG use?",
             "answer": data["answer"],
-            "style": "resume",
+            "style": "highlights",
             "citations": data["citations"],
         },
     )

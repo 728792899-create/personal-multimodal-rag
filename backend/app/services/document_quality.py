@@ -131,7 +131,7 @@ def summarize_document(document: Document, chunks: Iterable[Chunk]) -> dict:
 
     suggested_questions = [
         f"请总结《{document.title or document.file_name}》的核心内容。",
-        f"这份资料有哪些可以写进简历或项目复盘的亮点？",
+        f"这份资料有哪些值得沉淀到项目复盘的亮点？",
         f"这份资料中有哪些风险、缺口或需要补充的地方？",
     ]
     if keywords:
@@ -164,7 +164,7 @@ def build_knowledge_overview(documents: list[Document], chunks_by_document: dict
 
     suggestions = []
     if not documents:
-        suggestions.append("先导入 2-3 份项目文档、简历或学习笔记，建立可问答资料源。")
+        suggestions.append("先导入 2-3 份项目文档、技术笔记或学习资料，建立可问答资料源。")
     if low_quality:
         suggestions.append("优先重建或替换质量分低于 70 的文档，减少低质量证据干扰。")
     if total_chunks and total_chunks < 8:
@@ -172,7 +172,7 @@ def build_knowledge_overview(documents: list[Document], chunks_by_document: dict
     if not history:
         suggestions.append("运行几次真实问答后，可用历史问题反推知识库缺口。")
     if not suggestions:
-        suggestions.append("知识库结构健康，可继续补评测集、反馈闭环和作品集演示材料。")
+        suggestions.append("知识库结构健康，可继续补评测集、反馈闭环和公开演示材料。")
 
     return {
         "document_count": len(documents),

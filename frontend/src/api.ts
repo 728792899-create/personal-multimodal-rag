@@ -313,7 +313,7 @@ export interface ChunkContext {
   }>
 }
 
-export type RewriteStyle = 'short' | 'detailed' | 'interview' | 'resume' | 'study' | 'faq'
+export type RewriteStyle = 'short' | 'detailed' | 'briefing' | 'highlights' | 'study' | 'faq'
 
 export interface RewriteResponse {
   style: RewriteStyle

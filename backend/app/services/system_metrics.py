@@ -75,7 +75,7 @@ def _recommendations(
 ) -> list[str]:
     items = []
     if document_count < 3:
-        items.append("补充更多真实项目文档、JD、面试复盘和技术方案，提升知识库覆盖面。")
+        items.append("补充更多真实项目文档、技术方案、运维记录和复盘材料，提升知识库覆盖面。")
     if chunk_count < 20:
         items.append("当前 chunk 数偏少，建议导入更完整资料以体现复杂检索能力。")
     if low_quality_count:

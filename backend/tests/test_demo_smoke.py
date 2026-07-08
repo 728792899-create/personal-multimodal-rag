@@ -6,10 +6,10 @@ from app.main import app
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SAMPLE = ROOT / "samples" / "portfolio-demo" / "02-rag-workbench-technical.md"
+SAMPLE = ROOT / "samples" / "demo-documents" / "02-rag-workbench-technical.md"
 
 
-def test_portfolio_demo_ingest_and_ask():
+def test_demo_documents_ingest_and_ask():
     client = TestClient(app)
 
     health = client.get("/health")
@@ -42,4 +42,3 @@ def test_portfolio_demo_ingest_and_ask():
     assert data["retrieval_trace"]
     assert data["retrieval_trace"]["search_mode"] == "hybrid"
     assert "fallbacks" in data["retrieval_trace"]
-
