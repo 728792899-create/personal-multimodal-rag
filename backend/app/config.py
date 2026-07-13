@@ -40,6 +40,8 @@ class Settings:
     bm25_weight: float = float(os.getenv("BM25_WEIGHT", "0.62"))
     vector_weight: float = float(os.getenv("VECTOR_WEIGHT", "0.38"))
     no_answer_threshold: float = float(os.getenv("NO_ANSWER_THRESHOLD", "0.05"))
+    grounding_min_confidence: float = float(os.getenv("GROUNDING_MIN_CONFIDENCE", "0.15"))
+    citation_overlap_threshold: float = float(os.getenv("CITATION_OVERLAP_THRESHOLD", "0.34"))
     mmr_lambda: float = float(os.getenv("MMR_LAMBDA", "0.78"))
 
     answer_provider: str = os.getenv("ANSWER_PROVIDER", "template")
@@ -55,6 +57,13 @@ class Settings:
     query_rewrite_count: int = int(os.getenv("QUERY_REWRITE_COUNT", "2"))
 
     document_registry_path: str = os.getenv("DOCUMENT_REGISTRY_PATH", "./data/registry.sqlite3")
+    max_upload_bytes: int = int(os.getenv("MAX_UPLOAD_BYTES", str(20 * 1024 * 1024)))
+    allow_private_urls: bool = os.getenv("RAG_ALLOW_PRIVATE_URLS", "0").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
     def resolved_embedding_dimension(self) -> int:
         if self.embedding_dimension:

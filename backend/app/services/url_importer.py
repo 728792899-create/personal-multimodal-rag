@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import ipaddress
 import re
+import socket
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
+
+from app.config import settings
 
 
 @dataclass
@@ -59,10 +63,14 @@ class ReadableHTMLParser(HTMLParser):
         return text.strip()
 
 
+class SafeRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        _validate_public_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 def fetch_url(url: str, title: str = "", timeout: float = 12, max_bytes: int = 2_000_000) -> ImportedUrl:
-    parsed = urlparse(url)
-    if parsed.scheme not in {"http", "https"}:
-        raise ValueError("Only http/https URLs are supported")
+    parsed = _validate_public_url(url)
     request = Request(
         url,
         headers={
@@ -70,7 +78,9 @@ def fetch_url(url: str, title: str = "", timeout: float = 12, max_bytes: int = 2
             "Accept": "text/html,text/plain,application/xhtml+xml",
         },
     )
-    with urlopen(request, timeout=timeout) as response:
+    opener = build_opener(SafeRedirectHandler())
+    with opener.open(request, timeout=timeout) as response:
+        _validate_public_url(response.geturl())
         content_type = response.headers.get("content-type", "")
         raw = response.read(max_bytes + 1)
     if len(raw) > max_bytes:
@@ -100,6 +110,52 @@ def fetch_url(url: str, title: str = "", timeout: float = 12, max_bytes: int = 2
             "host": parsed.netloc,
         },
     )
+
+
+def is_blocked_host(hostname: str) -> bool:
+    if settings.allow_private_urls:
+        return False
+
+    normalized = hostname.strip().rstrip(".").lower()
+    if not normalized or normalized == "localhost" or normalized.endswith(".localhost"):
+        return True
+
+    addresses: set[str] = set()
+    try:
+        addresses.add(str(ipaddress.ip_address(normalized.split("%", 1)[0])))
+    except ValueError:
+        try:
+            for result in socket.getaddrinfo(normalized, None, type=socket.SOCK_STREAM):
+                addresses.add(result[4][0].split("%", 1)[0])
+        except OSError:
+            return True
+
+    if not addresses:
+        return True
+    for address in addresses:
+        try:
+            if not ipaddress.ip_address(address).is_global:
+                return True
+        except ValueError:
+            return True
+    return False
+
+
+def _validate_public_url(url: str):
+    parsed = urlparse(url)
+    if parsed.scheme.lower() not in {"http", "https"}:
+        raise ValueError("Only http/https URLs are supported")
+    if not parsed.hostname:
+        raise ValueError("URL must include a valid hostname")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("URLs with embedded credentials are not supported")
+    try:
+        parsed.port
+    except ValueError as exc:
+        raise ValueError("URL contains an invalid port") from exc
+    if is_blocked_host(parsed.hostname):
+        raise ValueError("URL resolves to a private, special, or blocked address")
+    return parsed
 
 
 def PathishName(path: str) -> str:

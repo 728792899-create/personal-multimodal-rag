@@ -129,6 +129,8 @@ export interface AskResponse {
     mmr_lambda: number
     reranker: string
     no_answer_threshold: number
+    refuse_reason?: 'no_evidence' | 'below_threshold' | 'weak_grounding' | ''
+    refusal_reason?: 'no_evidence' | 'below_threshold' | 'weak_grounding' | null
     min_score: number | null
     rewrite_status?: string
     vector_status?: string
@@ -196,6 +198,16 @@ export interface CitationAudit {
   supported_sentence_count: number
   unsupported_sentence_count: number
   unsupported_claims: string[]
+  grounding?: number
+  grounded_sentence_count?: number
+  grounding_overlap_threshold?: number
+  weakly_grounded_claims?: Array<{
+    sentence: string
+    claim: string
+    overlap: number
+    citation_indexes: number[]
+    reason: string
+  }>
   checked: boolean
 }
 

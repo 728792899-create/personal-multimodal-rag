@@ -1054,6 +1054,13 @@ textarea {
   line-height: 1.5;
 }
 
+.grounding-warning {
+  border-top-color: rgba(217, 119, 6, 0.38);
+  border-radius: 8px;
+  background: rgba(255, 247, 237, 0.72);
+  padding: 9px;
+}
+
 .feedback-panel {
   display: grid;
   gap: 8px;

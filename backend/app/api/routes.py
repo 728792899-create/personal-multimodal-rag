@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-import shutil
+import uuid
 from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
+from app.config import settings
 from app.core.store import processor, rag_engine, registry, retriever
 from app.models.domain import Chunk, Document
 from app.models.schemas import (
@@ -26,6 +27,7 @@ from app.services.document_quality import (
     lifecycle_event,
     summarize_document,
 )
+from app.services.document_processor import SUPPORTED_EXTENSIONS
 from app.services.knowledge_tools import (
     analyze_knowledge_gaps,
     build_citation_context,
@@ -81,14 +83,27 @@ def get_document(document_id: str):
 
 @router.post("/documents")
 async def upload_document(file: UploadFile = File(...)):
-    target = DATA_DIR / file.filename
+    target: Path | None = None
+    keep_target = False
+    safe_name = ""
     try:
+        safe_name = _safe_upload_name(file.filename)
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        target = DATA_DIR / f"{uuid.uuid4().hex}-{safe_name}"
         upload_started = datetime.utcnow()
         with target.open("wb") as f:
-            shutil.copyfileobj(file.file, f)
+            written = 0
+            while chunk := await file.read(1024 * 1024):
+                written += len(chunk)
+                if written > settings.max_upload_bytes:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"File is too large; max {settings.max_upload_bytes} bytes",
+                    )
+                f.write(chunk)
         upload_ended = datetime.utcnow()
         parse_started = datetime.utcnow()
-        doc = processor.parse_file(target, original_name=file.filename)
+        doc = processor.parse_file(target, original_name=safe_name)
         parse_ended = datetime.utcnow()
         existing = registry.find_by_content_hash(doc.metadata.get("content_hash", ""))
         if existing:
@@ -99,7 +114,7 @@ async def upload_document(file: UploadFile = File(...)):
                 {
                     "document_id": existing.document_id,
                     "filename": existing.file_name,
-                    "incoming_filename": file.filename,
+                    "incoming_filename": safe_name,
                 },
             )
             return {
@@ -114,6 +129,7 @@ async def upload_document(file: UploadFile = File(...)):
                 lifecycle_event("parse", "success", parse_started, parse_ended),
             ],
         )
+        keep_target = True
         registry.log_operation(
             "document_uploaded",
             f"上传并索引文档：{doc.file_name}",
@@ -129,16 +145,38 @@ async def upload_document(file: UploadFile = File(...)):
             "document": _document_summary(doc, chunks),
             "chunks": [_chunk_payload(chunk) for chunk in chunks[:5]],
         }
+    except HTTPException as exc:
+        registry.log_operation(
+            "document_upload_rejected",
+            f"文档上传被拒绝：{safe_name or '未命名文件'}",
+            {"filename": safe_name, "error": str(exc.detail), "status_code": exc.status_code},
+            level="warning",
+        )
+        raise
     except ValueError as exc:
         registry.log_operation(
             "document_upload_failed",
-            f"文档上传或索引失败：{file.filename}",
-            {"filename": file.filename, "error": _friendly_index_error(exc)},
+            f"文档上传或索引失败：{safe_name or '未命名文件'}",
+            {"filename": safe_name, "error": _friendly_index_error(exc)},
             level="error",
         )
         raise HTTPException(status_code=400, detail=_friendly_index_error(exc)) from exc
     finally:
+        if target is not None and not keep_target:
+            target.unlink(missing_ok=True)
         await file.close()
+
+
+def _safe_upload_name(filename: str | None) -> str:
+    normalized = (filename or "").strip().replace("\\", "/")
+    safe_name = Path(normalized).name
+    if not safe_name or safe_name in {".", ".."} or "\x00" in safe_name:
+        raise HTTPException(status_code=400, detail="A valid filename is required")
+    suffix = Path(safe_name).suffix.lower()
+    if suffix not in SUPPORTED_EXTENSIONS:
+        supported = ", ".join(sorted(SUPPORTED_EXTENSIONS))
+        raise HTTPException(status_code=400, detail=f"Unsupported file type: {suffix or '(none)'}; allowed: {supported}")
+    return safe_name
 
 
 @router.post("/imports/url")
@@ -248,13 +286,29 @@ def delete_document(document_id: str):
     if not deleted:
         raise HTTPException(status_code=404, detail="Document not found")
     registry.delete_document(document_id)
+    source_deleted = _delete_uploaded_source(doc)
     registry.log_operation(
         "document_deleted",
         f"删除文档：{doc.file_name if doc else document_id}",
-        {"document_id": document_id, "filename": doc.file_name if doc else ""},
+        {
+            "document_id": document_id,
+            "filename": doc.file_name if doc else "",
+            "source_deleted": source_deleted,
+        },
         level="warning",
     )
     return {"deleted": True, "document_id": document_id}
+
+
+def _delete_uploaded_source(doc: Document | None) -> bool:
+    if not doc or not doc.file_path:
+        return False
+    source = Path(doc.file_path).resolve()
+    upload_root = DATA_DIR.resolve()
+    if source.parent != upload_root or not source.is_file():
+        return False
+    source.unlink()
+    return True
 
 
 @router.post("/documents/{document_id}/rebuild")

@@ -2,6 +2,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from app.api import routes
 from app.main import app
 
 
@@ -9,7 +10,8 @@ ROOT = Path(__file__).resolve().parents[2]
 SAMPLE = ROOT / "samples" / "demo-documents" / "02-rag-workbench-technical.md"
 
 
-def test_demo_documents_ingest_and_ask():
+def test_demo_documents_ingest_and_ask(monkeypatch, tmp_path):
+    monkeypatch.setattr(routes, "DATA_DIR", tmp_path)
     client = TestClient(app)
 
     health = client.get("/health")
@@ -42,3 +44,5 @@ def test_demo_documents_ingest_and_ask():
     assert data["retrieval_trace"]
     assert data["retrieval_trace"]["search_mode"] == "hybrid"
     assert "fallbacks" in data["retrieval_trace"]
+    delete = client.delete(f"/api/documents/{document['id']}")
+    assert delete.status_code == 200

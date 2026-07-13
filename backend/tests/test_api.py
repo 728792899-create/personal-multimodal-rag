@@ -23,7 +23,8 @@ def test_create_query_rewriter_returns_rewriter_instance(monkeypatch):
     assert rewriter.name == "responses"
 
 
-def test_ingest_ask_and_delete(monkeypatch):
+def test_ingest_ask_and_delete(monkeypatch, tmp_path):
+    monkeypatch.setattr(routes, "DATA_DIR", tmp_path)
     client = TestClient(app)
 
     health = client.get("/health")
@@ -98,6 +99,12 @@ def test_ingest_ask_and_delete(monkeypatch):
     assert data["citations"][0]["score_breakdown"]
     assert data["trust"]["label"] in {"证据充分", "证据一般", "证据较弱", "无法确定"}
     assert data["citation_audit"]["checked"] is True
+    assert {
+        "grounding",
+        "grounded_sentence_count",
+        "weakly_grounded_claims",
+        "grounding_overlap_threshold",
+    } <= data["citation_audit"].keys()
     assert data["retrieval_trace"]["query_analysis"]["label"]
     assert data["gap_report"]["query_intent"]["label"]
     assert data["retrieval_trace"]["performance"]["total_ms"] >= 0

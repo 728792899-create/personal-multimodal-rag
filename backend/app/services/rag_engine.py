@@ -13,10 +13,14 @@ class RagEngine:
         retriever: HybridRetriever,
         answer_generator: BaseAnswerGenerator | None = None,
         no_answer_threshold: float = 0.05,
+        grounding_min_confidence: float = 0.15,
+        citation_overlap_threshold: float = 0.34,
     ):
         self.retriever = retriever
         self.answer_generator = answer_generator or TemplateAnswerGenerator()
         self.no_answer_threshold = no_answer_threshold
+        self.grounding_min_confidence = grounding_min_confidence
+        self.citation_overlap_threshold = citation_overlap_threshold
 
     def ask(self, question: str, top_k: int = 5, **retrieval_options) -> dict:
         started = time.perf_counter()
@@ -29,8 +33,27 @@ class RagEngine:
         trace["performance"]["retrieval_ms"] = round((retrieval_ended - started) * 1000, 2)
         confidence = self._confidence(ranked)
         diagnostics = self._diagnostics(question, ranked, trace, threshold)
-        if not ranked or confidence < threshold:
-            audit = audit_answer("", [], 0, threshold)
+        refuse, refuse_reason = self._should_refuse(ranked, confidence, threshold)
+        trace["refuse_reason"] = refuse_reason
+        trace["refusal_reason"] = refuse_reason or None
+        if refuse:
+            if refuse_reason == "weak_grounding":
+                diagnostics.append(
+                    {
+                        "level": "warning",
+                        "title": "证据与问题缺少直接词项匹配",
+                        "message": "最高分尚不足以在无关键词命中的情况下安全生成回答。",
+                        "action": "补充限定词、切换检索模式，或导入更直接的资料。",
+                        "actions": [],
+                    }
+                )
+            audit = audit_answer(
+                "",
+                [],
+                0,
+                threshold,
+                overlap_threshold=self.citation_overlap_threshold,
+            )
             trace["performance"]["total_ms"] = round((time.perf_counter() - started) * 1000, 2)
             return {
                 "answer": "答案：\n根据当前知识库资料，无法确定。\n\n依据：\n没有检索到足够相关的证据片段。\n\n不确定性：\n需要导入更多相关资料后再回答。",
@@ -41,7 +64,7 @@ class RagEngine:
                     "answer_model": "-",
                     "grounded": True,
                     "skipped": True,
-                    "reason": "no_evidence",
+                    "reason": refuse_reason,
                 },
                 "confidence": 0,
                 "diagnostics": diagnostics,
@@ -64,7 +87,13 @@ class RagEngine:
         generation_ended = time.perf_counter()
         trace["performance"]["generation_ms"] = round((generation_ended - generation_started) * 1000, 2)
         trace["performance"]["total_ms"] = round((generation_ended - started) * 1000, 2)
-        audit = audit_answer(generated["answer"], citations, confidence, threshold)
+        audit = audit_answer(
+            generated["answer"],
+            citations,
+            confidence,
+            threshold,
+            overlap_threshold=self.citation_overlap_threshold,
+        )
         return {
             "answer": generated["answer"],
             "citations": citations,
@@ -178,6 +207,15 @@ class RagEngine:
         if not ranked:
             return 0.0
         return float(ranked[0].get("rerank_score", ranked[0]["score"]))
+
+    def _should_refuse(self, ranked: list[dict], confidence: float, threshold: float) -> tuple[bool, str]:
+        if not ranked:
+            return True, "no_evidence"
+        if confidence < threshold:
+            return True, "below_threshold"
+        if not ranked[0].get("matched_terms") and confidence < self.grounding_min_confidence:
+            return True, "weak_grounding"
+        return False, ""
 
     def _chunk_to_dict(self, item: dict) -> dict:
         chunk = item["chunk"]

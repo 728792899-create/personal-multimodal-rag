@@ -64,20 +64,29 @@ AIGC 工作流资料里提到了哪些工程能力？
 - 支持 OpenAI-compatible embedding provider。
 - 通过 `BaseVectorStore` 隔离 Memory / Chroma / pgvector 三种向量存储。
 - 使用混合检索排序：`0.62 * normalized BM25 + 0.38 * vector similarity`。
-- 支持 Query Rewrite、Multi-query Retrieval、MMR 去冗余和 No-answer Gate。
+- 支持 Query Rewrite、Multi-query Retrieval、MMR 去冗余和多条件 No-answer Gate。
 - 支持本地 keyword rerank，前端展示 rerank_score。
 - 预留 cross-encoder reranker，可通过 `RERANKER=cross-encoder` 接入 BGE reranker。
 - 支持 template / Responses 两种答案生成器。
 - 问答结果展示引用来源、页码或片段编号、score、bm25_score、vector_score。
 - 输出 retrieval trace，方便调试召回链路。
 - 输出 query intent、document boost、parent-child context 和检索/生成耗时。
-- 支持答案可信度分级、引用覆盖率、unsupported claims 和引用上下文。
+- 支持答案可信度分级、引用覆盖率、引用与所指证据的词项校验、unsupported claims 和引用上下文。
 - 支持答案改写为项目说明、要点列表、学习笔记和 FAQ。
 - 支持知识卡片沉淀和资料缺口分析。
 - 支持用户反馈生成 eval draft，并在前端运行评测草稿。
 - 支持系统指标面板，统计质量分、平均置信度、拒答、fallback 和负反馈。
 - 提供轻量评测接口和脚本，支持 Recall@K、MRR、引用准确率。
 - 提供检索 profile 对比脚本，可比较 BM25-only、Vector-only、Hybrid、Hybrid+Rerank。
+
+## 安全与可信度
+
+- `GROUNDING_MIN_CONFIDENCE=0.15`：无直接关键词命中时，低于该置信度会拒绝生成。
+- `CITATION_OVERLAP_THRESHOLD=0.34`：引用句与其实际引用证据的最低词项重合度。
+- `MAX_UPLOAD_BYTES=20971520`：单个上传文件大小上限，默认 20 MB。
+- `RAG_ALLOW_PRIVATE_URLS=0`：默认禁止 URL 导入访问回环、内网、链路本地及其他特殊地址；只有明确需要导入可信内网资料时才应开启。
+
+上传接口仅允许 `.txt`、`.md`、`.markdown`、`.pdf`、`.png`、`.jpg`、`.jpeg`，会清理路径成分、为落盘文件生成唯一名称，并在解析或索引失败时删除临时文件。URL 导入会在初始请求、每次重定向和最终响应三个阶段执行地址校验。
 
 ## 搜索与调试
 

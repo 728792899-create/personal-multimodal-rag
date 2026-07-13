@@ -301,6 +301,10 @@ async function handleRun() {
           supported_sentence_count: 0,
           unsupported_sentence_count: 0,
           unsupported_claims: [],
+          grounding: 0,
+          grounded_sentence_count: 0,
+          grounding_overlap_threshold: 0.34,
+          weakly_grounded_claims: [],
           checked: true,
         },
         gap_report: {
@@ -975,6 +979,7 @@ onMounted(bootDemoFromUrl)
               <span>来源 {{ trust.source_count }}</span>
               <span>Top {{ trust.top_score }}</span>
               <span>Coverage {{ percentLabel(trust.coverage) }}</span>
+              <span v-if="citationAudit?.grounding !== undefined">Grounding {{ percentLabel(citationAudit.grounding) }}</span>
             </div>
             <div v-if="trust.recommendations?.length" class="trust-notes">
               <span v-for="item in trust.recommendations" :key="item">{{ item }}</span>
@@ -982,6 +987,12 @@ onMounted(bootDemoFromUrl)
             <div v-if="citationAudit?.unsupported_claims?.length" class="unsupported-list">
               <strong>缺少直接引用的句子</strong>
               <p v-for="item in citationAudit.unsupported_claims.slice(0, 3)" :key="item">{{ item }}</p>
+            </div>
+            <div v-if="citationAudit?.weakly_grounded_claims?.length" class="unsupported-list grounding-warning">
+              <strong>引用存在，但与所指证据匹配较弱</strong>
+              <p v-for="item in citationAudit.weakly_grounded_claims.slice(0, 3)" :key="item.sentence">
+                {{ item.sentence }}（重合度 {{ percentLabel(item.overlap) }}）
+              </p>
             </div>
           </div>
 
@@ -1266,6 +1277,8 @@ onMounted(bootDemoFromUrl)
                 <span>Sentences：{{ citationAudit.sentence_count }}</span>
                 <span>Supported：{{ citationAudit.supported_sentence_count }}</span>
                 <span>Unsupported：{{ citationAudit.unsupported_sentence_count }}</span>
+                <span>Grounding：{{ percentLabel(citationAudit.grounding) }}</span>
+                <span>Weak Grounding：{{ citationAudit.weakly_grounded_claims?.length ?? 0 }}</span>
               </div>
             </section>
 

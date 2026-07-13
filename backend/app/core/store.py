@@ -122,4 +122,6 @@ rag_engine = RagEngine(
     retriever,
     answer_generator=create_answer_generator(),
     no_answer_threshold=settings.no_answer_threshold,
+    grounding_min_confidence=settings.grounding_min_confidence,
+    citation_overlap_threshold=settings.citation_overlap_threshold,
 )
