@@ -51,6 +51,36 @@ samples/demo-documents/
 AIGC 工作流资料里提到了哪些工程能力？
 ```
 
+## 演示截图
+
+### 普通知识库工作台
+
+![个人多模态 RAG 工作台](docs/screenshots/01-workbench.jpg)
+
+### 引用回答与可信度审计
+
+![RAG 引用回答与可信度审计](docs/screenshots/02-grounded-answer.jpg)
+
+截图使用仓库内 `samples/demo-documents/` 的公开样例资料和离线默认 Provider 生成，不包含私人知识库内容或外部模型密钥。
+
+## 架构概览
+
+```mermaid
+flowchart LR
+  U["Vue 3 工作台"] -->|"REST"| API["FastAPI API"]
+  API --> ING["解析 / 切分 / 去重"]
+  API --> RAG["RAG 编排器"]
+  ING --> REG["SQLite 文档注册表"]
+  ING --> IDX["BM25 + Vector Store"]
+  RAG --> RET["混合召回 + MMR + Rerank"]
+  RET --> GATE["No-answer Gate"]
+  GATE --> GEN["Template / Responses Answer"]
+  GEN --> AUDIT["Citation Audit"]
+  AUDIT --> U
+```
+
+完整的资料入库边界、问答时序、Provider 降级和反馈评测闭环见 [架构说明](docs/architecture.md)。
+
 ## 功能
 
 - 上传 PDF、Markdown、文本、图片文件。
