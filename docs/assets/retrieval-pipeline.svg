@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="560" viewBox="0 0 1440 560" role="img" aria-labelledby="title desc">
+  <title id="title">Seven-stage retrieval pipeline</title>
+  <desc id="desc">BM25 and vector recall feed fusion, MMR, reranking, answer decision, and citation audit.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#f8fafc"/><stop offset="1" stop-color="#eef8f7"/></linearGradient>
+    <linearGradient id="bar" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#0f766e"/><stop offset="1" stop-color="#2563eb"/></linearGradient>
+    <filter id="shadow"><feDropShadow dy="8" stdDeviation="10" flood-color="#0f172a" flood-opacity=".12"/></filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 10 5 0 10z" fill="#0f766e"/></marker>
+    <style>text{font-family:Arial,Helvetica,sans-serif}.h{font-size:30px;font-weight:700;fill:#0f172a}.sub{font-size:16px;font-weight:400;fill:#475569}.n{font-size:17px;font-weight:800;fill:#fff}.t{font-size:17px;font-weight:700;fill:#0f172a}.c{font-size:13px;font-weight:400;fill:#64748b}.box{fill:#fff;stroke:#cbd5e1;stroke-width:1.5}.flow{fill:none;stroke:#0f766e;stroke-width:2.5;marker-end:url(#arrow)}</style>
+  </defs>
+  <rect width="1440" height="560" rx="28" fill="url(#bg)"/>
+  <text x="54" y="64" class="h">One question, seven inspectable stages</text>
+  <text x="54" y="94" class="sub">Each stage exposes counts, scores, latency, decisions, and evidence—so failures are diagnosable.</text>
+  <rect x="54" y="124" width="1332" height="8" rx="4" fill="url(#bar)"/>
+
+  <path d="M226 280 H252" class="flow"/><path d="M414 280 H440" class="flow"/><path d="M602 280 H628" class="flow"/><path d="M790 280 H816" class="flow"/><path d="M978 280 H1004" class="flow"/><path d="M1166 280 H1192" class="flow"/>
+  <g filter="url(#shadow)">
+    <rect x="54" y="190" width="172" height="180" rx="18" class="box"/><circle cx="86" cy="222" r="18" fill="#0f766e"/><text x="81" y="228" class="n">1</text><text x="78" y="270" class="t">BM25</text><text x="78" y="298" class="c">exact terms</text><text x="78" y="320" class="c">titles + chunks</text><text x="78" y="344" class="c">candidate count</text>
+    <rect x="242" y="190" width="172" height="180" rx="18" class="box"/><circle cx="274" cy="222" r="18" fill="#0d9488"/><text x="269" y="228" class="n">2</text><text x="266" y="270" class="t">Vector</text><text x="266" y="298" class="c">semantic recall</text><text x="266" y="320" class="c">embedding score</text><text x="266" y="344" class="c">provider trace</text>
+    <rect x="430" y="190" width="172" height="180" rx="18" class="box"/><circle cx="462" cy="222" r="18" fill="#0891b2"/><text x="457" y="228" class="n">3</text><text x="454" y="270" class="t">Fusion</text><text x="454" y="298" class="c">weighted scores</text><text x="454" y="320" class="c">deduplication</text><text x="454" y="344" class="c">source balance</text>
+    <rect x="618" y="190" width="172" height="180" rx="18" class="box"/><circle cx="650" cy="222" r="18" fill="#0284c7"/><text x="645" y="228" class="n">4</text><text x="642" y="270" class="t">MMR</text><text x="642" y="298" class="c">relevance</text><text x="642" y="320" class="c">diversity</text><text x="642" y="344" class="c">λ control</text>
+    <rect x="806" y="190" width="172" height="180" rx="18" class="box"/><circle cx="838" cy="222" r="18" fill="#2563eb"/><text x="833" y="228" class="n">5</text><text x="830" y="270" class="t">Rerank</text><text x="830" y="298" class="c">keyword / model</text><text x="830" y="320" class="c">final ordering</text><text x="830" y="344" class="c">top-k evidence</text>
+    <rect x="994" y="190" width="172" height="180" rx="18" class="box"/><circle cx="1026" cy="222" r="18" fill="#4f46e5"/><text x="1021" y="228" class="n">6</text><text x="1018" y="270" class="t">Decision</text><text x="1018" y="298" class="c">answer / refuse</text><text x="1018" y="320" class="c">evidence gate</text><text x="1018" y="344" class="c">reason code</text>
+    <rect x="1182" y="190" width="204" height="180" rx="18" class="box"/><circle cx="1214" cy="222" r="18" fill="#7c3aed"/><text x="1209" y="228" class="n">7</text><text x="1206" y="270" class="t">Citation audit</text><text x="1206" y="298" class="c">coverage</text><text x="1206" y="320" class="c">grounding</text><text x="1206" y="344" class="c">unsupported claims</text>
+  </g>
+  <rect x="54" y="414" width="1332" height="92" rx="18" fill="#0f172a"/>
+  <text x="82" y="448" class="t" fill="#f8fafc">What the UI answers</text>
+  <text x="82" y="478" class="c" fill="#cbd5e1">Did lexical or semantic recall contribute? · What was removed? · Why did ordering change? · Why answer or refuse? · Are the claims actually cited?</text>
+</svg>

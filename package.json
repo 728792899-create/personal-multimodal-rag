@@ -14,9 +14,10 @@
     "test:e2e": "npm --prefix frontend run test:e2e",
     "test:demo": "DOCUMENT_REGISTRY_PATH=:memory: EMBEDDING_PROVIDER=mock VECTOR_STORE=memory ANSWER_PROVIDER=template QUERY_REWRITE_PROVIDER=none OPENAI_API_KEY= ANSWER_API_KEY= QUERY_REWRITE_API_KEY= python3 -m pytest backend/tests/test_demo_smoke.py -q",
     "eval:retrieval": "EMBEDDING_PROVIDER=mock VECTOR_STORE=memory ANSWER_PROVIDER=template QUERY_REWRITE_PROVIDER=none OPENAI_API_KEY= ANSWER_API_KEY= QUERY_REWRITE_API_KEY= python3 scripts/run_retrieval_eval.py",
+    "lint:docs": "python3 scripts/check_docs.py",
     "build": "npm --prefix frontend run build",
     "preview": "npm --prefix frontend run preview",
-    "verify": "npm test && npm run build && npm run test:demo && npm run eval:retrieval && npm run test:e2e"
+    "verify": "npm run lint:docs && npm test && npm run build && npm run test:demo && npm run eval:retrieval && npm run test:e2e"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"

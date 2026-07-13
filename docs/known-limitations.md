@@ -15,7 +15,7 @@
 
 - 没有在本次本地验收中连接真实 pgvector、S3-compatible object store、Redis、OIDC 或 Sentry 项目，因为没有提供外部服务和凭据。
 - pgvector adapter 仍是单工作区表结构；多工作区前需要 schema/authorization 迁移。
-- GitHub Actions workflow 已本地等价验证，但远端运行状态要在推送后确认。
+- GitHub Actions 已在远端实际运行后端、前端/E2E、检索评测和 Docker Compose job；后续每次合并仍需以对应提交的检查结果为准。
 - 没有生产容量/故障注入数据；上线前必须补文档数量、chunk 数、并发、OCR 和 provider 延迟压测。
 
 对应人工步骤与目标架构见 [production-adapters.md](production-adapters.md)。

@@ -1,5 +1,9 @@
 # 架构说明
 
+![系统全景：输入、入库、检索、回答和质量闭环](assets/system-overview.svg)
+
+这张图用于快速理解系统边界；下面的 Mermaid 图展示更接近代码模块的依赖关系。默认离线链路与可选生产 adapter 使用同一套领域接口。
+
 ## 1. 系统分层
 
 ```mermaid
@@ -97,6 +101,8 @@ URL 导入默认拒绝回环、内网、链路本地和特殊地址。校验不�
 
 ## 3. 问答检索时序
 
+![七阶段检索管线](assets/retrieval-pipeline.svg)
+
 ```mermaid
 sequenceDiagram
   participant U as 用户
@@ -124,6 +130,8 @@ sequenceDiagram
 ```
 
 ## 4. 反馈与评测闭环
+
+![反馈到 CI 门禁](assets/evaluation-loop.svg)
 
 ```mermaid
 flowchart LR
@@ -159,6 +167,8 @@ flowchart LR
 
 ## 6. 启动恢复与容器边界
 
+![部署演进模式](assets/deployment-modes.svg)
+
 SQLite 保存文档内容与 metadata。启动时先加载 registry，再检查 vector store 已有 chunk；只为缺失文档重建索引。因此 memory store 重启后恢复检索，Chroma 等持久 store 不会重复 embedding 已存在 chunk。
 
 Compose 的 Nginx 只暴露静态前端与 `/api` 代理，FastAPI `/ready` 返回当前 provider。前后端 healthcheck 与 `depends_on: condition=service_healthy` 防止前端在后端未就绪时被标记为整体可用。
@@ -169,3 +179,11 @@ Compose 的 Nginx 只暴露静态前端与 `/api` 代理，FastAPI `/ready` 返�
 - 默认 mock embedding 可离线运行，真实演示可切换 local/OpenAI-compatible embedding。
 - 普通模式隐藏复杂参数，专家模式展示 trace 和调参入口。
 - Citation audit 先采用规则可解释实现，后续可升级为 NLI/LLM-as-judge。
+
+## 延伸阅读
+
+- [产品巡游](product-tour.md)：从用户动作理解信息架构与状态。
+- [检索与可信回答](retrieval-explained.md)：阶段、分数、拒答和诊断。
+- [API 使用指南](api-reference.md)：端点、payload 与错误语义。
+- [配置指南](configuration.md)：provider、store、门槛与安全配置。
+- [生产适配方案](production-adapters.md)：workspace、任务、pgvector 与对象存储。

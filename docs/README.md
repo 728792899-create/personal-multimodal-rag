@@ -1,0 +1,88 @@
+# 文档中心
+
+这里是 Personal Multimodal RAG 的完整说明入口。README 负责快速判断项目价值；本目录负责解释行为、实现、运行和边界。
+
+![系统全景图](assets/system-overview.svg)
+
+## 按角色阅读
+
+### 第一次体验
+
+1. [产品巡游](product-tour.md)
+2. [5 分钟启动](../README.md#5-分钟离线启动)
+3. [演示脚本](demo-script.md)
+4. [FAQ](faq.md)
+
+### 前端/产品
+
+1. [产品巡游](product-tour.md)：三栏信息架构、普通/专家模式和状态设计。
+2. [截图清单](screenshots/README.md)：真实桌面、Trace 与移动拒答证据。
+3. [架构说明](architecture.md)：页面、组件、composable 与 API 分层。
+4. [贡献指南](../CONTRIBUTING.md)：可访问性和 E2E 要求。
+
+### RAG/评测
+
+1. [检索与可信回答](retrieval-explained.md)
+2. [测试与评测](testing-and-evaluation.md)
+3. [验证基线](validation-baseline.md)
+4. [已知边界](known-limitations.md)
+
+### 后端/集成
+
+1. [API 使用指南](api-reference.md)
+2. [配置指南](configuration.md)
+3. [架构说明](architecture.md)
+4. [安全策略](../SECURITY.md)
+
+### 部署/运维
+
+1. [运维手册](operations-runbook.md)
+2. [生产适配方案](production-adapters.md)
+3. [故障排查](troubleshooting.md)
+4. [Release Checklist](release-checklist.md)
+
+### 维护者
+
+1. [贡献指南](../CONTRIBUTING.md)
+2. [路线图](roadmap.md)
+3. [项目复盘](project-retrospective.md)
+4. [变更记录](../CHANGELOG.md)
+
+## 文档地图
+
+```mermaid
+flowchart TB
+  HOME["README · 项目入口"] --> TOUR["产品巡游"]
+  HOME --> START["启动与配置"]
+  HOME --> TRUST["检索与评测"]
+  HOME --> OPS["部署与运维"]
+  TOUR --> SHOTS["真实截图"]
+  START --> API["API 指南"]
+  START --> CFG["配置指南"]
+  TRUST --> RET["检索原理"]
+  TRUST --> TEST["测试与评测"]
+  OPS --> RUN["运维手册"]
+  OPS --> PROD["生产适配"]
+  TEST --> BASE["验证基线"]
+  RUN --> TROUBLE["故障排查"]
+  PROD --> LIMITS["已知边界"]
+```
+
+## 配图规范
+
+- `assets/multimodal-rag-hero.png`：用于概念解释的 AI 生成主视觉，不作为产品验收证据。
+- `assets/*.svg`：代码原生、可审查的系统图，修改时同步更新关联文档。
+- `screenshots/*`：Browser 实际运行截图，用来证明界面与状态。
+- 所有图片必须提供具体 alt text，说明图中关系或被验证的状态。
+
+详细来源和维护方式见 [assets/README.md](assets/README.md) 与 [screenshots/README.md](screenshots/README.md)。
+
+## 文档变更验收
+
+```bash
+git diff --check
+xmllint --noout docs/assets/*.svg
+npm run build
+```
+
+同时检查：相对链接存在、图片可渲染、命令可复制、配置与 `.env.example` 一致、指标与 `eval/thresholds.json` 一致、边界没有被营销文案夸大。

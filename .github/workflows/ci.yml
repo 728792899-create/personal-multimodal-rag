@@ -17,6 +17,16 @@ env:
   QUERY_REWRITE_API_KEY: ""
 
 jobs:
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Check documentation links and SVG accessibility
+        run: python scripts/check_docs.py
+
   backend:
     runs-on: ubuntu-latest
     steps:
@@ -83,7 +93,7 @@ jobs:
 
   docker-compose:
     runs-on: ubuntu-latest
-    needs: [backend, frontend, retrieval-eval]
+    needs: [docs, backend, frontend, retrieval-eval]
     steps:
       - uses: actions/checkout@v4
       - name: Build and start offline stack

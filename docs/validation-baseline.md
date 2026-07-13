@@ -20,6 +20,7 @@
 
 | 项目 | 结果 |
 | --- | --- |
+| 文档检查 | 24 个 Markdown 相对链接/图片 alt 通过；4 个 SVG XML/可访问性通过 |
 | 后端 pytest | 54 passed |
 | 前端 Vitest | 3 files / 8 tests passed |
 | `npm run build` | 通过；JS 113.32 kB（gzip 40.42），CSS 23.27 kB（gzip 4.98） |
@@ -52,7 +53,10 @@
 
 截图位于 `docs/screenshots/`，均使用仓库示例资料与离线 provider。
 
+## 远端 CI
+
+GitHub Actions 已实际跑通后端、前端/E2E、检索评测和 Docker Compose。当前 workflow 额外增加文档 job，并让 Docker job 等待全部四类前置检查；每次发布仍以对应提交的 Actions 结果为准。
+
 ## 尚不能在本地证明的外部状态
 
-- GitHub Actions 远端 run：workflow 已本地等价验证，但需推送分支后才能产生远端 run 与 badge 状态。
 - pgvector、对象存储、外部身份网关和 Sentry 项目：没有提供外部服务或凭据，因此只实现/记录适配边界，未声称已部署。

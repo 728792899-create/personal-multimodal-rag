@@ -11,6 +11,7 @@
 
 ## 质量门
 
+- [ ] `npm run lint:docs`
 - [ ] `npm test`
 - [ ] `npm run build`
 - [ ] `npm run test:demo`
@@ -31,7 +32,7 @@
 ## 发布与回滚
 
 - [ ] 更新版本、CHANGELOG/Release notes 和已知边界。
-- [ ] GitHub Actions 四个 job 全绿，下载并抽查 eval/Playwright artifact。
+- [ ] GitHub Actions 五个 job 全绿，下载并抽查 eval/Playwright artifact。
 - [ ] 镜像使用不可变 tag/digest，记录迁移顺序。
 - [ ] 回滚版本与数据库兼容性已确认。
 - [ ] 发布后检查 `/health`、`/ready`、错误率、p95 延迟和拒答率。
