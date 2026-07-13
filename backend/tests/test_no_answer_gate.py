@@ -83,3 +83,17 @@ def test_on_topic_question_still_returns_evidence(tmp_path):
     )
 
     assert result["citations"]
+
+
+def test_mock_embedding_rejects_only_generic_lexical_overlap(tmp_path):
+    source = tmp_path / "workflow.md"
+    source.write_text("系统提供检索流程、参数配置和 API 封装。", encoding="utf-8")
+    processor = DocumentProcessor()
+    document = processor.parse_file(source)
+    retriever = HybridRetriever()
+    retriever.add_document(document, processor.split(document))
+
+    result = RagEngine(retriever).ask("视频转码 HLS 切片参数怎么配置？", query_rewrite=False)
+
+    assert result["citations"] == []
+    assert result["retrieval_trace"]["refusal_reason"] == "weak_grounding"

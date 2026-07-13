@@ -2,6 +2,15 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router
+from app.config import settings
+from app.middleware.request_guards import RequestGuardMiddleware
+from app.services.observability import configure_sentry
+
+configure_sentry(
+    dsn=settings.sentry_dsn,
+    environment=settings.sentry_environment,
+    traces_sample_rate=settings.sentry_traces_sample_rate,
+)
 
 app = FastAPI(
     title="Personal Multimodal RAG",
@@ -16,6 +25,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(
+    RequestGuardMiddleware,
+    auth_token=settings.api_auth_token,
+    rate_limit_requests=settings.rate_limit_requests,
+    rate_limit_window_seconds=settings.rate_limit_window_seconds,
+)
 
 app.include_router(router, prefix="/api")
 
@@ -24,3 +39,14 @@ app.include_router(router, prefix="/api")
 def health():
     return {"status": "ok"}
 
+
+@app.get("/ready")
+def ready():
+    return {
+        "status": "ready",
+        "providers": {
+            "embedding": settings.embedding_provider,
+            "vector_store": settings.vector_store,
+            "answer": settings.answer_provider,
+        },
+    }

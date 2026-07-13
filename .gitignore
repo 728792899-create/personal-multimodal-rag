@@ -1,4 +1,8 @@
 node_modules/
+.venv/
+eval/reports/
+frontend/playwright-report/
+frontend/test-results/
 frontend/node_modules/
 frontend/dist/
 backend/__pycache__/
@@ -20,7 +24,6 @@ backend/uploads/
 backend/registry*/
 backend/chroma*/
 demo-recordings/
-eval/reports/
 *.sqlite
 *.sqlite3
 *.db

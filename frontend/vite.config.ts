@@ -3,6 +3,12 @@ import vue from '@vitejs/plugin-vue'
 
 export default defineConfig({
   plugins: [vue()],
+  test: {
+    include: ['src/**/*.test.ts'],
+    environment: 'happy-dom',
+    setupFiles: ['./src/test/setup.ts'],
+    clearMocks: true,
+  },
   server: {
     port: 5173,
     proxy: {

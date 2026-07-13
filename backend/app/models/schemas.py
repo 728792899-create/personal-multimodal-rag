@@ -47,20 +47,20 @@ class RetrievalOptions(BaseModel):
 
 
 class AskRequest(RetrievalOptions):
-    question: str = Field(..., min_length=1)
+    question: str = Field(..., min_length=1, max_length=4000)
 
 
 class SearchRequest(RetrievalOptions):
-    query: str = Field(..., min_length=1)
+    query: str = Field(..., min_length=1, max_length=4000)
 
 
 class SearchCompareRequest(RetrievalOptions):
-    query: str = Field(..., min_length=1)
+    query: str = Field(..., min_length=1, max_length=4000)
 
 
 class UrlImportRequest(BaseModel):
-    url: str = Field(..., min_length=8)
-    title: str = ""
+    url: str = Field(..., min_length=8, max_length=2048)
+    title: str = Field("", max_length=200)
 
 
 class AskResponse(BaseModel):

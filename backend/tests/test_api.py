@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from app.api import routes
+from app.api.routers import documents
 from app.main import app
 from app.services.url_importer import ImportedUrl
 
@@ -24,7 +24,7 @@ def test_create_query_rewriter_returns_rewriter_instance(monkeypatch):
 
 
 def test_ingest_ask_and_delete(monkeypatch, tmp_path):
-    monkeypatch.setattr(routes, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(documents, "DATA_DIR", tmp_path)
     client = TestClient(app)
 
     health = client.get("/health")
@@ -40,7 +40,7 @@ def test_ingest_ask_and_delete(monkeypatch, tmp_path):
     assert upload.json()["document"]["quality"]["score"] > 0
     assert upload.json()["document"]["summary"]["suggested_questions"]
 
-    def fake_fetch_url(url: str, title: str = ""):
+    def fake_fetch_url(url: str, title: str = "", **kwargs):
         return ImportedUrl(
             url=url,
             title=title or "RAG URL Notes",
@@ -49,7 +49,7 @@ def test_ingest_ask_and_delete(monkeypatch, tmp_path):
             metadata={"parser": "url_html", "source_url": url, "content_type": "text/html", "host": "example.com"},
         )
 
-    monkeypatch.setattr(routes, "fetch_url", fake_fetch_url)
+    monkeypatch.setattr(documents, "fetch_url", fake_fetch_url)
     imported = client.post("/api/imports/url", json={"url": "https://example.com/rag", "title": "RAG URL Notes"})
     assert imported.status_code == 200
     imported_document_id = imported.json()["document"]["id"]

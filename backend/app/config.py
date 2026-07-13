@@ -58,6 +58,15 @@ class Settings:
 
     document_registry_path: str = os.getenv("DOCUMENT_REGISTRY_PATH", "./data/registry.sqlite3")
     max_upload_bytes: int = int(os.getenv("MAX_UPLOAD_BYTES", str(20 * 1024 * 1024)))
+    upload_processing_timeout_seconds: float = float(os.getenv("UPLOAD_PROCESSING_TIMEOUT_SECONDS", "90"))
+    url_import_timeout_seconds: float = float(os.getenv("URL_IMPORT_TIMEOUT_SECONDS", "12"))
+    url_import_max_bytes: int = int(os.getenv("URL_IMPORT_MAX_BYTES", "2000000"))
+    api_auth_token: str = os.getenv("API_AUTH_TOKEN", "")
+    rate_limit_requests: int = int(os.getenv("RATE_LIMIT_REQUESTS", "120"))
+    rate_limit_window_seconds: int = int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60"))
+    sentry_dsn: str = os.getenv("SENTRY_DSN", "")
+    sentry_environment: str = os.getenv("SENTRY_ENVIRONMENT", "local")
+    sentry_traces_sample_rate: float = float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.05"))
     allow_private_urls: bool = os.getenv("RAG_ALLOW_PRIVATE_URLS", "0").strip().lower() in {
         "1",
         "true",

@@ -7,6 +7,7 @@ from app.services.embeddings import BaseEmbeddingProvider, MockEmbeddingProvider
 from app.services.query_intelligence import analyze_query
 from app.services.query_rewriter import BaseQueryRewriter, NoopQueryRewriter
 from app.services.reranker import BaseReranker, KeywordReranker
+from app.services.safe_logging import redact_sensitive_text
 from app.services.text_utils import tokenize
 from app.services.vectorstore import BaseVectorStore, MemoryVectorStore
 
@@ -105,7 +106,7 @@ class HybridRetriever:
             fallbacks.append(
                 {
                     "stage": "query_rewrite",
-                    "reason": str(exc),
+                    "reason": redact_sensitive_text(exc),
                     "action": "use_original_query",
                 }
             )
@@ -139,7 +140,7 @@ class HybridRetriever:
                 fallbacks.append(
                     {
                         "stage": "vector_search",
-                        "reason": str(exc),
+                        "reason": redact_sensitive_text(exc),
                         "action": "fallback_to_keyword_bm25",
                     }
                 )
@@ -186,7 +187,7 @@ class HybridRetriever:
                 fallbacks.append(
                     {
                         "stage": "rerank",
-                        "reason": str(exc),
+                        "reason": redact_sensitive_text(exc),
                         "action": "use_base_score_order",
                     }
                 )
@@ -198,6 +199,8 @@ class HybridRetriever:
                 for item in ranked
                 if float(item.get("rerank_score", item["score"])) >= float(min_score)
             ]
+        bm25_candidates = sum(1 for item in raw_scores if float(item["bm25_score"]) > 0)
+        vector_candidates = sum(1 for item in raw_scores if float(item["vector_score"]) > 0)
         trace = {
             "query_tokens": tokenize(query),
             "rewritten_queries": rewritten_queries,
@@ -206,6 +209,8 @@ class HybridRetriever:
             "top_k": top_k,
             "candidate_k": active_candidate_k,
             "raw_candidates": len(raw_scores),
+            "bm25_candidates": bm25_candidates,
+            "vector_candidates": vector_candidates,
             "deduped_candidates": len(deduped),
             "mmr_selected": len(mmr_candidates),
             "returned": len(ranked),
@@ -227,6 +232,21 @@ class HybridRetriever:
             "min_score": min_score,
             "fallbacks": fallbacks,
             "query_analysis": query_analysis,
+            "pipeline": {
+                "bm25": {
+                    "status": "success" if active_bm25_weight > 0 else "skipped",
+                    "candidates": bm25_candidates,
+                    "weight": active_bm25_weight,
+                },
+                "vector": {
+                    "status": vector_status,
+                    "candidates": vector_candidates,
+                    "weight": active_vector_weight,
+                },
+                "fusion": {"candidates": len(raw_scores), "deduped": len(deduped)},
+                "mmr": {"selected": len(mmr_candidates), "lambda": active_mmr_lambda},
+                "rerank": {"status": rerank_status, "returned": len(ranked), "provider": self.reranker.name if rerank_enabled else "off"},
+            },
         }
         return ranked, trace
 

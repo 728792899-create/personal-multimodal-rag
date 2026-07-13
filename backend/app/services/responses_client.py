@@ -11,31 +11,40 @@ class ResponsesClient:
         self,
         api_key: str,
         model: str,
-        base_url: str,
+        base_url: str = "",
         timeout_seconds: float = 45,
+        http_client: httpx.Client | None = None,
     ):
         if not api_key:
             raise ValueError("Responses API key is required")
-        if not base_url:
-            raise ValueError("Responses base_url is required")
         self.api_key = api_key
         self.model = model
-        self.base_url = base_url.rstrip("/")
+        self.base_url = (base_url or "https://api.openai.com/v1").rstrip("/")
         self.timeout_seconds = timeout_seconds
+        # Build the default client lazily so provider selection remains offline
+        # and does not fail merely because a host proxy runtime is incomplete.
+        self.http_client = http_client
 
     def create_text(self, prompt: str) -> str:
         payload = {"model": self.model, "input": prompt}
-        response = httpx.post(
-            f"{self.base_url}/responses",
-            headers={
+        request = {
+            "url": f"{self.base_url}/responses",
+            "headers": {
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
             },
-            json=payload,
-            timeout=self.timeout_seconds,
-        )
+            "json": payload,
+            "timeout": self.timeout_seconds,
+        }
+        if self.http_client is not None:
+            response = self.http_client.post(**request)
+        else:
+            response = httpx.post(**request)
         response.raise_for_status()
-        return self._extract_text(response.json()).strip()
+        text = self._extract_text(response.json()).strip()
+        if not text:
+            raise ValueError("Responses API returned no text output")
+        return text
 
     def create_json(self, prompt: str) -> Any:
         text = self.create_text(prompt)
@@ -54,7 +63,7 @@ class ResponsesClient:
         fragments: list[str] = []
         for output in payload.get("output", []) or []:
             for content in output.get("content", []) or []:
-                if isinstance(content.get("text"), str):
+                if content.get("type") == "output_text" and isinstance(content.get("text"), str):
                     fragments.append(content["text"])
         if fragments:
             return "\n".join(fragments)

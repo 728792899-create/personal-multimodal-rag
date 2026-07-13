@@ -1,0 +1,67 @@
+from __future__ import annotations
+
+from fastapi import APIRouter, HTTPException
+
+from app.api.common import retrieval_options
+from app.core.store import rag_engine, registry, retriever
+from app.models.schemas import AskRequest, SearchCompareRequest, SearchRequest
+from app.services.knowledge_tools import analyze_knowledge_gaps, build_citation_context
+
+
+router = APIRouter(tags=["retrieval"])
+
+
+@router.get("/search")
+def search(q: str, top_k: int = 5, search_mode: str = "hybrid"):
+    return rag_engine.search(q, top_k=top_k, search_mode=search_mode)
+
+
+@router.get("/chunks/{chunk_id:path}/context")
+def chunk_context(chunk_id: str, window: int = 1):
+    result = build_citation_context(list(retriever.vector_store.chunks.values()), chunk_id, window=max(0, min(window, 3)))
+    if not result.get("found"):
+        raise HTTPException(status_code=404, detail="Chunk not found")
+    return result
+
+
+@router.post("/search")
+def advanced_search(payload: SearchRequest):
+    return rag_engine.search(payload.query, **retrieval_options(payload))
+
+
+@router.post("/search/compare")
+def compare_search(payload: SearchCompareRequest):
+    return rag_engine.compare(payload.query, **retrieval_options(payload))
+
+
+@router.post("/ask")
+def ask(payload: AskRequest):
+    response = rag_engine.ask(payload.question, **retrieval_options(payload))
+    response["gap_report"] = analyze_knowledge_gaps(
+        payload.question,
+        response.get("answer", ""),
+        response.get("citations", []),
+        registry.load_documents(),
+        registry.list_feedback(limit=100),
+    )
+    history = registry.save_history(payload.question, response)
+    response["history_id"] = history["id"]
+    response["created_at"] = history["created_at"]
+    registry.log_operation(
+        "ask",
+        f"完成问答：{payload.question[:40]}",
+        {"history_id": history["id"], "confidence": response.get("confidence"), "trust": response.get("trust", {}).get("label"), "citation_count": len(response.get("citations", []))},
+    )
+    return response
+
+
+@router.get("/history")
+def list_history(limit: int = 30):
+    return {"history": registry.list_history(limit=limit)}
+
+
+@router.delete("/history")
+def clear_history():
+    registry.clear_history()
+    registry.log_operation("history_cleared", "清空问答历史", {}, level="warning")
+    return {"deleted": True}

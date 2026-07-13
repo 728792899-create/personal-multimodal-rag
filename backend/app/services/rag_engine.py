@@ -4,7 +4,15 @@ import time
 
 from app.services.answer_generator import BaseAnswerGenerator, TemplateAnswerGenerator
 from app.services.citation_audit import audit_answer
+from app.services.embeddings import MockEmbeddingProvider
 from app.services.retriever import HybridRetriever
+from app.services.safe_logging import redact_sensitive_text
+
+
+LOW_INFORMATION_MATCHES = {
+    "api", "app", "store", "系统", "流程", "方式", "功能", "参数", "配置", "应该", "需要",
+    "问题", "资料", "文档", "什么", "怎么", "如何", "多少", "是否", "提供", "哪些", "当前",
+}
 
 
 class RagEngine:
@@ -36,6 +44,12 @@ class RagEngine:
         refuse, refuse_reason = self._should_refuse(ranked, confidence, threshold)
         trace["refuse_reason"] = refuse_reason
         trace["refusal_reason"] = refuse_reason or None
+        trace.setdefault("pipeline", {})["decision"] = {
+            "status": "refused" if refuse else "answered",
+            "reason": refuse_reason or "evidence_accepted",
+            "threshold": threshold,
+            "confidence": round(float(confidence), 4),
+        }
         if refuse:
             if refuse_reason == "weak_grounding":
                 diagnostics.append(
@@ -54,6 +68,7 @@ class RagEngine:
                 threshold,
                 overlap_threshold=self.citation_overlap_threshold,
             )
+            trace["pipeline"]["citation_audit"] = {"coverage": 0, "grounding": 0, "status": "skipped"}
             trace["performance"]["total_ms"] = round((time.perf_counter() - started) * 1000, 2)
             return {
                 "answer": "答案：\n根据当前知识库资料，无法确定。\n\n依据：\n没有检索到足够相关的证据片段。\n\n不确定性：\n需要导入更多相关资料后再回答。",
@@ -81,7 +96,7 @@ class RagEngine:
                 **generated.get("generation_trace", {}),
                 "answer_provider": "template",
                 "fallback_from": self.answer_generator.name,
-                "fallback_reason": str(exc),
+                "fallback_reason": redact_sensitive_text(exc),
                 "grounded": True,
             }
         generation_ended = time.perf_counter()
@@ -94,6 +109,11 @@ class RagEngine:
             threshold,
             overlap_threshold=self.citation_overlap_threshold,
         )
+        trace["pipeline"]["citation_audit"] = {
+            "coverage": audit.get("citation_audit", {}).get("coverage", 0),
+            "grounding": audit.get("citation_audit", {}).get("grounding", 0),
+            "status": "checked",
+        }
         return {
             "answer": generated["answer"],
             "citations": citations,
@@ -213,7 +233,15 @@ class RagEngine:
             return True, "no_evidence"
         if confidence < threshold:
             return True, "below_threshold"
-        if not ranked[0].get("matched_terms") and confidence < self.grounding_min_confidence:
+        matched_terms = {str(term).lower() for term in ranked[0].get("matched_terms", [])}
+        substantive_terms = matched_terms - LOW_INFORMATION_MATCHES
+        mock_embeddings = isinstance(
+            getattr(self.retriever, "embedding_provider", None),
+            MockEmbeddingProvider,
+        )
+        if mock_embeddings and not substantive_terms:
+            return True, "weak_grounding"
+        if not matched_terms and confidence < self.grounding_min_confidence:
             return True, "weak_grounding"
         return False, ""
 

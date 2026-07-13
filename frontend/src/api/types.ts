@@ -1,0 +1,396 @@
+export interface DocumentMeta {
+  id: string
+  filename: string
+  source_type: string
+  chunk_count: number
+  char_count: number
+  metadata: Record<string, unknown>
+  quality?: DocumentQuality
+  summary?: DocumentSummary
+  lifecycle?: LifecycleEvent[]
+}
+
+export interface DocumentQuality {
+  score: number
+  level: 'excellent' | 'usable' | 'needs_review' | 'poor'
+  char_count: number
+  page_count: number
+  chunk_count: number
+  avg_chunk_length: number
+  min_chunk_length: number
+  max_chunk_length: number
+  weird_char_ratio: number
+  duplicate_chunk_ratio: number
+  signals: Array<{ level: 'info' | 'warning' | 'error'; message: string; delta: number }>
+  suggestions: string[]
+  updated_at: string
+}
+
+export interface DocumentSummary {
+  one_sentence: string
+  key_points: string[]
+  key_concepts: string[]
+  suggested_questions: string[]
+  updated_at: string
+}
+
+export interface LifecycleEvent {
+  stage: string
+  status: string
+  started_at: string
+  ended_at: string
+  duration_ms: number
+  error: string
+  retry_count: number
+}
+
+export interface ChunkResult {
+  id: string
+  document_id: string
+  filename: string
+  index: number
+  text: string
+  page_number: number | null
+  heading_path: string[]
+  metadata: Record<string, unknown>
+  score: number
+  bm25_score: number
+  vector_score: number
+  rerank_score: number
+  cross_encoder_score: number | null
+  matched_terms: string[]
+  snippet: string
+  score_breakdown: Record<string, number>
+  parent_context?: {
+    strategy: string
+    text: string
+    chunk_ids: string[]
+    current_chunk_id?: string
+  }
+}
+
+export interface DiagnosticItem {
+  level: 'info' | 'warning' | 'error'
+  title: string
+  message: string
+  action: string
+  actions?: DiagnosticAction[]
+}
+
+export interface DiagnosticAction {
+  id: string
+  label: string
+  type: 'retry_search' | 'index' | 'ui'
+  payload: Record<string, unknown>
+}
+
+export interface DocumentPage {
+  page_number: number | null
+  text: string
+  metadata: Record<string, unknown>
+}
+
+export interface DocumentDetail {
+  document: DocumentMeta & {
+    title: string | null
+    created_at: string
+    page_count: number
+    pages: DocumentPage[]
+  }
+  chunks: Array<Omit<ChunkResult, 'score' | 'bm25_score' | 'vector_score' | 'rerank_score'>>
+}
+
+export interface QueryAnalysis {
+  intent: string
+  label: string
+  matched_terms: string[]
+  query_terms: string[]
+  recommended: {
+    search_profile: SearchProfile
+    search_mode: SearchMode
+    candidate_k: number
+    reason: string
+  }
+}
+
+export interface PipelineTrace {
+  bm25?: { status: string; candidates: number; weight: number }
+  vector?: { status: string; candidates: number; weight: number }
+  fusion?: { candidates: number; deduped: number }
+  mmr?: { selected: number; lambda: number }
+  rerank?: { status: string; returned: number; provider: string }
+  decision?: { status: 'refused' | 'answered'; reason: string; threshold: number; confidence: number }
+  citation_audit?: { coverage: number; grounding: number; status: string }
+}
+
+export interface RetrievalTrace {
+  query_tokens: string[]
+  rewritten_queries: string[]
+  total_chunks: number
+  top_k: number
+  candidate_k: number
+  scoring: string
+  bm25_weight: number
+  vector_weight: number
+  search_mode: SearchMode
+  search_profile: SearchProfile
+  available_chunks: number
+  raw_candidates: number
+  bm25_candidates?: number
+  vector_candidates?: number
+  deduped_candidates: number
+  mmr_selected: number
+  returned: number
+  document_ids: string[]
+  embedding_provider: string
+  embedding_model: string
+  vector_store: string
+  query_rewriter: string
+  mmr_lambda: number
+  reranker: string
+  no_answer_threshold: number
+  refuse_reason?: 'no_evidence' | 'below_threshold' | 'weak_grounding' | ''
+  refusal_reason?: 'no_evidence' | 'below_threshold' | 'weak_grounding' | null
+  min_score: number | null
+  rewrite_status?: string
+  vector_status?: string
+  rerank_status?: string
+  fallbacks?: Array<Record<string, string>>
+  query_analysis?: QueryAnalysis
+  performance?: { retrieval_ms?: number; generation_ms?: number; total_ms?: number }
+  pipeline?: PipelineTrace
+}
+
+export interface AskResponse {
+  history_id?: string
+  created_at?: string
+  answer: string
+  citations: ChunkResult[]
+  retrieval_trace: RetrievalTrace
+  generation_trace: {
+    answer_provider?: string
+    answer_model?: string
+    grounded?: boolean
+    skipped?: boolean
+    reason?: string
+    citation_count?: number
+  }
+  confidence: number | null
+  diagnostics?: DiagnosticItem[]
+  trust?: TrustReport
+  citation_audit?: CitationAudit
+  gap_report?: GapReport
+}
+
+export interface GapReport {
+  query_intent: QueryAnalysis
+  missing_topics: Array<{
+    topic: string
+    matched_query_terms: string[]
+    reason: string
+    suggestion: string
+  }>
+  failure_types: Record<string, number>
+  needs_action: boolean
+  suggestions: string[]
+  created_at: string
+}
+
+export interface TrustReport {
+  level: 'strong' | 'medium' | 'weak' | 'unknown' | string
+  label: string
+  reason: string
+  evidence_count: number
+  source_count: number
+  top_score: number
+  confidence: number
+  coverage: number
+  recommendations: string[]
+}
+
+export interface CitationAudit {
+  coverage: number
+  sentence_count: number
+  supported_sentence_count: number
+  unsupported_sentence_count: number
+  unsupported_claims: string[]
+  grounding?: number
+  grounded_sentence_count?: number
+  grounding_overlap_threshold?: number
+  weakly_grounded_claims?: Array<{
+    sentence: string
+    claim: string
+    overlap: number
+    citation_indexes: number[]
+    reason: string
+  }>
+  checked: boolean
+}
+
+export type SearchMode = 'hybrid' | 'keyword' | 'semantic'
+export type SearchProfile = 'balanced' | 'precision' | 'recall'
+export type WorkMode = 'answer' | 'search'
+export type AppMode = 'user' | 'expert'
+
+export interface RetrievalOptions {
+  top_k?: number
+  candidate_k?: number
+  search_mode?: SearchMode
+  search_profile?: SearchProfile
+  document_ids?: string[]
+  bm25_weight?: number
+  vector_weight?: number
+  mmr_lambda?: number
+  min_score?: number
+  query_rewrite?: boolean
+  rerank_enabled?: boolean
+}
+
+export interface SearchResponse {
+  results: ChunkResult[]
+  trace: RetrievalTrace
+  diagnostics?: DiagnosticItem[]
+}
+
+export interface CompareProfile {
+  id: string
+  label: string
+  results: ChunkResult[]
+  trace: RetrievalTrace
+  diagnostics: DiagnosticItem[]
+  summary: { returned: number; top_score: number; top_source: string; matched_terms: string[] }
+}
+
+export interface SearchCompareResponse {
+  query: string
+  profiles: CompareProfile[]
+  best_profile: string | null
+}
+
+export interface HistoryItem extends AskResponse {
+  id: string
+  question: string
+  created_at: string
+}
+
+export interface KnowledgeOverview {
+  document_count: number
+  chunk_count: number
+  char_count: number
+  avg_quality_score: number
+  quality_distribution: { excellent: number; usable: number; needs_work: number }
+  themes: string[]
+  recent_questions: string[]
+  low_quality_documents: Array<{ id: string; filename: string; score: number }>
+  suggestions: string[]
+  updated_at: string
+}
+
+export interface FeedbackStats {
+  total: number
+  positive: number
+  negative: number
+  failure_types: Record<string, number>
+  recent: Array<Record<string, unknown>>
+}
+
+export interface FeedbackPayload {
+  history_id?: string
+  question: string
+  answer?: string
+  rating: 'up' | 'down'
+  feedback_text?: string
+  failure_type?: 'no_evidence' | 'low_confidence' | 'wrong_citation' | 'unsupported_claim' | 'bad_answer' | 'retrieval_miss' | 'other'
+  expected_answer?: string
+  citations?: ChunkResult[]
+}
+
+export interface FeedbackResponse {
+  feedback: Record<string, unknown>
+  eval_case: Record<string, unknown> | null
+  stats: FeedbackStats
+}
+
+export interface OperationLog {
+  id: string
+  event_type: string
+  level: 'info' | 'warning' | 'error' | string
+  message: string
+  payload: Record<string, unknown>
+  created_at: string
+}
+
+export interface ChunkContext {
+  found: boolean
+  chunk_id: string
+  document_id: string
+  filename: string
+  page_number: number | null
+  heading_path: string[]
+  context: Array<{
+    id: string
+    index: number
+    text: string
+    page_number: number | null
+    heading_path: string[]
+    is_current: boolean
+  }>
+}
+
+export type RewriteStyle = 'short' | 'detailed' | 'briefing' | 'highlights' | 'study' | 'faq'
+
+export interface RewriteResponse {
+  style: RewriteStyle
+  label: string
+  instruction: string
+  rewritten: string
+  created_at: string
+}
+
+export interface KnowledgeCard {
+  id: string
+  title: string
+  question: string
+  answer: string
+  citations: ChunkResult[]
+  tags: string[]
+  source_documents: string[]
+  created_at: string
+}
+
+export interface EvalDraft {
+  id?: string
+  question: string
+  expected_answer: string
+  expected_keywords: string[]
+  bad_answer: string
+  failure_type: string
+  user_feedback: string
+  citations: ChunkResult[]
+  status: string
+}
+
+export interface EvaluationResult {
+  question: string
+  hit: boolean
+  matched_keywords: string[]
+  top_sources: string[]
+}
+
+export interface SystemMetrics {
+  knowledge: { document_count: number; chunk_count: number; avg_quality_score: number; low_quality_count: number }
+  answering: { history_count: number; avg_confidence: number; fallback_count: number; no_answer_count: number }
+  feedback: FeedbackStats
+  operations: {
+    total: number
+    by_type: Record<string, number>
+    by_level: Record<string, number>
+    recent: OperationLog[]
+  }
+  recommendations: string[]
+}
+
+export interface RequestOptions {
+  signal?: AbortSignal
+  timeoutMs?: number
+}

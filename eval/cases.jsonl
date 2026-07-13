@@ -1,30 +1,30 @@
-{"question":"如何优化 RAG 的召回质量？","expected_keywords":["BM25","向量检索","Rerank"],"expected_source":"rag-notes.md"}
-{"question":"RAG 评测指标有哪些？","expected_keywords":["MRR","引用准确率"],"expected_source":"rag-notes.md"}
-{"question":"RAG 系统通常包含哪些环节？","expected_keywords":["文档解析","文本切分","索引构建"],"expected_source":"rag-notes.md"}
-{"question":"离线索引阶段需要做什么？","expected_keywords":["清洗","切分","chunk"],"expected_source":"rag-notes.md"}
-{"question":"为什么切分时要控制 chunk 长度？","expected_keywords":["语义被截断","chunk"],"expected_source":"rag-notes.md"}
-{"question":"overlap 在 RAG 切分中有什么作用？","expected_keywords":["overlap","语义被截断"],"expected_source":"rag-notes.md"}
-{"question":"常见的检索方式有哪些？","expected_keywords":["BM25","向量检索","混合检索"],"expected_source":"rag-notes.md"}
-{"question":"BM25 更适合什么场景？","expected_keywords":["关键词精确匹配"],"expected_source":"rag-notes.md"}
-{"question":"向量检索更适合什么场景？","expected_keywords":["语义相近"],"expected_source":"rag-notes.md"}
-{"question":"混合检索为什么有价值？","expected_keywords":["BM25","向量检索"],"expected_source":"rag-notes.md"}
-{"question":"在线检索阶段可以先做什么？","expected_keywords":["查询改写","多路召回"],"expected_source":"rag-notes.md"}
-{"question":"多路召回解决什么问题？","expected_keywords":["多路召回","查询改写"],"expected_source":"rag-notes.md"}
-{"question":"Rerank 的作用是什么？","expected_keywords":["Rerank","上下文相关性"],"expected_source":"rag-notes.md"}
-{"question":"RAGAS 可以用于什么？","expected_keywords":["RAGAS","自动化评测"],"expected_source":"rag-notes.md"}
-{"question":"轻量评测可以怎么做？","expected_keywords":["关键词命中","人工样例"],"expected_source":"rag-notes.md"}
-{"question":"RAG 项目容易出现哪些工程风险？","expected_keywords":["上下文缺失","噪声过多","幻觉"],"expected_source":"rag-notes.md"}
-{"question":"切分过碎会带来什么问题？","expected_keywords":["上下文缺失"],"expected_source":"rag-notes.md"}
-{"question":"切分过长会带来什么问题？","expected_keywords":["噪声过多"],"expected_source":"rag-notes.md"}
-{"question":"向量检索有什么风险？","expected_keywords":["误召回"],"expected_source":"rag-notes.md"}
-{"question":"为什么要展示引用来源？","expected_keywords":["引用来源","引用来源不准确"],"expected_source":"rag-notes.md"}
-{"question":"如何降低 LLM 幻觉风险？","expected_keywords":["LLM 幻觉","引用来源"],"expected_source":"rag-notes.md"}
-{"question":"记录检索链路有什么用？","expected_keywords":["记录检索链路"],"expected_source":"rag-notes.md"}
-{"question":"缓存高频查询能优化什么？","expected_keywords":["缓存高频查询","响应速度"],"expected_source":"rag-notes.md"}
-{"question":"答案生成前要经过哪些上游步骤？","expected_keywords":["检索召回","重排序","上下文拼接"],"expected_source":"rag-notes.md"}
-{"question":"引用核查在 RAG 中属于哪个环节？","expected_keywords":["引用核查"],"expected_source":"rag-notes.md"}
-{"question":"这份资料有没有提到 Kubernetes 部署？","expected_keywords":[],"expected_source":""}
-{"question":"资料中是否讨论了 Redis 集群配置？","expected_keywords":[],"expected_source":""}
-{"question":"资料有没有说明用户权限 RBAC 的表设计？","expected_keywords":[],"expected_source":""}
-{"question":"文档是否提到 iOS 原生开发？","expected_keywords":[],"expected_source":""}
-{"question":"这份资料有没有介绍支付系统对账？","expected_keywords":[],"expected_source":""}
+{"id":"overview-no-key","category":"local-demo","question":"默认演示模式是否需要真实 API Key？","should_answer":true,"expected_sources":["01-system-overview.md"],"expected_keywords":["不依赖真实 API Key","模板回答"]}
+{"id":"overview-core-flow","category":"architecture","question":"这个系统从上传到回答的核心流程是什么？","should_answer":true,"expected_sources":["01-system-overview.md"],"expected_keywords":["上传 Markdown","关键词检索和向量检索","生成答案"]}
+{"id":"overview-traceability","category":"trust","question":"为什么回答必须能追溯到原始资料？","should_answer":true,"expected_sources":["01-system-overview.md"],"expected_keywords":["追溯到原始资料"]}
+{"id":"overview-negative-feedback","category":"evaluation","question":"负反馈如何进入后续质量改进？","should_answer":true,"expected_sources":["01-system-overview.md","05-evaluation-feedback.md"],"expected_keywords":["评测样本","eval draft"]}
+{"id":"technical-bm25","category":"retrieval","question":"BM25 更适合检索什么内容？","should_answer":true,"expected_sources":["02-rag-workbench-technical.md"],"expected_keywords":["专有名词","配置项","错误码"]}
+{"id":"technical-hash","category":"retrieval","question":"Hash embedding 在项目里承担什么角色？","should_answer":true,"expected_sources":["02-rag-workbench-technical.md"],"expected_keywords":["本地演示","不代表生产向量质量"]}
+{"id":"technical-mmr","category":"retrieval","question":"MMR 在检索链路里有什么作用？","should_answer":true,"expected_sources":["02-rag-workbench-technical.md"],"expected_keywords":["减少重复片段","上下文覆盖度"]}
+{"id":"technical-refusal","category":"trust","question":"证据不足时系统应该如何处理？","should_answer":true,"expected_sources":["02-rag-workbench-technical.md"],"expected_keywords":["拒答","资料缺口"]}
+{"id":"technical-observability","category":"observability","question":"检索 Trace 可以帮助定位哪些阶段的问题？","should_answer":true,"expected_sources":["02-rag-workbench-technical.md"],"expected_keywords":["query、召回、排序还是生成","fallbacks"]}
+{"id":"workflow-stages","category":"aigc","question":"AIGC 应用通常由哪些工程步骤组成？","should_answer":true,"expected_sources":["03-aigc-workflow-notes.md"],"expected_keywords":["输入理解","提示词编排","失败重试","人工编辑"]}
+{"id":"workflow-ui-states","category":"frontend","question":"前端应怎样呈现长任务和失败？","should_answer":true,"expected_sources":["03-aigc-workflow-notes.md"],"expected_keywords":["任务状态","错误原因","可重试入口"]}
+{"id":"workflow-provider","category":"backend","question":"后端为什么要统一封装不同 provider？","should_answer":true,"expected_sources":["03-aigc-workflow-notes.md"],"expected_keywords":["统一封装"]}
+{"id":"workflow-offline-demo","category":"local-demo","question":"没有真实 Key 时主流程还能演示吗？","should_answer":true,"expected_sources":["03-aigc-workflow-notes.md","01-system-overview.md"],"expected_keywords":["无真实 Key","不依赖真实 API Key"]}
+{"id":"workflow-risks","category":"aigc","question":"AIGC 工程常见的可用性风险有哪些？","should_answer":true,"expected_sources":["03-aigc-workflow-notes.md"],"expected_keywords":["第三方模型失败","生成超时","输出格式不稳定","长任务进度不可见"]}
+{"id":"deployment-kubernetes-gap","category":"known-gap","question":"现有资料是否提供 Kubernetes YAML？","should_answer":true,"expected_sources":["04-deployment-gap-notes.md"],"expected_keywords":["没有提供 Kubernetes","Kubernetes YAML"]}
+{"id":"deployment-local-covered","category":"deployment","question":"当前已经覆盖哪些本地部署能力？","should_answer":true,"expected_sources":["04-deployment-gap-notes.md"],"expected_keywords":["本地 FastAPI 服务启动","Vue 前端构建"]}
+{"id":"deployment-vector-options","category":"deployment","question":"资料提到哪些可选向量存储？","should_answer":true,"expected_sources":["04-deployment-gap-notes.md","02-rag-workbench-technical.md"],"expected_keywords":["Chroma 和 pgvector"]}
+{"id":"deployment-multitenancy-gap","category":"known-gap","question":"生产多租户权限隔离是否已经覆盖？","should_answer":true,"expected_sources":["04-deployment-gap-notes.md"],"expected_keywords":["多租户权限隔离","未覆盖"]}
+{"id":"eval-metrics","category":"evaluation","question":"固定评测集关注哪些关键指标？","should_answer":true,"expected_sources":["05-evaluation-feedback.md"],"expected_keywords":["Recall@K","MRR","引用准确率","拒答行为"]}
+{"id":"eval-feedback-types","category":"evaluation","question":"系统支持哪些失败反馈类型？","should_answer":true,"expected_sources":["05-evaluation-feedback.md"],"expected_keywords":["no_evidence","retrieval_miss","wrong_citation"]}
+{"id":"eval-retrieval-miss","category":"evaluation","question":"retrieval_miss 表示什么？","should_answer":true,"expected_sources":["05-evaluation-feedback.md"],"expected_keywords":["资料里有答案但没有召回"]}
+{"id":"eval-wrong-citation","category":"evaluation","question":"wrong_citation 表示什么问题？","should_answer":true,"expected_sources":["05-evaluation-feedback.md"],"expected_keywords":["引用片段无法支撑答案"]}
+{"id":"eval-regression","category":"evaluation","question":"为什么每次调整后要用同一批样本回归？","should_answer":true,"expected_sources":["05-evaluation-feedback.md"],"expected_keywords":["避免只对某一个问题做局部优化"]}
+{"id":"eval-profiles","category":"evaluation","question":"评测时应该对比哪些检索 profile？","should_answer":true,"expected_sources":["05-evaluation-feedback.md"],"expected_keywords":["keyword、semantic、hybrid、hybrid + rerank"]}
+{"id":"refuse-payment","category":"refusal","question":"支付系统的每日对账差异如何自动冲正？","should_answer":false,"expected_sources":[],"expected_keywords":[]}
+{"id":"refuse-ios","category":"refusal","question":"iOS App Store 的证书轮换流程是什么？","should_answer":false,"expected_sources":[],"expected_keywords":[]}
+{"id":"refuse-weather","category":"refusal","question":"天气预报 API 的供应商 SLA 是多少？","should_answer":false,"expected_sources":[],"expected_keywords":[]}
+{"id":"refuse-medical","category":"refusal","question":"如何根据 MRI 影像诊断脑部肿瘤？","should_answer":false,"expected_sources":[],"expected_keywords":[]}
+{"id":"refuse-video","category":"refusal","question":"视频转码的 HLS 切片参数应该怎么配置？","should_answer":false,"expected_sources":[],"expected_keywords":[]}
+{"id":"refuse-tax","category":"refusal","question":"跨境电商增值税申报需要哪些会计分录？","should_answer":false,"expected_sources":[],"expected_keywords":[]}

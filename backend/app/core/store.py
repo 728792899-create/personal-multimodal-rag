@@ -12,6 +12,7 @@ from app.services.rag_engine import RagEngine
 from app.services.reranker import CrossEncoderReranker, KeywordReranker, NoopReranker
 from app.services.retriever import HybridRetriever
 from app.services.responses_client import ResponsesClient
+from app.services.index_hydration import hydrate_retriever
 from app.services.vectorstore import ChromaVectorStore, MemoryVectorStore, PgVectorStore
 
 
@@ -117,7 +118,7 @@ retriever = HybridRetriever(
     bm25_weight=settings.bm25_weight,
     vector_weight=settings.vector_weight,
 )
-retriever.load_documents(registry.load_documents())
+hydrate_retriever(retriever, processor, registry.load_documents())
 rag_engine = RagEngine(
     retriever,
     answer_generator=create_answer_generator(),

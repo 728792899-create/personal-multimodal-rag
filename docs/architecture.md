@@ -65,7 +65,10 @@ flowchart TB
 | 引用审计 | `backend/app/services/citation_audit.py` | 引用覆盖率、unsupported claims |
 | 知识工具 | `backend/app/services/knowledge_tools.py` | 改写、知识卡片、缺口分析 |
 | 系统指标 | `backend/app/services/system_metrics.py` | 文档质量、置信度、反馈和日志统计 |
-| 前端工作台 | `frontend/src/App.vue` | 普通/专家模式、引用、评测、卡片 |
+| 前端页面 | `frontend/src/pages/WorkbenchPage.vue` | 普通/专家模式与三栏信息架构 |
+| 前端状态 | `frontend/src/composables/useWorkbench.ts` | 请求取消、重试、状态与领域动作 |
+| 前端 API | `frontend/src/api/` | 超时/错误 client 与 documents/retrieval/quality API |
+| 后端路由 | `backend/app/api/routers/` | documents/retrieval/quality 领域路由 |
 
 ## 2. 资料入库与安全边界
 
@@ -76,8 +79,8 @@ flowchart LR
     URL["Web URL"]
   end
 
-  FILE --> FGUARD["扩展名白名单 / 20 MB 上限 / 文件名清理"]
-  URL --> UGUARD["初始地址 / 每次重定向 / 最终地址校验"]
+  FILE --> FGUARD["扩展名 / 大小 / 空文件 / Magic bytes / 文件名"]
+  URL --> UGUARD["地址 / 重定向 / DNS / 类型 / 大小 / 超时"]
   FGUARD --> PARSE["文本解析 / 可选 OCR"]
   UGUARD --> PARSE
   PARSE --> HASH["SHA-256 去重"]
@@ -153,6 +156,12 @@ flowchart LR
 ```
 
 默认演示链路完全离线，目的是让代码审查和面试演示可复现；真实模型、持久向量库和 cross-encoder 属于可替换增强项，不能把默认 hash embedding 的效果描述成生产检索质量。
+
+## 6. 启动恢复与容器边界
+
+SQLite 保存文档内容与 metadata。启动时先加载 registry，再检查 vector store 已有 chunk；只为缺失文档重建索引。因此 memory store 重启后恢复检索，Chroma 等持久 store 不会重复 embedding 已存在 chunk。
+
+Compose 的 Nginx 只暴露静态前端与 `/api` 代理，FastAPI `/ready` 返回当前 provider。前后端 healthcheck 与 `depends_on: condition=service_healthy` 防止前端在后端未就绪时被标记为整体可用。
 
 ## 设计取舍
 

@@ -2,35 +2,33 @@
 
 ## 准备
 
+按 README 完成依赖安装，然后：
+
 ```bash
-npm install
 cp .env.example .env
 npm run dev
 ```
 
-导入演示资料：
+另开终端：
 
 ```bash
 npm run demo:bootstrap
 ```
 
-## 演示路径
+## 8 分钟路径
 
-1. 打开 `http://127.0.0.1:5173`。
-2. 查看已导入的 `samples/demo-documents/` 文档。
-3. 输入问题：`这个 RAG 系统的核心工程亮点是什么？`
-4. 查看答案、引用片段、score 和 retrieval trace。
-5. 切换搜索模式，对比 keyword、semantic 和 hybrid。
-6. 输入问题：`这份资料有没有提到 Kubernetes 部署？`
-7. 观察资料不足时的 fallback、diagnostics 和拒答提示。
-8. 对不满意的答案提交负反馈，生成 eval draft。
-9. 使用答案加工能力生成项目说明、要点列表、学习笔记或 FAQ。
-10. 将有价值的答案保存为知识卡片。
+1. 打开 `http://127.0.0.1:5173`，确认 5 份公开样例和 6 个 chunk。
+2. 普通模式提问：`固定评测集关注哪些关键指标？`
+3. 指出回答、置信度、引用数量、来源数量和覆盖率处于同一信任摘要。
+4. 点击首条引用，展示相邻上下文，不只展示截断 snippet。
+5. 查看 Trace 七阶段，解释 BM25 与向量并行召回、融合、MMR、Rerank、回答决策和引用覆盖。
+6. 切换专家模式，把 candidate K 改为 40，对比 keyword/semantic/hybrid profile。
+7. 提问：`支付系统的每日对账差异如何自动冲正？`，展示“已安全拒答”、0 引用与拒答阶段。
+8. 回到有效回答，点击“需要改进并生成评测草稿”，在评测 tab 查看 draft。
+9. 展示 `npm run eval:retrieval` 的固定阈值报告与 CI workflow。
 
-## 验收点
+## 演示时必须说明
 
-- 无 API Key 也能完成上传、检索、回答和引用展示。
-- 答案能看到引用来源和上下文。
-- 检索 trace 能说明候选片段如何被筛选。
-- 证据不足时有明确提示，不把缺失资料编造成事实。
-- 反馈样本可以进入评测流程。
+- 当前是离线 hash/template 模式，没有调用付费 API。
+- 固定黄金集用于回归，不代表开放域质量。
+- 真实 pgvector、对象存储、身份网关和 Sentry 需要外部服务，仓库只给出适配边界与人工步骤。

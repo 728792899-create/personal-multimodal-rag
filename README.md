@@ -1,194 +1,216 @@
-# 个人多模态 RAG 知识库问答系统
+# Personal Multimodal RAG · 证据工作台
 
-面向个人和小团队知识管理的 RAG 问答系统，支持 PDF、Markdown、文本和图片资料上传，提供文档解析、chunk 切分、混合检索、引用回答、retrieval trace、可信度审计和轻量评测。
+[![CI](https://github.com/728792899-create/personal-multimodal-rag/actions/workflows/ci.yml/badge.svg)](https://github.com/728792899-create/personal-multimodal-rag/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-0f766e.svg)](LICENSE)
 
-项目重点不是做一个普通聊天框，而是把 RAG 链路里的关键工程问题拆开：文档解析、切分策略、BM25 召回、向量召回、混合排序、引用来源、拒答策略和检索质量调试。
+面向单用户/小团队 Beta 的本地优先多模态 RAG 工作台。它不只展示“上传并问答”，还把 BM25、向量召回、融合去重、MMR、Rerank、拒答决策和引用覆盖率组织成可理解、可回归的证据链。
 
-## 快速运行
+默认使用 deterministic hash embedding、内存向量库和模板回答：**无需真实 API Key、不会调用付费 API**。PDF、Markdown、文本、图片 OCR、URL 导入、引用上下文、质量审计、反馈评测和专家参数均保留。
+
+![三栏证据工作台与检索 Trace](docs/screenshots/02-grounded-trace.png)
+
+## 适合用来做什么
+
+- 在本地管理个人或小团队资料，并获得带引用回答。
+- 演示一个可解释、可测试、能安全拒答的 RAG 工程作品集。
+- 用固定黄金集回归 Recall@5、MRR、首条引用准确率和拒答准确率。
+- 在同一界面比较普通模式与专家模式，定位召回、排序、生成或引用问题。
+
+它目前不是多租户 SaaS，也没有宣称默认 hash embedding 具备生产语义检索质量。生产扩展边界见 [生产适配方案](docs/production-adapters.md) 与 [已知边界](docs/known-limitations.md)。
+
+## 5 分钟离线启动
+
+要求：Python 3.11+、Node.js 22+。OCR 可选依赖由 Docker 镜像自动提供。
 
 ```bash
-npm install
+git clone https://github.com/728792899-create/personal-multimodal-rag.git
+cd personal-multimodal-rag
+
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r backend/requirements.txt
+
+npm ci
+npm --prefix frontend ci
 cp .env.example .env
 npm run dev
 ```
 
-另开一个终端导入脱敏演示资料：
+另开终端导入仓库内脱敏示例资料：
 
 ```bash
+source .venv/bin/activate
 npm run demo:bootstrap
 ```
 
-打开 `http://127.0.0.1:5173`，选择样例资料提问，查看答案、引用片段、score、retrieval trace、fallback 和可信度审计。默认配置使用 mock/hash embedding 与 template answer，无需真实 API Key。
+打开 [http://127.0.0.1:5173](http://127.0.0.1:5173)。`.env.example` 已默认配置：
 
-快速验收：
+```text
+EMBEDDING_PROVIDER=mock
+VECTOR_STORE=memory
+ANSWER_PROVIDER=template
+QUERY_REWRITE_PROVIDER=none
+```
+
+因此没有任何 Key 也能完成上传、索引、检索、回答、引用、拒答和评测流程。
+
+## Docker Compose 一键启动
+
+Docker 路径不要求先创建 `.env`：
 
 ```bash
-npm run build
-npm run test
-npm run test:demo
+docker compose up --build --wait -d
+npm run demo:bootstrap
 ```
 
-## 演示资料
+- 工作台：[http://127.0.0.1:5173](http://127.0.0.1:5173)
+- 后端健康检查：[http://127.0.0.1:8010/health](http://127.0.0.1:8010/health)
+- Provider 就绪检查：[http://127.0.0.1:8010/ready](http://127.0.0.1:8010/ready)
 
-演示资料位于：
+前端使用生产 Nginx 镜像，并将 `/api` 反向代理到 FastAPI；前后端都配置了容器健康检查。停止服务：
 
-```text
-samples/demo-documents/
+```bash
+docker compose down
 ```
 
-推荐体验路径：
+## 可复现验收
 
-```text
-导入资料 -> 提问 -> 查看引用上下文 -> 查看可信度审计 -> 点击负反馈生成评测草稿 -> 运行评测 -> 保存知识卡片
+所有命令都强制使用离线 provider：
+
+```bash
+npm test                 # 后端 pytest + 前端 Vitest
+npm run build            # vue-tsc + Vite production build
+npm run test:demo        # 端到端 API smoke
+npm run eval:retrieval   # 30 条固定黄金集 + 阈值
+npm run test:e2e         # Chromium 桌面 + 390px 级移动视图
 ```
 
-推荐提问：
+一次运行全部验收：
 
-```text
-这个 RAG 系统的核心工程亮点是什么？
-这个系统如何通过引用和拒答机制降低幻觉？
-这份资料有没有提到 Kubernetes 部署？
-AIGC 工作流资料里提到了哪些工程能力？
+```bash
+npm run verify
 ```
 
-## 演示截图
+当前本地验收证据见 [验证基线](docs/validation-baseline.md)。评测失败会生成可读报告到 `eval/reports/latest.md`；CI 会始终上传报告 artifact。
 
-### 普通知识库工作台
+| 检查 | 当前本地结果 | CI 门槛 |
+| --- | ---: | ---: |
+| 后端测试 | 54 passed | 全部通过 |
+| 前端单元/组件 | 8 passed | 全部通过 |
+| Browser E2E | 4 passed | 桌面与移动全部通过 |
+| Recall@5 | 1.0000 | ≥ 0.90 |
+| MRR | 1.0000 | ≥ 0.75 |
+| 首条引用准确率 | 1.0000 | ≥ 0.75 |
+| 拒答准确率 | 1.0000 | ≥ 0.80 |
 
-![个人多模态 RAG 工作台](docs/screenshots/01-workbench.jpg)
+> 上表是仓库内固定、脱敏、小规模黄金集的回归结果，用于发现代码退化，不代表开放域或真实业务语料上的绝对质量。
 
-### 引用回答与可信度审计
+## 核心体验
 
-![RAG 引用回答与可信度审计](docs/screenshots/02-grounded-answer.jpg)
+### 普通模式
 
-截图使用仓库内 `samples/demo-documents/` 的公开样例资料和离线默认 Provider 生成，不包含私人知识库内容或外部模型密钥。
+- 上传 PDF、Markdown、文本、PNG/JPEG，或导入公开 URL。
+- 选择全库或指定文档范围，提交问题并获得证据约束回答。
+- 查看引用片段、相邻上下文、置信度和引用覆盖率。
+- 对无证据问题明确拒答，不把向量噪声包装成结论。
+- 负反馈一键生成 eval draft。
 
-## 架构概览
+### 专家模式
+
+- 调整 `search_mode`、profile、Top K、candidate K、向量权重、MMR λ 与最低分。
+- 比较 BM25-only、Vector-only、Hybrid、Hybrid + Rerank。
+- 查看七阶段 Trace：BM25 → 向量 → 融合去重 → MMR → Rerank → 回答/拒答 → 引用审计。
+- 查看 fallback、query rewrite、耗时、文档质量、操作日志和评测草稿。
+
+![普通模式工作台](docs/screenshots/01-workbench-beta.png)
+
+![390px 专家模式与拒答问题](docs/screenshots/03-mobile-expert-refusal.png)
+
+设计评审工作文件：[Figma · Personal Multimodal RAG Beta](https://www.figma.com/design/r2oFc38SGqh8QPvFykEEfq)。前端实现以同一组语义 token、间距、圆角、焦点和状态规范为准。
+
+## 架构
 
 ```mermaid
 flowchart LR
-  U["Vue 3 工作台"] -->|"REST"| API["FastAPI API"]
-  API --> ING["解析 / 切分 / 去重"]
-  API --> RAG["RAG 编排器"]
-  ING --> REG["SQLite 文档注册表"]
-  ING --> IDX["BM25 + Vector Store"]
-  RAG --> RET["混合召回 + MMR + Rerank"]
+  UI["Vue 工作台"] --> API["FastAPI 领域路由"]
+  API --> INGEST["上传 / URL / OCR / 去重"]
+  INGEST --> REG["SQLite Registry"]
+  INGEST --> INDEX["BM25 + Vector Adapter"]
+  API --> ENGINE["RAG Engine"]
+  ENGINE --> RET["BM25 + Vector + MMR + Rerank"]
   RET --> GATE["No-answer Gate"]
-  GATE --> GEN["Template / Responses Answer"]
+  GATE --> GEN["Template / Responses"]
   GEN --> AUDIT["Citation Audit"]
-  AUDIT --> U
+  AUDIT --> UI
+  UI --> FEEDBACK["Feedback → Eval Draft"]
+  FEEDBACK --> GOLDEN["Golden Regression"]
 ```
 
-完整的资料入库边界、问答时序、Provider 降级和反馈评测闭环见 [架构说明](docs/architecture.md)。
+前端已经从单体 `App.vue` 拆成页面、领域组件、`useWorkbench` composable 与 `api/{client,documents,retrieval,quality}`；后端原 `routes.py` 现在只做路由组合，文档、检索、质量路由分别维护。详见 [架构说明](docs/architecture.md)。
 
-## 功能
+## 安全与稳定性
 
-- 上传 PDF、Markdown、文本、图片文件。
-- 支持 URL 导入网页资料，并进入同一套解析、切分、索引和质量评分流程。
-- 上传文件按 SHA-256 去重，避免重复资料生成重复 chunk。
-- 支持文档索引状态和重建索引，便于 OCR 或 embedding 配置变化后重新入库。
-- 自动解析文本并按 chunk size + overlap 切分。
-- 图片文件接入 OCR adapter，安装 tesseract + pytesseract 后可提取图片文字。
-- 建立 BM25 关键词索引。
-- 通过 `BaseEmbeddingProvider` / `MockEmbeddingProvider` 建立轻量 hash embedding 向量索引。
-- 支持 OpenAI-compatible embedding provider。
-- 通过 `BaseVectorStore` 隔离 Memory / Chroma / pgvector 三种向量存储。
-- 使用混合检索排序：`0.62 * normalized BM25 + 0.38 * vector similarity`。
-- 支持 Query Rewrite、Multi-query Retrieval、MMR 去冗余和多条件 No-answer Gate。
-- 支持本地 keyword rerank，前端展示 rerank_score。
-- 预留 cross-encoder reranker，可通过 `RERANKER=cross-encoder` 接入 BGE reranker。
-- 支持 template / Responses 两种答案生成器。
-- 问答结果展示引用来源、页码或片段编号、score、bm25_score、vector_score。
-- 输出 retrieval trace，方便调试召回链路。
-- 输出 query intent、document boost、parent-child context 和检索/生成耗时。
-- 支持答案可信度分级、引用覆盖率、引用与所指证据的词项校验、unsupported claims 和引用上下文。
-- 支持答案改写为项目说明、要点列表、学习笔记和 FAQ。
-- 支持知识卡片沉淀和资料缺口分析。
-- 支持用户反馈生成 eval draft，并在前端运行评测草稿。
-- 支持系统指标面板，统计质量分、平均置信度、拒答、fallback 和负反馈。
-- 提供轻量评测接口和脚本，支持 Recall@K、MRR、引用准确率。
-- 提供检索 profile 对比脚本，可比较 BM25-only、Vector-only、Hybrid、Hybrid+Rerank。
+- 上传扩展名白名单、20 MB 上限、空文件拒绝、路径清理、唯一落盘名和 PDF/图片 magic-byte 校验。
+- URL 仅允许 HTTP(S)，禁止嵌入凭据，初始/重定向/最终地址都执行 SSRF 校验，并限制内容类型、字节数和超时。
+- API 支持可选 Bearer Token、进程内限流、`Retry-After` 和请求 ID。
+- 前端请求有超时、取消、Abort 语义、可读错误、请求 ID 与重试入口。
+- 日志会清理 Authorization、token、password、secret、URL query/fragment。
+- Sentry 仅在显式提供 DSN 且安装可选依赖时启用；默认关闭 PII 与 request body。
+- `memory` 向量库重启时会从 SQLite 文档注册表重建缺失索引；持久 store 不重复 embedding 已存在的 chunk。
 
-## 安全与可信度
+安全策略与漏洞报告见 [SECURITY.md](SECURITY.md)。
 
-- `GROUNDING_MIN_CONFIDENCE=0.15`：无直接关键词命中时，低于该置信度会拒绝生成。
-- `CITATION_OVERLAP_THRESHOLD=0.34`：引用句与其实际引用证据的最低词项重合度。
-- `MAX_UPLOAD_BYTES=20971520`：单个上传文件大小上限，默认 20 MB。
-- `RAG_ALLOW_PRIVATE_URLS=0`：默认禁止 URL 导入访问回环、内网、链路本地及其他特殊地址；只有明确需要导入可信内网资料时才应开启。
+## OpenAI 可选接法
 
-上传接口仅允许 `.txt`、`.md`、`.markdown`、`.pdf`、`.png`、`.jpg`、`.jpeg`，会清理路径成分、为落盘文件生成唯一名称，并在解析或索引失败时删除临时文件。URL 导入会在初始请求、每次重定向和最终响应三个阶段执行地址校验。
+默认运行不需要 OpenAI。若显式选择真实 provider：
 
-## 搜索与调试
+- Responses 使用 `POST /v1/responses`；解析时遍历 `output[].content[]` 中的 `output_text`，不把 SDK 的 `output_text` 便利属性误当作 REST 固定字段。
+- Embedding 使用批量 `input` 与 `encoding_format=float`；`dimensions` 只在配置非零且模型支持时发送。
+- 网络客户端有超时，异常会降级到本地模板或原查询，且错误文本经过脱敏。
 
-工作台支持两种运行模式：
+配置示例见 `.env.example`。实现按 [OpenAI Responses API](https://platform.openai.com/docs/api-reference/responses/create) 和 [Embeddings API](https://platform.openai.com/docs/api-reference/embeddings/create) 校对。
 
-- `问答`：检索证据后进入证据约束回答生成。
-- `搜索`：只返回证据片段和完整 retrieval trace，便于调试召回质量。
-
-检索策略支持在前端直接调整：
-
-- 搜索模式：`hybrid`、`keyword`、`semantic`
-- 检索 profile：`balanced`、`precision`、`recall`
-- 文档范围：全部文档或指定文档集合
-- Top K、candidate K、BM25/Vector 权重、MMR lambda、最低分阈值
-- Query Rewrite 开关
-
-后端会在 trace 中返回每次检索的阶段数据：`raw_candidates`、`deduped_candidates`、`mmr_selected`、`returned`、`matched_terms`、`score_breakdown`、`fallbacks`、`rewrite_status`、`vector_status` 和 `rerank_status`。
-
-## 普通模式与专家模式
-
-- 普通模式：默认入口，隐藏 BM25、Vector、MMR、candidate_k 等工程参数，只保留上传、选择资料、提问、查看答案和引用。
-- 专家模式：保留完整检索参数、策略对比、Trace、Fallback 和文档调试能力，适合检索调参和问题定位。
-
-当系统发现证据不足、范围过窄或检索链路降级时，会返回 diagnostics，并在前端展示可执行修复动作，例如切换全部资料、降低严格度、扩大搜索范围、切换混合检索、查看检索过程或重建索引。
-
-## 技术栈
-
-- 前端：Vue 3、TypeScript、Vite
-- 后端：FastAPI、Python、PyMuPDF、pytest
-- 检索：BM25、Hash Embedding、OpenAI-compatible Embedding、Local Sentence Transformers、Cross-Encoder Rerank
-- 存储：Memory、Chroma、pgvector
-- 生成：Template Answer、OpenAI Responses-compatible adapter
-
-## 目录结构
+## 目录
 
 ```text
-personal-multimodal-rag/
-  backend/
-    app/
-      api/routes.py
-      core/store.py
-      models/
-      services/
-    tests/
-  frontend/
-    src/
-  samples/demo-documents/
-  scripts/bootstrap_demo_documents.py
-  scripts/run_eval.py
-  docs/
+backend/app/
+  api/routes.py              # 路由组合根
+  api/routers/               # documents / retrieval / quality
+  middleware/                # auth / rate limit / request id
+  services/                  # ingest / retrieval / answer / audit / adapters
+frontend/
+  src/pages/                 # WorkbenchPage
+  src/components/            # knowledge / query / answer / inspector / trace
+  src/composables/           # useWorkbench + context
+  src/api/                   # client + 领域 API + types
+  e2e/                       # Playwright 关键路径
+eval/                        # cases + thresholds
+samples/demo-documents/      # 公开脱敏样例
+docs/                        # 架构、部署、排障、发布与证据
 ```
 
-## 环境变量
+## CI 与发布
 
-复制 `.env.example`：
+GitHub Actions 分四个 job：
 
-```bash
-cp .env.example .env
-```
+1. 后端测试（强制 mock/memory/template）。
+2. 前端单元测试、构建和 Chromium E2E。
+3. 黄金集阈值回归，并上传 Markdown/JSON 报告。
+4. Docker Compose 构建、健康等待和前端代理 API 验证。
 
-默认不需要真实模型 Key。需要接入真实模型时，再按 `.env.example` 配置 OpenAI-compatible embedding、answer provider、Chroma 或 pgvector。
+本地已验证 workflow 配置与所有同等命令；只有将本次改动推送到 GitHub 后，远端 badge 才能反映新 workflow 的实际状态。发布前逐项执行 [Release Checklist](docs/release-checklist.md)。
 
-## 已知边界
-
-- 默认 hash/mock embedding 只用于本地演示，不代表生产向量质量。
-- 图片 OCR 依赖本机 tesseract，可选启用。
-- 大规模索引、权限隔离、多租户和严格评测集仍需进一步建设。
-- 真实 LLM、Chroma、pgvector 是增强能力，不是默认演示依赖。
-
-更多说明见：
+## 更多文档
 
 - [架构说明](docs/architecture.md)
+- [生产适配方案](docs/production-adapters.md)
+- [故障排查](docs/troubleshooting.md)
+- [验证基线](docs/validation-baseline.md)
 - [演示脚本](docs/demo-script.md)
 - [已知边界](docs/known-limitations.md)
-- [项目复盘](docs/project-retrospective.md)
+- [安全策略](SECURITY.md)
+- [发布清单](docs/release-checklist.md)
+
+## License
+
+[MIT](LICENSE)
