@@ -17,6 +17,7 @@ flowchart TB
 
   subgraph API["接口与编排层"]
     FASTAPI["FastAPI Routes"]
+    WORKER["Lifespan Local Worker"]
     PROCESSOR["Document Processor"]
     ENGINE["RAG Engine"]
     TOOLS["Knowledge Tools / Metrics / Eval"]
@@ -34,17 +35,19 @@ flowchart TB
   subgraph ADAPTERS["可替换适配层"]
     EMBED["Mock / Local / OpenAI-compatible Embedding"]
     STORE["Memory / Chroma / pgvector"]
-    ANSWER["Template / Responses Answer"]
+    ANSWER["Template / Responses / Chat / Ollama"]
   end
 
   subgraph PERSIST["持久化层"]
-    REGISTRY["SQLite Document Registry"]
+    REGISTRY["SQLite KB / Sessions / Jobs"]
     UPLOADS["Local Upload Files"]
   end
 
   WORKBENCH --> FASTAPI
   MODES --> WORKBENCH
   FASTAPI --> PROCESSOR
+  FASTAPI --> WORKER
+  WORKER --> PROCESSOR
   FASTAPI --> ENGINE
   FASTAPI --> TOOLS
   PROCESSOR --> REGISTRY
@@ -64,7 +67,8 @@ flowchart TB
 
 | 模块 | 文件 | 职责 |
 | --- | --- | --- |
-| 文档解析 | `backend/app/services/document_processor.py` | 文件/文本解析、chunk 切分、metadata |
+| 文档解析 | `backend/app/services/document_processor.py` | PDF/DOCX/文本/OCR、chunk 切分、metadata |
+| 入库任务 | `backend/app/services/ingestion_jobs.py` | SQLite claim、租约、重试、取消、阶段进度 |
 | URL 导入 | `backend/app/services/url_importer.py` | 抓取网页、清洗正文、生成文档 |
 | 检索器 | `backend/app/services/retriever.py` | BM25、向量召回、MMR、rerank 前候选 |
 | RAG 引擎 | `backend/app/services/rag_engine.py` | 问答编排、拒答、trace、parent context |
@@ -73,6 +77,7 @@ flowchart TB
 | 系统指标 | `backend/app/services/system_metrics.py` | 文档质量、置信度、反馈和日志统计 |
 | 前端页面 | `frontend/src/pages/WorkbenchPage.vue` | 普通/专家模式与三栏信息架构 |
 | 前端状态 | `frontend/src/composables/useWorkbench.ts` | 请求取消、重试、状态与领域动作 |
+| 领域状态 | `frontend/src/composables/use{KnowledgeBases,IngestionJobs,Conversations,ProviderStatus}.ts` | KB、任务、SSE 与诊断 |
 | 前端 API | `frontend/src/api/` | 超时/错误 client 与 documents/retrieval/quality API |
 | 后端路由 | `backend/app/api/routers/` | documents/retrieval/quality 领域路由 |
 
@@ -83,13 +88,14 @@ flowchart TB
 ```mermaid
 flowchart LR
   subgraph INPUT["输入"]
-    FILE["PDF / Markdown / Text / Image"]
+    FILE["PDF / DOCX / Markdown / Text / Image"]
     URL["Web URL"]
   end
 
   FILE --> FGUARD["扩展名 / 大小 / 空文件 / Magic bytes / 文件名"]
   URL --> UGUARD["地址 / 重定向 / DNS / 类型 / 大小 / 超时"]
-  FGUARD --> PARSE["文本解析 / 可选 OCR"]
+  FGUARD --> JOB["SQLite Job / Idempotency"]
+  JOB --> PARSE["文本/DOCX 解析 / 可选 OCR"]
   UGUARD --> PARSE
   PARSE --> HASH["SHA-256 去重"]
   HASH --> CHUNK["Chunk + Overlap + Metadata"]
@@ -113,25 +119,30 @@ URL 导入默认拒绝回环、内网、链路本地和特殊地址。校验不�
 sequenceDiagram
   participant U as 用户
   participant W as Vue 工作台
+  participant C as Conversation API
   participant E as RAG Engine
   participant R as Hybrid Retriever
   participant G as Answer Generator
   participant A as Citation Audit
 
   U->>W: 提交问题、文档范围与检索参数
-  W->>E: POST /api/ask
+  W->>C: POST messages:stream
+  C->>C: 保存 user/streaming message + 最近六轮
+  C->>E: 问题 + KB scope
   E->>E: Normalize / Intent / Query Rewrite
   E->>R: BM25 与向量并行召回
   R->>R: Score Fusion / Dedup / MMR / Rerank
   R-->>E: Evidence + Retrieval Trace
   alt 证据不足
-    E-->>W: 拒答、资料缺口与修复建议
+    E-->>C: refusal
+    C-->>W: refusal → done
   else 证据满足门槛
     E->>G: 问题 + 受约束证据
     G-->>E: 带引用回答
     E->>A: 回答与实际引用片段
     A-->>E: 覆盖率、Grounding 与 Unsupported Claims
-    E-->>W: 回答、引用、Trace 与可信度审计
+    E-->>C: answer.delta* → answer.completed
+    C-->>W: 最终引用、Trace 与可信度审计 → done
   end
 ```
 
@@ -160,13 +171,13 @@ flowchart LR
   CFG --> AG["Answer Adapter"]
 
   EMB -->|"默认离线"| MOCK["Hash / Mock"]
-  EMB -->|"可选"| REAL_EMB["Local Sentence Transformer / OpenAI-compatible"]
+  EMB -->|"可选"| REAL_EMB["Sentence Transformer / OpenAI / Ollama"]
   VS --> MEMORY["Memory"]
   VS --> CHROMA["Chroma"]
   VS --> PG["pgvector"]
   RW -->|"未配置或失败"| NOOP["No-op Rewrite"]
-  AG -->|"未配置或初始化失败"| TEMPLATE["Template Answer"]
-  AG -->|"可选"| RESPONSES["Responses-compatible Model"]
+  AG -->|"local/test 显式允许"| TEMPLATE["Template Fallback"]
+  AG -->|"可选"| RESPONSES["Responses / Chat / Ollama"]
 ```
 
 默认演示链路完全离线，目的是让代码审查和面试演示可复现；真实模型、持久向量库和 cross-encoder 属于可替换增强项，不能把默认 hash embedding 的效果描述成生产检索质量。
@@ -175,7 +186,7 @@ flowchart LR
 
 ![部署演进模式](assets/deployment-modes.svg)
 
-SQLite 保存文档内容与 metadata。启动时先加载 registry，再检查 vector store 已有 chunk；只为缺失文档重建索引。因此 memory store 重启后恢复检索，Chroma 等持久 store 不会重复 embedding 已存在 chunk。
+SQLite 保存文档、知识库、会话、消息与任务。启动时恢复过期租约，再加载 registry 并验证 embedding dimension/model/index version；只为兼容且缺失的文档重建索引。不兼容记录进入 `needs_rebuild`，不会混入当前检索。
 
 ![当前 SQLite 表、vector chunk 和生产 workspace 迁移边界](assets/data-model.svg)
 

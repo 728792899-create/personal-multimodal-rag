@@ -1,48 +1,149 @@
 from __future__ import annotations
 
-import sqlite3
-import uuid
-from datetime import datetime
 import json
+import shutil
+import sqlite3
+import threading
+import uuid
+from contextlib import contextmanager
+from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Iterator
 
 from app.models.domain import Document
 
 
+DEFAULT_KNOWLEDGE_BASE_ID = "default"
+DEFAULT_KNOWLEDGE_BASE_NAME = "默认知识库"
+
+
+def _utcnow() -> str:
+    return datetime.utcnow().isoformat(timespec="microseconds")
+
+
 class DocumentRegistry:
+    """Durable local registry with idempotent SQLite migrations.
+
+    File-backed registries open a connection per operation so API and worker
+    threads never share a connection. In-memory registries use a private shared
+    SQLite URI plus a keeper connection to preserve test compatibility.
+    """
+
+    CURRENT_SCHEMA_VERSION = 3
+
     def __init__(self, db_path: str):
         self.db_path = db_path
-        if db_path != ":memory:":
-            Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(db_path, check_same_thread=False)
+        self._lock = threading.RLock()
+        self._keeper: sqlite3.Connection | None = None
+        if db_path == ":memory:":
+            self._connect_target = f"file:rag-{uuid.uuid4().hex}?mode=memory&cache=shared"
+            self._connect_uri = True
+            self._keeper = self._new_connection()
+        else:
+            path = Path(db_path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            self._connect_target = str(path)
+            self._connect_uri = False
+            self._backup_before_migration(path)
         self._ensure_schema()
 
-    def save_document(self, document: Document) -> None:
-        self.conn.execute(
-            """
-            INSERT INTO documents (document_id, payload)
-            VALUES (?, ?)
-            ON CONFLICT(document_id) DO UPDATE SET payload = excluded.payload
-            """,
-            (document.document_id, document.model_dump_json()),
+    def _new_connection(self) -> sqlite3.Connection:
+        connection = sqlite3.connect(
+            self._connect_target,
+            uri=self._connect_uri,
+            timeout=15,
+            check_same_thread=False,
         )
-        self.conn.commit()
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute("PRAGMA busy_timeout = 15000")
+        if self.db_path != ":memory:":
+            connection.execute("PRAGMA journal_mode = WAL")
+        return connection
 
-    def load_documents(self) -> list[Document]:
-        rows = self.conn.execute("SELECT payload FROM documents ORDER BY document_id").fetchall()
-        return [Document.model_validate_json(row[0]) for row in rows]
+    @contextmanager
+    def _connection(self) -> Iterator[sqlite3.Connection]:
+        connection = self._new_connection()
+        try:
+            yield connection
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def close(self) -> None:
+        if self._keeper is not None:
+            self._keeper.close()
+            self._keeper = None
+
+    @property
+    def schema_version(self) -> int:
+        with self._connection() as connection:
+            row = connection.execute("SELECT MAX(version) AS version FROM schema_migrations").fetchone()
+        return int(row["version"] or 0)
+
+    # Documents -----------------------------------------------------------------
+
+    def save_document(self, document: Document) -> None:
+        knowledge_base_id = str(document.metadata.get("knowledge_base_id") or DEFAULT_KNOWLEDGE_BASE_ID)
+        document.metadata["knowledge_base_id"] = knowledge_base_id
+        document.metadata.setdefault("chunker_version", "paragraph-v1")
+        document.metadata.setdefault("index_version", "hybrid-v1")
+        with self._connection() as connection:
+            self._assert_knowledge_base(connection, knowledge_base_id)
+            connection.execute(
+                """
+                INSERT INTO documents (document_id, knowledge_base_id, content_hash, index_version, payload)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(document_id) DO UPDATE SET
+                  knowledge_base_id = excluded.knowledge_base_id,
+                  content_hash = excluded.content_hash,
+                  index_version = excluded.index_version,
+                  payload = excluded.payload
+                """,
+                (
+                    document.document_id,
+                    knowledge_base_id,
+                    str(document.metadata.get("content_hash") or ""),
+                    str(document.metadata.get("index_version") or "hybrid-v1"),
+                    document.model_dump_json(),
+                ),
+            )
+
+    def load_documents(self, knowledge_base_ids: list[str] | None = None) -> list[Document]:
+        with self._connection() as connection:
+            if knowledge_base_ids:
+                placeholders = ",".join("?" for _ in knowledge_base_ids)
+                rows = connection.execute(
+                    f"SELECT payload FROM documents WHERE knowledge_base_id IN ({placeholders}) ORDER BY document_id",
+                    tuple(knowledge_base_ids),
+                ).fetchall()
+            else:
+                rows = connection.execute("SELECT payload FROM documents ORDER BY document_id").fetchall()
+        return [Document.model_validate_json(row["payload"]) for row in rows]
 
     def get_document(self, document_id: str) -> Document | None:
-        row = self.conn.execute("SELECT payload FROM documents WHERE document_id = ?", (document_id,)).fetchone()
-        return Document.model_validate_json(row[0]) if row else None
+        with self._connection() as connection:
+            row = connection.execute("SELECT payload FROM documents WHERE document_id = ?", (document_id,)).fetchone()
+        return Document.model_validate_json(row["payload"]) if row else None
 
-    def find_by_content_hash(self, content_hash: str) -> Document | None:
+    def find_by_content_hash(self, content_hash: str, knowledge_base_id: str | None = None) -> Document | None:
         if not content_hash:
             return None
-        for document in self.load_documents():
-            if document.metadata.get("content_hash") == content_hash:
-                return document
-        return None
+        with self._connection() as connection:
+            if knowledge_base_id:
+                row = connection.execute(
+                    "SELECT payload FROM documents WHERE content_hash = ? AND knowledge_base_id = ? LIMIT 1",
+                    (content_hash, knowledge_base_id),
+                ).fetchone()
+            else:
+                row = connection.execute(
+                    "SELECT payload FROM documents WHERE content_hash = ? LIMIT 1",
+                    (content_hash,),
+                ).fetchone()
+        return Document.model_validate_json(row["payload"]) if row else None
 
     def update_document_status(self, document_id: str, status: str, error: str = "") -> Document | None:
         document = self.get_document(document_id)
@@ -54,84 +155,512 @@ class DocumentRegistry:
         return document
 
     def delete_document(self, document_id: str) -> None:
-        self.conn.execute("DELETE FROM documents WHERE document_id = ?", (document_id,))
-        self.conn.commit()
+        with self._connection() as connection:
+            connection.execute("DELETE FROM documents WHERE document_id = ?", (document_id,))
 
-    def save_history(self, question: str, response: dict) -> dict:
+    # Knowledge bases -----------------------------------------------------------
+
+    def create_knowledge_base(self, name: str, description: str = "") -> dict:
+        cleaned = " ".join(name.split()).strip()
+        if not cleaned:
+            raise ValueError("Knowledge base name is required")
+        knowledge_base_id = str(uuid.uuid4())
+        created_at = _utcnow()
+        with self._connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO knowledge_bases
+                  (knowledge_base_id, name, description, is_default, created_at, updated_at)
+                VALUES (?, ?, ?, 0, ?, ?)
+                """,
+                (knowledge_base_id, cleaned[:120], description.strip()[:500], created_at, created_at),
+            )
+        return self.get_knowledge_base(knowledge_base_id) or {}
+
+    def get_knowledge_base(self, knowledge_base_id: str) -> dict | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                """
+                SELECT kb.*, COUNT(d.document_id) AS document_count
+                FROM knowledge_bases kb
+                LEFT JOIN documents d ON d.knowledge_base_id = kb.knowledge_base_id
+                WHERE kb.knowledge_base_id = ?
+                GROUP BY kb.knowledge_base_id
+                """,
+                (knowledge_base_id,),
+            ).fetchone()
+        return self._knowledge_base_payload(row) if row else None
+
+    def list_knowledge_bases(self) -> list[dict]:
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT kb.*, COUNT(d.document_id) AS document_count
+                FROM knowledge_bases kb
+                LEFT JOIN documents d ON d.knowledge_base_id = kb.knowledge_base_id
+                GROUP BY kb.knowledge_base_id
+                ORDER BY kb.is_default DESC, kb.created_at ASC
+                """
+            ).fetchall()
+        return [self._knowledge_base_payload(row) for row in rows]
+
+    def update_knowledge_base(self, knowledge_base_id: str, name: str, description: str | None = None) -> dict | None:
+        cleaned = " ".join(name.split()).strip()
+        if not cleaned:
+            raise ValueError("Knowledge base name is required")
+        with self._connection() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE knowledge_bases
+                SET name = ?, description = COALESCE(?, description), updated_at = ?
+                WHERE knowledge_base_id = ?
+                """,
+                (cleaned[:120], description.strip()[:500] if description is not None else None, _utcnow(), knowledge_base_id),
+            )
+        return self.get_knowledge_base(knowledge_base_id) if cursor.rowcount else None
+
+    def delete_knowledge_base(self, knowledge_base_id: str, force: bool = False) -> bool:
+        if knowledge_base_id == DEFAULT_KNOWLEDGE_BASE_ID:
+            raise ValueError("The default knowledge base cannot be deleted")
+        with self._connection() as connection:
+            active_jobs = connection.execute(
+                """
+                SELECT COUNT(*) AS count FROM index_jobs
+                WHERE knowledge_base_id = ? AND status IN ('queued', 'running', 'cancelling')
+                """,
+                (knowledge_base_id,),
+            ).fetchone()
+            if active_jobs and int(active_jobs["count"]):
+                raise ValueError("Knowledge base has active index jobs; cancel them and wait before deletion")
+            row = connection.execute(
+                "SELECT COUNT(*) AS count FROM documents WHERE knowledge_base_id = ?",
+                (knowledge_base_id,),
+            ).fetchone()
+            if row and int(row["count"]) and not force:
+                raise ValueError("Knowledge base contains documents; use force=true to delete it")
+            jobs = connection.execute(
+                "SELECT COUNT(*) AS count FROM index_jobs WHERE knowledge_base_id = ?",
+                (knowledge_base_id,),
+            ).fetchone()
+            if jobs and int(jobs["count"]) and not force:
+                raise ValueError("Knowledge base contains index jobs; use force=true to delete it")
+            if force:
+                connection.execute("DELETE FROM documents WHERE knowledge_base_id = ?", (knowledge_base_id,))
+                connection.execute("DELETE FROM index_jobs WHERE knowledge_base_id = ?", (knowledge_base_id,))
+            conversations = connection.execute(
+                "SELECT conversation_id, knowledge_base_ids FROM conversations"
+            ).fetchall()
+            for conversation in conversations:
+                current_ids = json.loads(conversation["knowledge_base_ids"])
+                if knowledge_base_id not in current_ids:
+                    continue
+                selected = [item for item in current_ids if item != knowledge_base_id]
+                if not selected:
+                    selected = [DEFAULT_KNOWLEDGE_BASE_ID]
+                connection.execute(
+                    "UPDATE conversations SET knowledge_base_ids = ?, updated_at = ? WHERE conversation_id = ?",
+                    (json.dumps(selected), _utcnow(), conversation["conversation_id"]),
+                )
+            cursor = connection.execute(
+                "DELETE FROM knowledge_bases WHERE knowledge_base_id = ? AND is_default = 0",
+                (knowledge_base_id,),
+            )
+        return cursor.rowcount > 0
+
+    # Conversations -------------------------------------------------------------
+
+    def create_conversation(
+        self,
+        title: str = "新会话",
+        knowledge_base_ids: list[str] | None = None,
+    ) -> dict:
+        conversation_id = str(uuid.uuid4())
+        created_at = _utcnow()
+        selected = knowledge_base_ids or [DEFAULT_KNOWLEDGE_BASE_ID]
+        with self._connection() as connection:
+            for knowledge_base_id in selected:
+                self._assert_knowledge_base(connection, knowledge_base_id)
+            connection.execute(
+                """
+                INSERT INTO conversations
+                  (conversation_id, title, knowledge_base_ids, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (conversation_id, title.strip()[:160] or "新会话", json.dumps(selected), created_at, created_at),
+            )
+        return self.get_conversation(conversation_id) or {}
+
+    def get_conversation(self, conversation_id: str) -> dict | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                """
+                SELECT c.*, COUNT(m.message_id) AS message_count
+                FROM conversations c
+                LEFT JOIN conversation_messages m ON m.conversation_id = c.conversation_id
+                WHERE c.conversation_id = ?
+                GROUP BY c.conversation_id
+                """,
+                (conversation_id,),
+            ).fetchone()
+        return self._conversation_payload(row) if row else None
+
+    def list_conversations(self, limit: int = 50) -> list[dict]:
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT c.*, COUNT(m.message_id) AS message_count
+                FROM conversations c
+                LEFT JOIN conversation_messages m ON m.conversation_id = c.conversation_id
+                GROUP BY c.conversation_id
+                ORDER BY c.updated_at DESC
+                LIMIT ?
+                """,
+                (max(1, min(limit, 200)),),
+            ).fetchall()
+        return [self._conversation_payload(row) for row in rows]
+
+    def update_conversation(
+        self,
+        conversation_id: str,
+        *,
+        title: str | None = None,
+        knowledge_base_ids: list[str] | None = None,
+    ) -> dict | None:
+        current = self.get_conversation(conversation_id)
+        if not current:
+            return None
+        next_title = current["title"] if title is None else (title.strip()[:160] or "新会话")
+        next_ids = current["knowledge_base_ids"] if knowledge_base_ids is None else knowledge_base_ids
+        if not next_ids:
+            next_ids = [DEFAULT_KNOWLEDGE_BASE_ID]
+        with self._connection() as connection:
+            for knowledge_base_id in next_ids:
+                self._assert_knowledge_base(connection, knowledge_base_id)
+            connection.execute(
+                """
+                UPDATE conversations SET title = ?, knowledge_base_ids = ?, updated_at = ?
+                WHERE conversation_id = ?
+                """,
+                (next_title, json.dumps(next_ids), _utcnow(), conversation_id),
+            )
+        return self.get_conversation(conversation_id)
+
+    def delete_conversation(self, conversation_id: str) -> bool:
+        with self._connection() as connection:
+            cursor = connection.execute("DELETE FROM conversations WHERE conversation_id = ?", (conversation_id,))
+        return cursor.rowcount > 0
+
+    def save_conversation_message(
+        self,
+        conversation_id: str,
+        role: str,
+        content: str,
+        *,
+        status: str = "completed",
+        metadata: dict | None = None,
+        message_id: str | None = None,
+    ) -> dict:
+        if role not in {"user", "assistant", "system"}:
+            raise ValueError("Unsupported conversation role")
+        if not self.get_conversation(conversation_id):
+            raise ValueError("Conversation not found")
+        stored_id = message_id or str(uuid.uuid4())
+        created_at = _utcnow()
+        with self._connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO conversation_messages
+                  (message_id, conversation_id, role, content, status, metadata, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(message_id) DO UPDATE SET
+                  content = excluded.content, status = excluded.status,
+                  metadata = excluded.metadata, updated_at = excluded.updated_at
+                """,
+                (stored_id, conversation_id, role, content, status, json.dumps(metadata or {}, ensure_ascii=False), created_at, created_at),
+            )
+            connection.execute("UPDATE conversations SET updated_at = ? WHERE conversation_id = ?", (created_at, conversation_id))
+        return self.get_conversation_message(stored_id) or {}
+
+    def get_conversation_message(self, message_id: str) -> dict | None:
+        with self._connection() as connection:
+            row = connection.execute("SELECT * FROM conversation_messages WHERE message_id = ?", (message_id,)).fetchone()
+        return self._message_payload(row) if row else None
+
+    def list_conversation_messages(self, conversation_id: str, limit: int = 200) -> list[dict]:
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM conversation_messages WHERE conversation_id = ?
+                ORDER BY created_at ASC LIMIT ?
+                """,
+                (conversation_id, max(1, min(limit, 1000))),
+            ).fetchall()
+        return [self._message_payload(row) for row in rows]
+
+    def conversation_context(self, conversation_id: str, max_turns: int = 6, max_chars: int = 12_000) -> list[dict]:
+        messages = self.list_conversation_messages(conversation_id, limit=max_turns * 4 + 20)
+        selected = messages[-max_turns * 2 :]
+        while selected and sum(len(item["content"]) for item in selected) > max_chars:
+            selected.pop(0)
+        return selected
+
+    def conversation_metrics(self, limit: int = 200) -> dict:
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT status, metadata FROM conversation_messages
+                WHERE role = 'assistant' ORDER BY created_at DESC LIMIT ?
+                """,
+                (max(1, min(limit, 1000)),),
+            ).fetchall()
+        first_token_values: list[float] = []
+        provider_errors = 0
+        for row in rows:
+            metadata = json.loads(row["metadata"])
+            response = metadata.get("response") if isinstance(metadata.get("response"), dict) else {}
+            performance = response.get("retrieval_trace", {}).get("performance", {}) if isinstance(response, dict) else {}
+            if isinstance(performance.get("first_token_ms"), (int, float)):
+                first_token_values.append(float(performance["first_token_ms"]))
+            if row["status"] == "failed":
+                provider_errors += 1
+        return {
+            "streamed_message_count": len(rows),
+            "cancelled_count": sum(1 for row in rows if row["status"] == "cancelled"),
+            "provider_error_count": provider_errors,
+            "avg_first_token_ms": round(sum(first_token_values) / len(first_token_values), 2) if first_token_values else 0,
+        }
+
+    # Index jobs ----------------------------------------------------------------
+
+    def create_index_job(
+        self,
+        *,
+        source_type: str,
+        source_name: str,
+        payload: dict,
+        knowledge_base_id: str = DEFAULT_KNOWLEDGE_BASE_ID,
+        idempotency_key: str,
+        max_attempts: int = 3,
+    ) -> dict:
+        created_at = _utcnow()
+        with self._connection() as connection:
+            self._assert_knowledge_base(connection, knowledge_base_id)
+            existing = connection.execute(
+                "SELECT * FROM index_jobs WHERE idempotency_key = ? ORDER BY created_at DESC LIMIT 1",
+                (idempotency_key,),
+            ).fetchone()
+            if existing:
+                return self._job_payload(existing, include_payload=True)
+            job_id = str(uuid.uuid4())
+            connection.execute(
+                """
+                INSERT INTO index_jobs (
+                  job_id, source_type, source_name, payload, knowledge_base_id,
+                  idempotency_key, status, stage, progress, attempts, max_attempts,
+                  cancel_requested, next_attempt_at, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, 'queued', 'receive', 0, 0, ?, 0, ?, ?, ?)
+                """,
+                (
+                    job_id, source_type, source_name[:240], json.dumps(payload, ensure_ascii=False),
+                    knowledge_base_id, idempotency_key, max(1, min(max_attempts, 10)),
+                    created_at, created_at, created_at,
+                ),
+            )
+            row = connection.execute("SELECT * FROM index_jobs WHERE job_id = ?", (job_id,)).fetchone()
+        return self._job_payload(row, include_payload=True)
+
+    def get_index_job(self, job_id: str) -> dict | None:
+        with self._connection() as connection:
+            row = connection.execute("SELECT * FROM index_jobs WHERE job_id = ?", (job_id,)).fetchone()
+        return self._job_payload(row) if row else None
+
+    def list_index_jobs(self, limit: int = 50) -> list[dict]:
+        with self._connection() as connection:
+            rows = connection.execute(
+                "SELECT * FROM index_jobs ORDER BY created_at DESC LIMIT ?",
+                (max(1, min(limit, 200)),),
+            ).fetchall()
+        return [self._job_payload(row) for row in rows]
+
+    def claim_next_index_job(self, worker_id: str, lease_seconds: int = 60) -> dict | None:
+        now = _utcnow()
+        lease = (datetime.utcnow() + timedelta(seconds=max(0, lease_seconds))).isoformat(timespec="microseconds")
+        with self._lock, self._connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                """
+                SELECT job_id FROM index_jobs
+                WHERE status = 'queued' AND cancel_requested = 0 AND next_attempt_at <= ?
+                ORDER BY created_at ASC LIMIT 1
+                """,
+                (now,),
+            ).fetchone()
+            if not row:
+                return None
+            cursor = connection.execute(
+                """
+                UPDATE index_jobs
+                SET status = 'running', stage = 'validate', progress = MAX(progress, 5),
+                    attempts = attempts + 1, worker_id = ?, lease_expires_at = ?,
+                    started_at = COALESCE(started_at, ?), updated_at = ?
+                WHERE job_id = ? AND status = 'queued'
+                """,
+                (worker_id, lease, now, now, row["job_id"]),
+            )
+            if not cursor.rowcount:
+                return None
+            claimed = connection.execute("SELECT * FROM index_jobs WHERE job_id = ?", (row["job_id"],)).fetchone()
+        return self._job_payload(claimed, include_payload=True)
+
+    def update_index_job(self, job_id: str, *, stage: str, progress: int) -> dict | None:
+        with self._connection() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE index_jobs SET stage = ?, progress = ?, updated_at = ?
+                WHERE job_id = ? AND status IN ('running', 'cancelling')
+                """,
+                (stage[:40], max(0, min(progress, 100)), _utcnow(), job_id),
+            )
+        return self.get_index_job(job_id) if cursor.rowcount else None
+
+    def complete_index_job(self, job_id: str, document_id: str, *, deduped: bool = False) -> dict | None:
+        completed_at = _utcnow()
+        with self._connection() as connection:
+            connection.execute(
+                """
+                UPDATE index_jobs
+                SET status = 'succeeded', stage = 'complete', progress = 100,
+                    document_id = ?, deduped = ?, error_code = '', error_message = '',
+                    worker_id = '', lease_expires_at = '', completed_at = ?, updated_at = ?
+                WHERE job_id = ?
+                """,
+                (document_id, int(deduped), completed_at, completed_at, job_id),
+            )
+        return self.get_index_job(job_id)
+
+    def fail_index_job(self, job_id: str, error_code: str, error_message: str) -> dict | None:
+        current = self.get_index_job(job_id)
+        if not current:
+            return None
+        terminal = current["attempts"] >= current["max_attempts"] or current["cancel_requested"]
+        status = "cancelled" if current["cancel_requested"] else ("failed" if terminal else "queued")
+        delay = min(2 ** max(current["attempts"] - 1, 0), 30)
+        next_attempt = (datetime.utcnow() + timedelta(seconds=delay)).isoformat(timespec="microseconds")
+        completed_at = _utcnow() if status in {"failed", "cancelled"} else ""
+        with self._connection() as connection:
+            connection.execute(
+                """
+                UPDATE index_jobs SET status = ?, stage = ?, error_code = ?, error_message = ?,
+                    worker_id = '', lease_expires_at = '', next_attempt_at = ?,
+                    completed_at = ?, updated_at = ? WHERE job_id = ?
+                """,
+                (status, status, error_code[:80], error_message[:500], next_attempt, completed_at, _utcnow(), job_id),
+            )
+        return self.get_index_job(job_id)
+
+    def retry_index_job(self, job_id: str) -> dict | None:
+        now = _utcnow()
+        with self._connection() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE index_jobs SET status = 'queued', stage = 'receive', progress = 0,
+                    attempts = 0, cancel_requested = 0, error_code = '', error_message = '',
+                    worker_id = '', lease_expires_at = '', next_attempt_at = ?,
+                    completed_at = '', updated_at = ?
+                WHERE job_id = ? AND status IN ('failed', 'cancelled')
+                """,
+                (now, now, job_id),
+            )
+        return self.get_index_job(job_id) if cursor.rowcount else None
+
+    def request_index_job_cancel(self, job_id: str) -> dict | None:
+        current = self.get_index_job(job_id)
+        if not current:
+            return None
+        if current["status"] in {"succeeded", "failed", "cancelled"}:
+            return current
+        next_status = "cancelling" if current["status"] == "running" else "cancelled"
+        with self._connection() as connection:
+            connection.execute(
+                """
+                UPDATE index_jobs SET status = ?, stage = ?, cancel_requested = 1,
+                    completed_at = CASE WHEN ? = 'cancelled' THEN ? ELSE completed_at END,
+                    updated_at = ? WHERE job_id = ?
+                """,
+                (next_status, next_status, next_status, _utcnow(), _utcnow(), job_id),
+            )
+        return self.get_index_job(job_id)
+
+    def recover_stale_index_jobs(self) -> int:
+        now = _utcnow()
+        with self._connection() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE index_jobs SET status = 'queued', stage = 'receive', worker_id = '',
+                    lease_expires_at = '', next_attempt_at = ?, updated_at = ?
+                WHERE status IN ('running', 'cancelling') AND lease_expires_at != '' AND lease_expires_at <= ?
+                """,
+                (now, now, now),
+            )
+        return cursor.rowcount
+
+    def make_index_job_available(self, job_id: str) -> None:
+        with self._connection() as connection:
+            connection.execute("UPDATE index_jobs SET next_attempt_at = ? WHERE job_id = ?", (_utcnow(), job_id))
+
+    # Existing quality/history APIs --------------------------------------------
+
+    def save_history(self, question: str, response: dict, knowledge_base_id: str = DEFAULT_KNOWLEDGE_BASE_ID) -> dict:
         history_id = str(uuid.uuid4())
-        created_at = datetime.utcnow().isoformat()
-        answer = response.get("answer", "")
-        citations = response.get("citations", [])
+        created_at = _utcnow()
         payload = {
             "id": history_id,
             "question": question,
-            "answer": answer,
-            "citations": citations,
+            "answer": response.get("answer", ""),
+            "citations": response.get("citations", []),
             "retrieval_trace": response.get("retrieval_trace", {}),
             "generation_trace": response.get("generation_trace", {}),
             "confidence": response.get("confidence"),
+            "knowledge_base_id": knowledge_base_id,
             "created_at": created_at,
         }
-        self.conn.execute(
-            """
-            INSERT INTO history (history_id, question, answer, payload, created_at)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (history_id, question, answer, json.dumps(payload, ensure_ascii=False), created_at),
-        )
-        self.conn.commit()
+        with self._connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO history (history_id, knowledge_base_id, question, answer, payload, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (history_id, knowledge_base_id, question, payload["answer"], json.dumps(payload, ensure_ascii=False), created_at),
+            )
         return payload
 
     def get_history(self, history_id: str) -> dict | None:
-        row = self.conn.execute("SELECT payload FROM history WHERE history_id = ?", (history_id,)).fetchone()
-        return json.loads(row[0]) if row else None
+        return self._json_row("SELECT payload FROM history WHERE history_id = ?", (history_id,))
 
     def list_history(self, limit: int = 30) -> list[dict]:
-        rows = self.conn.execute(
-            "SELECT payload FROM history ORDER BY created_at DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
-        return [json.loads(row[0]) for row in rows]
+        return self._json_rows("SELECT payload FROM history ORDER BY created_at DESC LIMIT ?", (limit,))
 
     def clear_history(self) -> None:
-        self.conn.execute("DELETE FROM history")
-        self.conn.commit()
+        with self._connection() as connection:
+            connection.execute("DELETE FROM history")
 
     def save_feedback(self, payload: dict) -> dict:
-        feedback_id = str(uuid.uuid4())
-        created_at = datetime.utcnow().isoformat()
-        stored = {
-            "id": feedback_id,
-            "created_at": created_at,
-            **payload,
-        }
-        self.conn.execute(
-            """
-            INSERT INTO feedback (feedback_id, history_id, rating, failure_type, payload, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (
-                feedback_id,
-                stored.get("history_id") or "",
-                stored.get("rating") or "",
-                stored.get("failure_type") or "",
-                json.dumps(stored, ensure_ascii=False),
-                created_at,
-            ),
-        )
-        self.conn.commit()
+        stored = {"id": str(uuid.uuid4()), "created_at": _utcnow(), **payload}
+        with self._connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO feedback (feedback_id, history_id, rating, failure_type, payload, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (stored["id"], stored.get("history_id") or "", stored.get("rating") or "", stored.get("failure_type") or "", json.dumps(stored, ensure_ascii=False), stored["created_at"]),
+            )
         return stored
 
     def list_feedback(self, limit: int = 50) -> list[dict]:
-        rows = self.conn.execute(
-            "SELECT payload FROM feedback ORDER BY created_at DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
-        return [json.loads(row[0]) for row in rows]
+        return self._json_rows("SELECT payload FROM feedback ORDER BY created_at DESC LIMIT ?", (limit,))
 
     def feedback_stats(self) -> dict:
-        rows = self.conn.execute("SELECT payload FROM feedback ORDER BY created_at DESC").fetchall()
-        feedback = [json.loads(row[0]) for row in rows]
+        feedback = self._json_rows("SELECT payload FROM feedback ORDER BY created_at DESC")
         failure_types: dict[str, int] = {}
         for item in feedback:
             failure_type = item.get("failure_type") or "unclassified"
@@ -145,166 +674,292 @@ class DocumentRegistry:
         }
 
     def log_operation(self, event_type: str, message: str, payload: dict | None = None, level: str = "info") -> dict:
-        operation_id = str(uuid.uuid4())
-        created_at = datetime.utcnow().isoformat()
-        stored = {
-            "id": operation_id,
-            "event_type": event_type,
-            "level": level,
-            "message": message,
-            "payload": payload or {},
-            "created_at": created_at,
-        }
-        self.conn.execute(
-            """
-            INSERT INTO operation_logs (operation_id, event_type, level, payload, created_at)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (
-                operation_id,
-                event_type,
-                level,
-                json.dumps(stored, ensure_ascii=False),
-                created_at,
-            ),
-        )
-        self.conn.commit()
+        stored = {"id": str(uuid.uuid4()), "event_type": event_type, "level": level, "message": message, "payload": payload or {}, "created_at": _utcnow()}
+        with self._connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO operation_logs (operation_id, event_type, level, payload, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (stored["id"], event_type, level, json.dumps(stored, ensure_ascii=False), stored["created_at"]),
+            )
         return stored
 
     def list_operations(self, limit: int = 40) -> list[dict]:
-        rows = self.conn.execute(
-            "SELECT payload FROM operation_logs ORDER BY created_at DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
-        return [json.loads(row[0]) for row in rows]
+        return self._json_rows("SELECT payload FROM operation_logs ORDER BY created_at DESC LIMIT ?", (limit,))
 
     def save_knowledge_card(self, payload: dict) -> dict:
-        card_id = str(uuid.uuid4())
-        created_at = datetime.utcnow().isoformat()
-        stored = {
-            "id": card_id,
-            "created_at": created_at,
-            **payload,
-        }
-        self.conn.execute(
-            """
-            INSERT INTO knowledge_cards (card_id, title, payload, created_at)
-            VALUES (?, ?, ?, ?)
-            """,
-            (
-                card_id,
-                stored.get("title") or "",
-                json.dumps(stored, ensure_ascii=False),
-                created_at,
-            ),
-        )
-        self.conn.commit()
+        stored = {"id": str(uuid.uuid4()), "created_at": _utcnow(), **payload}
+        with self._connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO knowledge_cards (card_id, title, payload, created_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (stored["id"], stored.get("title") or "", json.dumps(stored, ensure_ascii=False), stored["created_at"]),
+            )
         return stored
 
     def list_knowledge_cards(self, limit: int = 50) -> list[dict]:
-        rows = self.conn.execute(
-            "SELECT payload FROM knowledge_cards ORDER BY created_at DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
-        return [json.loads(row[0]) for row in rows]
+        return self._json_rows("SELECT payload FROM knowledge_cards ORDER BY created_at DESC LIMIT ?", (limit,))
 
     def delete_knowledge_card(self, card_id: str) -> bool:
-        cursor = self.conn.execute("DELETE FROM knowledge_cards WHERE card_id = ?", (card_id,))
-        self.conn.commit()
+        with self._connection() as connection:
+            cursor = connection.execute("DELETE FROM knowledge_cards WHERE card_id = ?", (card_id,))
         return cursor.rowcount > 0
 
     def save_eval_case(self, payload: dict) -> dict:
-        case_id = str(uuid.uuid4())
-        created_at = datetime.utcnow().isoformat()
-        stored = {
-            "id": case_id,
-            "created_at": created_at,
-            "status": payload.get("status") or "draft",
-            **payload,
-        }
-        self.conn.execute(
-            """
-            INSERT INTO eval_cases (case_id, question, payload, created_at)
-            VALUES (?, ?, ?, ?)
-            """,
-            (
-                case_id,
-                stored.get("question") or "",
-                json.dumps(stored, ensure_ascii=False),
-                created_at,
-            ),
-        )
-        self.conn.commit()
+        stored = {"id": str(uuid.uuid4()), "created_at": _utcnow(), "status": payload.get("status") or "draft", **payload}
+        with self._connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO eval_cases (case_id, question, payload, created_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (stored["id"], stored.get("question") or "", json.dumps(stored, ensure_ascii=False), stored["created_at"]),
+            )
         return stored
 
     def list_eval_cases(self, limit: int = 100) -> list[dict]:
-        rows = self.conn.execute(
-            "SELECT payload FROM eval_cases ORDER BY created_at DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
-        return [json.loads(row[0]) for row in rows]
+        return self._json_rows("SELECT payload FROM eval_cases ORDER BY created_at DESC LIMIT ?", (limit,))
+
+    # Schema and serialization helpers -----------------------------------------
+
+    def _backup_before_migration(self, path: Path) -> None:
+        if not path.exists() or path.stat().st_size == 0:
+            return
+        try:
+            connection = sqlite3.connect(str(path))
+            has_migrations = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='schema_migrations'"
+            ).fetchone()
+            version = 0
+            if has_migrations:
+                row = connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()
+                version = int(row[0] or 0)
+            connection.close()
+            if version >= self.CURRENT_SCHEMA_VERSION:
+                return
+            timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+            shutil.copy2(path, path.with_suffix(path.suffix + f".bak-{timestamp}"))
+        except sqlite3.DatabaseError:
+            return
 
     def _ensure_schema(self) -> None:
-        self.conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS documents (
-              document_id TEXT PRIMARY KEY,
-              payload TEXT NOT NULL
+        with self._connection() as connection:
+            connection.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS schema_migrations (
+                  version INTEGER PRIMARY KEY,
+                  applied_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS knowledge_bases (
+                  knowledge_base_id TEXT PRIMARY KEY,
+                  name TEXT NOT NULL,
+                  description TEXT NOT NULL DEFAULT '',
+                  is_default INTEGER NOT NULL DEFAULT 0,
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS documents (
+                  document_id TEXT PRIMARY KEY,
+                  knowledge_base_id TEXT NOT NULL DEFAULT 'default',
+                  content_hash TEXT NOT NULL DEFAULT '',
+                  index_version TEXT NOT NULL DEFAULT 'hybrid-v1',
+                  payload TEXT NOT NULL,
+                  FOREIGN KEY (knowledge_base_id) REFERENCES knowledge_bases(knowledge_base_id)
+                );
+                CREATE TABLE IF NOT EXISTS history (
+                  history_id TEXT PRIMARY KEY,
+                  knowledge_base_id TEXT NOT NULL DEFAULT 'default',
+                  question TEXT NOT NULL,
+                  answer TEXT NOT NULL,
+                  payload TEXT NOT NULL,
+                  created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS feedback (
+                  feedback_id TEXT PRIMARY KEY, history_id TEXT, rating TEXT NOT NULL,
+                  failure_type TEXT, payload TEXT NOT NULL, created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS operation_logs (
+                  operation_id TEXT PRIMARY KEY, event_type TEXT NOT NULL, level TEXT NOT NULL,
+                  payload TEXT NOT NULL, created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS knowledge_cards (
+                  card_id TEXT PRIMARY KEY, title TEXT NOT NULL, payload TEXT NOT NULL, created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS eval_cases (
+                  case_id TEXT PRIMARY KEY, question TEXT NOT NULL, payload TEXT NOT NULL, created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS conversations (
+                  conversation_id TEXT PRIMARY KEY,
+                  title TEXT NOT NULL,
+                  knowledge_base_ids TEXT NOT NULL,
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS conversation_messages (
+                  message_id TEXT PRIMARY KEY,
+                  conversation_id TEXT NOT NULL,
+                  role TEXT NOT NULL,
+                  content TEXT NOT NULL,
+                  status TEXT NOT NULL,
+                  metadata TEXT NOT NULL,
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL,
+                  FOREIGN KEY (conversation_id) REFERENCES conversations(conversation_id) ON DELETE CASCADE
+                );
+                CREATE TABLE IF NOT EXISTS index_jobs (
+                  job_id TEXT PRIMARY KEY,
+                  source_type TEXT NOT NULL,
+                  source_name TEXT NOT NULL,
+                  payload TEXT NOT NULL,
+                  knowledge_base_id TEXT NOT NULL,
+                  idempotency_key TEXT NOT NULL UNIQUE,
+                  status TEXT NOT NULL,
+                  stage TEXT NOT NULL,
+                  progress INTEGER NOT NULL,
+                  attempts INTEGER NOT NULL,
+                  max_attempts INTEGER NOT NULL,
+                  cancel_requested INTEGER NOT NULL DEFAULT 0,
+                  deduped INTEGER NOT NULL DEFAULT 0,
+                  error_code TEXT NOT NULL DEFAULT '',
+                  error_message TEXT NOT NULL DEFAULT '',
+                  document_id TEXT NOT NULL DEFAULT '',
+                  worker_id TEXT NOT NULL DEFAULT '',
+                  lease_expires_at TEXT NOT NULL DEFAULT '',
+                  next_attempt_at TEXT NOT NULL,
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL,
+                  started_at TEXT NOT NULL DEFAULT '',
+                  completed_at TEXT NOT NULL DEFAULT '',
+                  FOREIGN KEY (knowledge_base_id) REFERENCES knowledge_bases(knowledge_base_id)
+                );
+                """
             )
-            """
-        )
-        self.conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS history (
-              history_id TEXT PRIMARY KEY,
-              question TEXT NOT NULL,
-              answer TEXT NOT NULL,
-              payload TEXT NOT NULL,
-              created_at TEXT NOT NULL
+            self._add_column_if_missing(connection, "documents", "knowledge_base_id", "TEXT NOT NULL DEFAULT 'default'")
+            self._add_column_if_missing(connection, "documents", "content_hash", "TEXT NOT NULL DEFAULT ''")
+            self._add_column_if_missing(connection, "documents", "index_version", "TEXT NOT NULL DEFAULT 'hybrid-v1'")
+            self._add_column_if_missing(connection, "history", "knowledge_base_id", "TEXT NOT NULL DEFAULT 'default'")
+            connection.executescript(
+                """
+                CREATE INDEX IF NOT EXISTS idx_documents_kb ON documents(knowledge_base_id);
+                CREATE INDEX IF NOT EXISTS idx_documents_hash ON documents(content_hash, knowledge_base_id);
+                CREATE INDEX IF NOT EXISTS idx_jobs_status ON index_jobs(status, next_attempt_at);
+                CREATE INDEX IF NOT EXISTS idx_messages_conversation ON conversation_messages(conversation_id, created_at);
+                """
             )
-            """
-        )
-        self.conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS feedback (
-              feedback_id TEXT PRIMARY KEY,
-              history_id TEXT,
-              rating TEXT NOT NULL,
-              failure_type TEXT,
-              payload TEXT NOT NULL,
-              created_at TEXT NOT NULL
+            now = _utcnow()
+            connection.execute(
+                """
+                INSERT INTO knowledge_bases
+                  (knowledge_base_id, name, description, is_default, created_at, updated_at)
+                VALUES (?, ?, '自动迁移的本地默认空间', 1, ?, ?)
+                ON CONFLICT(knowledge_base_id) DO NOTHING
+                """,
+                (DEFAULT_KNOWLEDGE_BASE_ID, DEFAULT_KNOWLEDGE_BASE_NAME, now, now),
             )
-            """
-        )
-        self.conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS operation_logs (
-              operation_id TEXT PRIMARY KEY,
-              event_type TEXT NOT NULL,
-              level TEXT NOT NULL,
-              payload TEXT NOT NULL,
-              created_at TEXT NOT NULL
+            rows = connection.execute("SELECT document_id, payload FROM documents").fetchall()
+            for row in rows:
+                document = Document.model_validate_json(row["payload"])
+                document.metadata.setdefault("knowledge_base_id", DEFAULT_KNOWLEDGE_BASE_ID)
+                document.metadata.setdefault("chunker_version", "paragraph-v1")
+                document.metadata.setdefault("index_version", "hybrid-v1")
+                connection.execute(
+                    """
+                    UPDATE documents SET knowledge_base_id = ?, content_hash = ?, index_version = ?, payload = ?
+                    WHERE document_id = ?
+                    """,
+                    (
+                        document.metadata["knowledge_base_id"],
+                        str(document.metadata.get("content_hash") or ""),
+                        str(document.metadata.get("index_version") or "hybrid-v1"),
+                        document.model_dump_json(),
+                        document.document_id,
+                    ),
+                )
+            connection.execute(
+                "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+                (self.CURRENT_SCHEMA_VERSION, now),
             )
-            """
-        )
-        self.conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS knowledge_cards (
-              card_id TEXT PRIMARY KEY,
-              title TEXT NOT NULL,
-              payload TEXT NOT NULL,
-              created_at TEXT NOT NULL
-            )
-            """
-        )
-        self.conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS eval_cases (
-              case_id TEXT PRIMARY KEY,
-              question TEXT NOT NULL,
-              payload TEXT NOT NULL,
-              created_at TEXT NOT NULL
-            )
-            """
-        )
-        self.conn.commit()
+
+    def _add_column_if_missing(self, connection: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+        columns = {row["name"] for row in connection.execute(f"PRAGMA table_info({table})").fetchall()}
+        if column not in columns:
+            connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+    def _assert_knowledge_base(self, connection: sqlite3.Connection, knowledge_base_id: str) -> None:
+        row = connection.execute(
+            "SELECT 1 FROM knowledge_bases WHERE knowledge_base_id = ?",
+            (knowledge_base_id,),
+        ).fetchone()
+        if not row:
+            raise ValueError("Knowledge base not found")
+
+    def _json_row(self, query: str, params: tuple = ()) -> dict | None:
+        with self._connection() as connection:
+            row = connection.execute(query, params).fetchone()
+        return json.loads(row["payload"]) if row else None
+
+    def _json_rows(self, query: str, params: tuple = ()) -> list[dict]:
+        with self._connection() as connection:
+            rows = connection.execute(query, params).fetchall()
+        return [json.loads(row["payload"]) for row in rows]
+
+    def _knowledge_base_payload(self, row: sqlite3.Row) -> dict:
+        return {
+            "id": row["knowledge_base_id"],
+            "name": row["name"],
+            "description": row["description"],
+            "is_default": bool(row["is_default"]),
+            "document_count": int(row["document_count"]),
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    def _conversation_payload(self, row: sqlite3.Row) -> dict:
+        return {
+            "id": row["conversation_id"],
+            "title": row["title"],
+            "knowledge_base_ids": json.loads(row["knowledge_base_ids"]),
+            "message_count": int(row["message_count"]),
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    def _message_payload(self, row: sqlite3.Row) -> dict:
+        return {
+            "id": row["message_id"],
+            "conversation_id": row["conversation_id"],
+            "role": row["role"],
+            "content": row["content"],
+            "status": row["status"],
+            "metadata": json.loads(row["metadata"]),
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    def _job_payload(self, row: sqlite3.Row, *, include_payload: bool = False) -> dict:
+        result = {
+            "id": row["job_id"],
+            "source_type": row["source_type"],
+            "source_name": row["source_name"],
+            "knowledge_base_id": row["knowledge_base_id"],
+            "status": row["status"],
+            "stage": row["stage"],
+            "progress": int(row["progress"]),
+            "attempts": int(row["attempts"]),
+            "max_attempts": int(row["max_attempts"]),
+            "cancel_requested": bool(row["cancel_requested"]),
+            "deduped": bool(row["deduped"]),
+            "error_code": row["error_code"],
+            "error_message": row["error_message"],
+            "document_id": row["document_id"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+            "started_at": row["started_at"],
+            "completed_at": row["completed_at"],
+        }
+        if include_payload:
+            result["payload"] = json.loads(row["payload"])
+        return result

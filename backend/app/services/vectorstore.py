@@ -60,7 +60,14 @@ class MemoryVectorStore(BaseVectorStore):
 
 
 class ChromaVectorStore(BaseVectorStore):
-    def __init__(self, persist_path: str, collection_name: str = "personal_knowledge"):
+    def __init__(
+        self,
+        persist_path: str,
+        collection_name: str = "personal_knowledge",
+        expected_dimension: int = 0,
+        index_version: str = "",
+        embedding_model: str = "",
+    ):
         try:
             import chromadb
         except ImportError as exc:
@@ -68,7 +75,24 @@ class ChromaVectorStore(BaseVectorStore):
 
         Path(persist_path).mkdir(parents=True, exist_ok=True)
         self.client = chromadb.PersistentClient(path=persist_path)
-        self.collection = self.client.get_or_create_collection(name=collection_name)
+        metadata = {
+            "embedding_dimension": int(expected_dimension or 0),
+            "index_version": index_version or "unspecified",
+            "embedding_model": embedding_model or "unspecified",
+        }
+        self.collection = self.client.get_or_create_collection(name=collection_name, metadata=metadata)
+        self.expected_dimension = int(expected_dimension or 0)
+        stored_metadata = getattr(self.collection, "metadata", None) or {}
+        stored_dimension = int(stored_metadata.get("embedding_dimension") or 0)
+        stored_version = str(stored_metadata.get("index_version") or "")
+        if self.expected_dimension and stored_dimension and stored_dimension != self.expected_dimension:
+            raise ValueError(
+                f"Chroma collection embedding dimension mismatch: stored {stored_dimension}, expected {self.expected_dimension}"
+            )
+        if index_version and stored_version and stored_version not in {"unspecified", index_version}:
+            raise ValueError(
+                f"Chroma collection index version mismatch: stored {stored_version}, expected {index_version}"
+            )
         self.chunks: dict[str, Chunk] = {}
         self.embeddings: dict[str, list[float]] = {}
         self._load_existing()
@@ -76,6 +100,9 @@ class ChromaVectorStore(BaseVectorStore):
     def add_chunks(self, chunks: list[Chunk], embeddings: list[list[float]]) -> None:
         if len(chunks) != len(embeddings):
             raise ValueError("chunks and embeddings length mismatch")
+        if self.expected_dimension and any(len(item) != self.expected_dimension for item in embeddings):
+            actual = len(embeddings[0]) if embeddings else 0
+            raise ValueError(f"Chroma embedding dimension mismatch: expected {self.expected_dimension}, got {actual}")
         ids = [chunk.chunk_id for chunk in chunks]
         metadatas = [self._metadata(chunk) for chunk in chunks]
         documents = [chunk.text for chunk in chunks]

@@ -9,6 +9,7 @@
 | 组件 | 默认端口 | 健康检查 | 持久数据 |
 | --- | ---: | --- | --- |
 | FastAPI backend | 8010 | `/health`、`/ready` | `data/registry.sqlite3`、`data/uploads` |
+| Local index worker | backend lifespan | `/api/index-jobs` + queue metrics | SQLite job state、`data/ingestions` 暂存 |
 | Nginx frontend | 5173 → 8080 | `/healthz` | 无 |
 | Memory vector store | 进程内 | `/ready` provider 摘要 | 无；启动时补建 |
 | Chroma / pgvector | 可选 | provider 相关 | 外部或挂载路径 |
@@ -33,10 +34,11 @@ curl --fail http://127.0.0.1:5173/api/documents
 ### 建议指标
 
 - HTTP 请求量、错误率、p50/p95 延迟与 429；
-- 上传解析耗时、失败类型和重建次数；
+- 队列深度、任务阶段耗时、失败/重试/取消、过期租约恢复；
 - 检索 zero-hit、fallback、refusal 与候选数分布；
 - 引用数量、覆盖率和 unsupported claim 分布；
 - provider 超时、配额、费用和降级次数；
+- 首 token 延迟、stream cancel、Provider error、index version mismatch；
 - 文档、chunk、反馈与 eval draft 数量。
 
 内置 `/api/metrics` 是 Beta 业务摘要，不是 Prometheus endpoint。生产环境应通过 OpenTelemetry/metrics backend 输出聚合指标，避免把原始问题或文档正文作为 label。
@@ -88,9 +90,19 @@ tar -czf personal-rag-data-backup.tgz data/
 
 1. 查看文档 `index_status` 和 `/api/operations`。
 2. 确认 `DOCUMENT_REGISTRY_PATH` 指向当前数据卷。
-3. memory 模式重启后等待启动补建。
-4. 使用单文档 rebuild；确认后再 rebuild-all。
-5. 若真实 embedding 报 dimension mismatch，创建新 collection/table，不要清空唯一副本。
+3. 检查选中的 knowledge base；KB 隔离发生在文档过滤和 BM25/vector 之前。
+4. memory 模式重启后等待启动补建。
+5. 使用单文档 rebuild；确认后再 rebuild-all。
+6. 若显示 `needs_rebuild` 或 dimension mismatch，创建匹配版本 collection/table 并重建，不要清空唯一副本。
+
+### 索引任务停滞或失败
+
+1. `curl http://127.0.0.1:8010/api/index-jobs`，记录 job ID、status、stage、attempts 和 request ID；响应不会暴露暂存路径或原始 URL payload。
+2. `running` 在租约过期后会重新排队；不要同时启动多个进程共享一个 SQLite worker。
+3. `failed`/`cancelled` 使用 `POST /api/index-jobs/{id}/retry`；其他状态返回 `409`。
+4. `DELETE /api/index-jobs/{id}` 请求协作取消；解析不可中断时会在下一阶段边界清理。
+5. 三次自动尝试后仍失败，先修复 parser/provider/磁盘原因再人工 retry；不要无限重试损坏文件。
+6. 数据库升级或恢复流程见[Durable Local 0.2](durable-local-0.2.md)。
 
 ### URL 导入异常增多
 
@@ -109,9 +121,9 @@ tar -czf personal-rag-data-backup.tgz data/
 
 ### Provider 不可用
 
-1. 从 `/ready` 和 Trace 确认实际 provider。
+1. 从 `/api/providers/status`、`/ready` 和 Trace 确认实际 provider；production 的 `degraded`/`503` 不会静默伪装为模板成功。
 2. 检查超时、配额和 endpoint，不在日志粘贴 Key。
-3. 切换 `ANSWER_PROVIDER=template` 验证核心检索仍可用。
+3. 在隔离维护窗口显式切换 `ANSWER_PROVIDER=template` 验证核心检索；不要把这当 production 自动 fallback。
 4. Embedding provider 故障期间停止写入新索引，避免混合版本。
 5. 服务恢复后对失败文档执行幂等重建。
 

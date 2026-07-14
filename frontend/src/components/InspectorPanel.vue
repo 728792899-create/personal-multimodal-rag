@@ -154,6 +154,10 @@ function percent(value?: number) {
           <div><dt>拒答</dt><dd>{{ workbench.metrics.value.answering.no_answer_count }}</dd></div>
           <div><dt>Fallback</dt><dd>{{ workbench.metrics.value.answering.fallback_count }}</dd></div>
           <div><dt>负反馈</dt><dd>{{ workbench.metrics.value.feedback.negative }}</dd></div>
+          <div><dt>索引队列</dt><dd>{{ workbench.metrics.value.ingestion?.queue_depth ?? 0 }}</dd></div>
+          <div><dt>索引失败</dt><dd>{{ workbench.metrics.value.ingestion?.failed_count ?? 0 }}</dd></div>
+          <div><dt>首 Token</dt><dd>{{ workbench.metrics.value.answering.avg_first_token_ms ? `${workbench.metrics.value.answering.avg_first_token_ms} ms` : '—' }}</dd></div>
+          <div><dt>索引不兼容</dt><dd>{{ workbench.metrics.value.ingestion?.index_version_mismatch_count ?? 0 }}</dd></div>
         </dl>
         <section class="inspector-subsection">
           <h3>知识库健康</h3>

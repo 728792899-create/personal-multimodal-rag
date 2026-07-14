@@ -34,12 +34,14 @@
 
 ### 后端/集成
 
-1. [API 使用指南](api-reference.md)
-2. [配置指南](configuration.md)
-3. [代码导览](code-tour.md)
-4. [SQLite 数据模型](data-model.md)
-5. [安全威胁模型](security-model.md)
-6. [安全策略](../SECURITY.md)
+1. [Durable Local 0.2 迁移与恢复](durable-local-0.2.md)
+2. [API 使用指南](api-reference.md)
+3. [配置指南](configuration.md)
+4. [代码导览](code-tour.md)
+5. [SQLite 数据模型](data-model.md)
+6. [`rag-web-ui` 对比审查](comparative-review-rag-web-ui.md)
+7. [安全威胁模型](security-model.md)
+8. [安全策略](../SECURITY.md)
 
 ### 部署/运维
 

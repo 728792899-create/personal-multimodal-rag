@@ -14,6 +14,10 @@ function qualityLabel(score?: number) {
   if (score >= 70) return '可用'
   return '需复核'
 }
+
+function onKnowledgeBaseChange(event: Event) {
+  workbench.selectKnowledgeBase((event.target as HTMLSelectElement).value)
+}
 </script>
 
 <template>
@@ -33,18 +37,36 @@ function qualityLabel(score?: number) {
       </button>
     </header>
 
+    <section class="knowledge-base-switcher" aria-labelledby="knowledge-base-title">
+      <label id="knowledge-base-title" for="knowledge-base-select">当前知识库</label>
+      <select
+        id="knowledge-base-select"
+        :value="workbench.selectedKnowledgeBaseId.value"
+        :disabled="workbench.loadingKnowledgeBases.value"
+        @change="onKnowledgeBaseChange"
+      >
+        <option v-for="item in workbench.knowledgeBases.value" :key="item.id" :value="item.id">
+          {{ item.name }}（{{ item.document_count }}）
+        </option>
+      </select>
+      <form class="inline-create" aria-label="创建知识库" @submit.prevent="workbench.addKnowledgeBase">
+        <input v-model="workbench.newKnowledgeBaseName.value" maxlength="120" placeholder="新知识库名称" />
+        <button class="button secondary-button" type="submit" :disabled="!workbench.newKnowledgeBaseName.value.trim()">新增</button>
+      </form>
+    </section>
+
     <section class="ingest-group" aria-labelledby="upload-title">
       <h3 id="upload-title" class="sr-only">上传文件</h3>
       <label class="file-drop" :class="{ selected: workbench.selectedFile.value }">
         <span class="file-icon" aria-hidden="true">↑</span>
         <span>
           <strong>{{ workbench.selectedFile.value?.name || '选择文件' }}</strong>
-          <small>PDF、Markdown、文本或图片 · 最大 20 MB</small>
+          <small>PDF、DOCX、Markdown、文本或图片 · 最大 20 MB</small>
         </span>
         <input
           data-testid="file-input"
           type="file"
-          accept=".pdf,.md,.markdown,.txt,.png,.jpg,.jpeg"
+          accept=".pdf,.docx,.md,.markdown,.txt,.png,.jpg,.jpeg"
           @change="onFileChange"
         />
       </label>
@@ -81,6 +103,36 @@ function qualityLabel(score?: number) {
         </button>
       </div>
     </form>
+
+    <details class="task-section" :open="Boolean(workbench.activeJobs.value.length)">
+      <summary>索引任务 <span>{{ workbench.indexJobs.value.length }}</span></summary>
+      <div v-if="workbench.indexJobs.value.length" class="task-list" aria-live="polite">
+        <article v-for="job in workbench.indexJobs.value.slice(0, 6)" :key="job.id">
+          <div>
+            <strong>{{ job.source_name }}</strong>
+            <span>{{ job.stage }} · {{ job.progress }}% · 第 {{ job.attempts }}/{{ job.max_attempts }} 次</span>
+          </div>
+          <progress :value="job.progress" max="100">{{ job.progress }}%</progress>
+          <p v-if="job.error_message" class="task-error">{{ job.error_message }}</p>
+          <div class="inline-actions">
+            <button
+              v-if="['queued', 'running', 'cancelling'].includes(job.status)"
+              type="button"
+              class="button text-button"
+              @click="workbench.cancelIndexJob(job.id)"
+            >取消</button>
+            <button
+              v-if="['failed', 'cancelled'].includes(job.status)"
+              type="button"
+              class="button text-button"
+              @click="workbench.retryIndexJob(job.id)"
+            >重试</button>
+            <span :class="['job-status', job.status]">{{ job.status }}</span>
+          </div>
+        </article>
+      </div>
+      <p v-else class="muted-copy">上传和 URL 导入会在这里显示可恢复进度。</p>
+    </details>
 
     <div class="list-toolbar">
       <label for="document-filter" class="sr-only">筛选文档</label>
@@ -142,6 +194,27 @@ function qualityLabel(score?: number) {
         </div>
       </li>
     </ul>
+
+    <details class="conversation-section" open>
+      <summary>持久化会话 <span>{{ workbench.conversations.value.length }}</span></summary>
+      <button type="button" class="button secondary-button full-width new-conversation" @click="workbench.startNewConversation">
+        新建会话
+      </button>
+      <div v-if="workbench.conversations.value.length" class="conversation-list">
+        <article
+          v-for="conversation in workbench.conversations.value.slice(0, 8)"
+          :key="conversation.id"
+          :class="{ active: conversation.id === workbench.activeConversationId.value }"
+        >
+          <button type="button" @click="workbench.selectConversation(conversation.id)">
+            <strong>{{ conversation.title }}</strong>
+            <span>{{ conversation.message_count }} 条消息 · {{ conversation.updated_at.slice(0, 10) }}</span>
+          </button>
+          <button type="button" class="button icon-button danger-button" :aria-label="`删除会话 ${conversation.title}`" @click="workbench.removeConversation(conversation.id)">×</button>
+        </article>
+      </div>
+      <p v-else class="muted-copy">第一次提问时会创建本地持久化会话。</p>
+    </details>
 
     <details class="history-section">
       <summary>问答历史 <span>{{ workbench.history.value.length }}</span></summary>

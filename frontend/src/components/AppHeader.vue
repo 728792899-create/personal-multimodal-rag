@@ -11,6 +11,12 @@ const workbench = useWorkbenchContext()
       <div>
         <p class="kicker">Personal multimodal RAG</p>
         <h1>证据工作台</h1>
+        <span
+          v-if="workbench.providerStatus.value"
+          :class="['provider-health', workbench.providerStatus.value.status]"
+        >
+          {{ workbench.providerStatus.value.status === 'ready' ? 'Provider ready' : 'Provider degraded' }}
+        </span>
       </div>
     </div>
 

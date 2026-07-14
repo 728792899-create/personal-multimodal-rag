@@ -3,8 +3,9 @@ uvicorn[standard]==0.35.0
 python-multipart==0.0.20
 pydantic==2.12.5
 PyMuPDF==1.26.5
-Pillow>=10.0.0
+Pillow==12.3.0
 httpx==0.28.1
 pytest==8.4.2
 python-dotenv==1.2.1
-pytesseract>=0.3.13
+pytesseract==0.3.13
+python-docx==1.2.0

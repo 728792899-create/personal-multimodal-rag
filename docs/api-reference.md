@@ -25,7 +25,8 @@ Authorization: Bearer <token>
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET | `/health` | 进程健康；用于 liveness |
-| GET | `/ready` | 返回当前 embedding、vector store、answer provider |
+| GET | `/ready` | schema、队列深度和脱敏 Provider 状态；未配置外部 Provider 时为 `degraded` |
+| GET | `/api/providers/status` | 只读能力、配置完整性与运行模式；不返回 Key/带凭据 URL |
 | GET | `/docs` | Swagger UI |
 
 ```bash
@@ -43,6 +44,8 @@ curl --fail http://127.0.0.1:8010/ready
 | DELETE | `/api/documents/{document_id}` | 删除 registry、索引和受管上传文件 |
 | POST | `/api/documents/{document_id}/rebuild` | 重建单文档索引 |
 | POST | `/api/documents/rebuild-all` | 重建全部文档索引 |
+
+同步上传/URL API为 0.1 客户端保留。0.2 前端默认使用后面的异步任务接口。
 
 上传示例：
 
@@ -62,6 +65,29 @@ curl --fail-with-body \
 ```
 
 URL 导入只允许公开 HTTP(S) 地址。回环、内网、链路本地、嵌入凭据、危险重定向、二进制类型、超大响应和超时都会被拒绝。
+
+## 知识库与异步入库
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET / POST | `/api/knowledge-bases` | 列表 / 创建知识库 |
+| PATCH | `/api/knowledge-bases/{id}` | 改名或更新描述 |
+| DELETE | `/api/knowledge-bases/{id}?force=false` | 有文档/终态任务时需 `force=true`；活动任务始终 `409`；默认库不可删除 |
+| POST | `/api/ingestions/file` | multipart 文件入队，返回 `202` + `IndexJob` |
+| POST | `/api/ingestions/url` | URL 入队，返回 `202` + `IndexJob` |
+| GET | `/api/index-jobs`、`/api/index-jobs/{id}` | 任务中心与单任务状态 |
+| POST | `/api/index-jobs/{id}/retry` | 仅 failed/cancelled 可重试 |
+| DELETE | `/api/index-jobs/{id}` | 请求取消；running 先进入 cancelling |
+
+文件表单字段是 `file` 与 `knowledge_base_id`。任务状态为 `queued/running/succeeded/failed/cancelling/cancelled`；阶段为 `receive/validate/parse/chunk/embed/write/quality/complete`。重复幂等请求会返回已有任务，不重复创建文档。
+
+强制删除知识库会级联清理其文档与终态任务，并从持久会话范围移除该库；若会话不再选择任何库，则回退到默认库。为避免 worker 写回已删除空间，仍处于 queued/running/cancelling 的任务必须先取消并等待终态。
+
+```bash
+curl --fail-with-body -F knowledge_base_id=default \
+  -F 'file=@samples/demo-documents/01-system-overview.md' \
+  http://127.0.0.1:8010/api/ingestions/file
+```
 
 ## 检索与问答 API
 
@@ -104,6 +130,7 @@ curl --fail-with-body \
 | `search_mode` | hybrid / keyword / semantic | hybrid | 召回分支 |
 | `search_profile` | balanced / precision / recall | balanced | 目标导向预设 |
 | `document_ids` | string[] | [] | 空数组代表全库 |
+| `knowledge_base_ids` | string[] | [] | 缺省使用默认库；先隔离 KB 再应用文档筛选 |
 | `bm25_weight` | 0–1 或 null | 环境默认 | 融合词法权重 |
 | `vector_weight` | 0–1 或 null | 环境默认 | 融合向量权重 |
 | `mmr_lambda` | 0–1 或 null | 环境默认 | 相关性/多样性权衡 |
@@ -131,6 +158,29 @@ curl --fail-with-body \
 ```
 
 拒答仍返回成功的业务响应，并在 `answer`、`trust`、`retrieval_trace` 和 `gap_report` 中说明证据不足；调用方不应把它当网络错误重试。
+
+## 持久会话与 SSE
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET / POST | `/api/conversations` | 列表 / 创建会话 |
+| GET / PATCH / DELETE | `/api/conversations/{id}` | 读取、改名/切换 KB、删除 |
+| GET | `/api/conversations/{id}/messages` | 按时间读取消息 |
+| POST | `/api/conversations/{id}/messages:stream` | `text/event-stream` 回答 |
+
+每个 SSE data payload 都含 `type`、`request_id`、`conversation_id`、`message_id` 与严格递增 `sequence`。事件 union 固定为：
+
+```text
+retrieval.started
+retrieval.completed
+answer.delta
+answer.completed
+refusal
+error
+done
+```
+
+无证据时不会调用生成 Provider，而是发送 `refusal` 后 `done`。有证据时 `answer.delta` 只代表待审计正文；引用、confidence 与 citation audit 以 `answer.completed.response` 为准。客户端应按 `sequence` 去重，收到 `done` 后结束；中断连接会把 assistant message 标记为 `cancelled`。
 
 ## 质量、反馈与知识工具
 
@@ -178,6 +228,8 @@ curl --fail-with-body \
 | 413 | 文件超过 `MAX_UPLOAD_BYTES` | 压缩或调整显式上限 |
 | 422 | Pydantic schema 校验失败 | 按字段错误修正 payload |
 | 429 | 进程内限流 | 等待 `Retry-After` 后重试 |
+| 409 | 有内容的 KB 删除、不可重试任务或索引冲突 | 刷新状态并执行显式操作 |
+| 503 | production 外部 Provider 未配置/不可用 | 查看 `/api/providers/status`，不要期待静默模板降级 |
 | 500 | 未处理的服务端错误 | 记录请求 ID，查看安全日志 |
 
 前端 client 同时处理 Abort、请求超时和 Nginx 502/504，并保留最近一次成功回答，避免错误页面抹掉可用证据。

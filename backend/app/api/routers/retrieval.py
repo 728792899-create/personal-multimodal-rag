@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException
 
 from app.api.common import retrieval_options
 from app.core.store import rag_engine, registry, retriever
+from app.config import settings
 from app.models.schemas import AskRequest, SearchCompareRequest, SearchRequest
 from app.services.knowledge_tools import analyze_knowledge_gaps, build_citation_context
 
@@ -36,7 +37,15 @@ def compare_search(payload: SearchCompareRequest):
 
 @router.post("/ask")
 def ask(payload: AskRequest):
-    response = rag_engine.ask(payload.question, **retrieval_options(payload))
+    try:
+        response = rag_engine.ask(payload.question, **retrieval_options(payload))
+    except Exception as exc:
+        if not settings.provider_fallback_allowed and settings.answer_provider.lower() not in {"template", "local", "none"}:
+            raise HTTPException(
+                status_code=503,
+                detail="Configured answer provider is unavailable; inspect provider status and request logs.",
+            ) from exc
+        raise
     response["gap_report"] = analyze_knowledge_gaps(
         payload.question,
         response.get("answer", ""),
@@ -44,7 +53,11 @@ def ask(payload: AskRequest):
         registry.load_documents(),
         registry.list_feedback(limit=100),
     )
-    history = registry.save_history(payload.question, response)
+    history = registry.save_history(
+        payload.question,
+        response,
+        payload.knowledge_base_ids[0] if payload.knowledge_base_ids else "default",
+    )
     response["history_id"] = history["id"]
     response["created_at"] = history["created_at"]
     registry.log_operation(

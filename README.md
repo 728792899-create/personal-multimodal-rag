@@ -16,7 +16,7 @@
 
 面向单用户/小团队 Beta 的本地优先多模态 RAG 工作台。它不只展示“上传并问答”，还把 BM25、向量召回、融合去重、MMR、Rerank、拒答决策和引用覆盖率组织成可理解、可回归的证据链。
 
-默认使用 deterministic hash embedding、内存向量库和模板回答：**无需真实 API Key、不会调用付费 API**。PDF、Markdown、文本、图片 OCR、URL 导入、引用上下文、质量审计、反馈评测和专家参数均保留。
+默认使用 deterministic hash embedding、内存向量库和模板回答：**无需真实 API Key、不会调用付费 API**。PDF、DOCX、Markdown、文本、图片 OCR、URL 导入、持久会话、引用上下文、质量审计、反馈评测和专家参数均保留。
 
 ## 一分钟看懂
 
@@ -24,10 +24,10 @@
 
 | 默认体验 | 可信度机制 | 工程证据 | 生产边界 |
 | --- | --- | --- | --- |
-| 零 Key、离线可运行 | 无证据拒答 | 54 个后端测试 | 可选认证与 Sentry |
-| 多格式与 URL 导入 | 七阶段检索 Trace | 8 个前端测试 | Chroma / pgvector adapter |
-| 普通/专家双模式 | 引用上下文与覆盖审计 | 4 个 Browser E2E | workspace/任务/对象存储方案 |
-| Docker Compose | 反馈 → eval draft | 30 条黄金回归 case | 本地 Demo 永不依赖外部服务 |
+| 零 Key、离线可运行 | 无证据拒答 | 72 个后端测试 | 可选认证与 Sentry |
+| 多知识库、DOCX 与 URL | 七阶段检索 Trace | 11 个前端测试 | Chroma / pgvector adapter |
+| 持久会话与流式回答 | 引用上下文与覆盖审计 | 6 个 Browser E2E | 外部任务队列/对象存储方案 |
+| 可恢复索引任务 | 反馈 → eval draft | 40 条黄金回归 case | 本地 Demo 永不依赖外部服务 |
 
 这个仓库刻意同时展示三件事：**RAG 能力、工程可靠性、产品可信度**。如果只想快速体验，从[产品巡游](docs/product-tour.md)开始；如果要审查实现，阅读[架构](docs/architecture.md)和[检索原理](docs/retrieval-explained.md)；如果准备部署，直接查看[配置](docs/configuration.md)、[运维手册](docs/operations-runbook.md)与[生产适配](docs/production-adapters.md)。
 
@@ -44,10 +44,10 @@
 
 | 领域 | 已实现 | 默认离线 | 可选增强 |
 | --- | --- | :---: | --- |
-| 输入 | PDF、Markdown、TXT、PNG/JPEG、公开 URL | ✓ | Tesseract OCR |
-| 处理 | 清洗、SHA-256 去重、chunk、质量评分、生命周期 | ✓ | 版面/表格模型待规划 |
-| 检索 | BM25、vector、融合、MMR、rerank、文档范围 | ✓ | local/OpenAI embedding、Chroma、pgvector |
-| 回答 | 模板/Responses adapter、取消、超时、fallback | ✓ | OpenAI-compatible Responses |
+| 输入 | PDF、DOCX、Markdown、TXT、PNG/JPEG、公开 URL | ✓ | Tesseract OCR |
+| 处理 | SQLite 任务、租约恢复、去重、重试/取消、版本兼容 | ✓ | 分布式队列待接入 |
+| 检索 | 知识库隔离、BM25、vector、融合、MMR、rerank | ✓ | local/OpenAI/Ollama embedding、Chroma、pgvector |
+| 回答 | 持久会话、SSE、模板/Responses/chat/Ollama adapter | ✓ | 外部 Provider 人工验证 |
 | 可信度 | no-answer gate、引用、相邻上下文、citation audit | ✓ | NLI/LLM judge 待规划 |
 | 质量 | 反馈、eval draft、黄金集、Recall@K、MRR、引用/拒答 | ✓ | 真实流量抽样待规划 |
 | 交付 | Nginx、FastAPI、Compose、healthcheck、GitHub Actions | ✓ | 云端基础设施由部署方接入 |
@@ -121,7 +121,7 @@ npm test                 # 后端 pytest + 前端 Vitest
 npm run lint:docs        # 相对链接、图片 alt 与 SVG 可访问性
 npm run build            # vue-tsc + Vite production build
 npm run test:demo        # 端到端 API smoke
-npm run eval:retrieval   # 30 条固定黄金集 + 阈值
+npm run eval:retrieval   # 40 条固定黄金集 + 五项阈值
 npm run test:e2e         # Chromium 桌面 + 390px 级移动视图
 ```
 
@@ -133,17 +133,18 @@ npm run verify
 
 当前本地验收证据见 [验证基线](docs/validation-baseline.md)。评测失败会生成可读报告到 `eval/reports/latest.md`；CI 会始终上传报告 artifact。
 
-![30 条固定黄金集的指标实际值、门槛与 case 分布](docs/assets/evaluation-scorecard.svg)
+![40 条固定黄金集的指标实际值、门槛与 case 分布](docs/assets/evaluation-scorecard.svg)
 
 | 检查 | 当前本地结果 | CI 门槛 |
 | --- | ---: | ---: |
-| 后端测试 | 54 passed | 全部通过 |
-| 前端单元/组件 | 8 passed | 全部通过 |
-| Browser E2E | 4 passed | 桌面与移动全部通过 |
+| 后端测试 | 72 passed | 全部通过 |
+| 前端单元/组件 | 11 passed | 全部通过 |
+| Browser E2E | 6 passed | 桌面与移动全部通过 |
 | Recall@5 | 1.0000 | ≥ 0.90 |
-| MRR | 1.0000 | ≥ 0.75 |
-| 首条引用准确率 | 1.0000 | ≥ 0.75 |
+| MRR | 0.9844 | ≥ 0.75 |
+| 首条引用准确率 | 0.9688 | ≥ 0.75 |
 | 拒答准确率 | 1.0000 | ≥ 0.80 |
+| 回答接受准确率 | 1.0000 | ≥ 0.85 |
 
 > 上表是仓库内固定、脱敏、小规模黄金集的回归结果，用于发现代码退化，不代表开放域或真实业务语料上的绝对质量。
 
@@ -172,8 +173,9 @@ npm run verify
 
 ### 普通模式
 
-- 上传 PDF、Markdown、文本、PNG/JPEG，或导入公开 URL。
-- 选择全库或指定文档范围，提交问题并获得证据约束回答。
+- 创建/切换知识库，上传 PDF、DOCX、Markdown、文本、PNG/JPEG，或导入公开 URL。
+- 在任务中心查看排队、分块、嵌入、写入、失败、取消与重试状态。
+- 选择知识库或指定文档范围，在持久会话中获得流式、证据约束回答。
 - 查看引用片段、相邻上下文、置信度和引用覆盖率。
 - 对无证据问题明确拒答，不把向量噪声包装成结论。
 - 负反馈一键生成 eval draft。
@@ -199,7 +201,8 @@ npm run verify
 ```mermaid
 flowchart LR
   UI["Vue 工作台"] --> API["FastAPI 领域路由"]
-  API --> INGEST["上传 / URL / OCR / 去重"]
+  API --> INGEST["异步上传 / URL / OCR / 去重"]
+  INGEST --> JOBS["SQLite Index Jobs"]
   INGEST --> REG["SQLite Registry"]
   INGEST --> INDEX["BM25 + Vector Adapter"]
   API --> ENGINE["RAG Engine"]
@@ -224,13 +227,14 @@ flowchart LR
 
 ## 安全与稳定性
 
-- 上传扩展名白名单、20 MB 上限、空文件拒绝、路径清理、唯一落盘名和 PDF/图片 magic-byte 校验。
+- 上传扩展名白名单、20 MB 上限、空文件拒绝、路径清理、唯一落盘名、PDF/图片 magic-byte 和 DOCX ZIP-bomb 校验。
 - URL 仅允许 HTTP(S)，禁止嵌入凭据，初始/重定向/最终地址都执行 SSRF 校验，并限制内容类型、字节数和超时。
 - API 支持可选 Bearer Token、进程内限流、`Retry-After` 和请求 ID。
 - 前端请求有超时、取消、Abort 语义、可读错误、请求 ID 与重试入口。
 - 日志会清理 Authorization、token、password、secret、URL query/fragment。
 - Sentry 仅在显式提供 DSN 且安装可选依赖时启用；默认关闭 PII 与 request body。
-- `memory` 向量库重启时会从 SQLite 文档注册表重建缺失索引；持久 store 不重复 embedding 已存在的 chunk。
+- SQLite 任务以租约恢复进程中断工作，最多三次自动尝试；内容哈希与索引版本组成幂等键。
+- `memory` 向量库重启时会从 SQLite 文档注册表重建缺失索引；维度/模型/索引版本不兼容的文档被标记 `needs_rebuild`，不混用向量。
 
 安全策略与漏洞报告见 [SECURITY.md](SECURITY.md)。
 
@@ -242,18 +246,18 @@ flowchart LR
 
 默认运行不需要 OpenAI。若显式选择真实 provider：
 
-- Responses 使用 `POST /v1/responses`；解析时遍历 `output[].content[]` 中的 `output_text`，不把 SDK 的 `output_text` 便利属性误当作 REST 固定字段。
+- Responses 使用 `POST /v1/responses` 和 `store:false`；流式消费 `response.output_text.delta`、`response.completed` 与 `error`，会话事实保存在本地 SQLite。
 - Embedding 使用批量 `input` 与 `encoding_format=float`；`dimensions` 只在配置非零且模型支持时发送。
-- 网络客户端有超时，异常会降级到本地模板或原查询，且错误文本经过脱敏。
+- 网络客户端有超时且错误文本经过脱敏；只有 local/test 显式允许模板回退，production 默认以安全 `503` 失败。
 
-配置示例见 `.env.example`。实现按 [OpenAI Responses API](https://platform.openai.com/docs/api-reference/responses/create) 和 [Embeddings API](https://platform.openai.com/docs/api-reference/embeddings/create) 校对。
+配置示例见 `.env.example`。实现按 [OpenAI Streaming Responses](https://developers.openai.com/api/docs/guides/streaming-responses)、[Conversation state](https://developers.openai.com/api/docs/guides/conversation-state) 和 [Embeddings API](https://developers.openai.com/api/reference/resources/embeddings/methods/create) 校对。
 
 ## 目录
 
 ```text
 backend/app/
   api/routes.py              # 路由组合根
-  api/routers/               # documents / retrieval / quality
+  api/routers/               # documents / ingestion / KB / conversations / providers / quality
   middleware/                # auth / rate limit / request id
   services/                  # ingest / retrieval / answer / audit / adapters
 frontend/

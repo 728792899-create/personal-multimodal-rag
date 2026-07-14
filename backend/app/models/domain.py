@@ -16,7 +16,7 @@ class Document(BaseModel):
     document_id: str
     file_name: str
     file_path: str
-    file_type: Literal["pdf", "markdown", "text", "image", "audio", "video"]
+    file_type: Literal["pdf", "docx", "markdown", "text", "image", "audio", "video"]
     title: Optional[str] = None
     created_at: datetime
     pages: list[DocumentPage]

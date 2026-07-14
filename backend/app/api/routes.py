@@ -9,9 +9,17 @@ from fastapi import APIRouter
 from app.api.routers.documents import router as documents_router
 from app.api.routers.quality import router as quality_router
 from app.api.routers.retrieval import router as retrieval_router
+from app.api.routers.knowledge_bases import router as knowledge_bases_router
+from app.api.routers.ingestion import router as ingestion_router
+from app.api.routers.conversations import router as conversations_router
+from app.api.routers.providers import router as providers_router
 
 
 router = APIRouter()
 router.include_router(documents_router)
 router.include_router(retrieval_router)
 router.include_router(quality_router)
+router.include_router(knowledge_bases_router)
+router.include_router(ingestion_router)
+router.include_router(conversations_router)
+router.include_router(providers_router)

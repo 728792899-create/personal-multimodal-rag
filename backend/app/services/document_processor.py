@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import uuid
 import hashlib
+import zipfile
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -13,14 +14,25 @@ from app.models.domain import Chunk, Document, DocumentPage
 from app.services.ocr import ImageOCRAdapter
 
 
-SUPPORTED_EXTENSIONS = {".txt", ".md", ".markdown", ".pdf", ".png", ".jpg", ".jpeg"}
+SUPPORTED_EXTENSIONS = {".txt", ".md", ".markdown", ".pdf", ".docx", ".png", ".jpg", ".jpeg"}
 
 
 class DocumentProcessor:
-    def __init__(self, chunk_size: int = 520, overlap: int = 90, ocr_adapter: ImageOCRAdapter | None = None):
+    def __init__(
+        self,
+        chunk_size: int = 520,
+        overlap: int = 90,
+        ocr_adapter: ImageOCRAdapter | None = None,
+        docx_max_entries: int = 500,
+        docx_max_uncompressed_bytes: int = 64 * 1024 * 1024,
+        docx_max_compression_ratio: int = 200,
+    ):
         self.chunk_size = chunk_size
         self.overlap = overlap
         self.ocr_adapter = ocr_adapter or ImageOCRAdapter()
+        self.docx_max_entries = docx_max_entries
+        self.docx_max_uncompressed_bytes = docx_max_uncompressed_bytes
+        self.docx_max_compression_ratio = docx_max_compression_ratio
 
     def parse_file(self, file_path: Path, original_name: Optional[str] = None) -> Document:
         filename = original_name or file_path.name
@@ -30,6 +42,8 @@ class DocumentProcessor:
 
         if suffix == ".pdf":
             pages, metadata = self._parse_pdf(file_path)
+        elif suffix == ".docx":
+            pages, metadata = self._parse_docx(file_path)
         elif suffix in {".png", ".jpg", ".jpeg"}:
             pages, metadata = self._parse_image(file_path)
         else:
@@ -156,6 +170,72 @@ class DocumentProcessor:
         metadata = {"parser": "markdown" if suffix in {".md", ".markdown"} else "plain_text"}
         return [DocumentPage(page_number=None, text=text, metadata={})], metadata
 
+    def _parse_docx(self, file_path: Path) -> tuple[list[DocumentPage], dict]:
+        self._validate_docx_archive(file_path)
+        try:
+            from docx import Document as WordDocument
+        except ImportError as exc:
+            raise ValueError("DOCX support requires python-docx") from exc
+
+        try:
+            word = WordDocument(str(file_path))
+            blocks: list[str] = []
+            heading_count = 0
+            for paragraph in word.paragraphs:
+                text = self.normalize_text(paragraph.text)
+                if not text:
+                    continue
+                style_name = str(getattr(paragraph.style, "name", "") or "")
+                match = re.match(r"Heading\s+([1-6])", style_name, flags=re.IGNORECASE)
+                if match:
+                    heading_count += 1
+                    blocks.append(f"{'#' * int(match.group(1))} {text}")
+                else:
+                    blocks.append(text)
+            table_count = 0
+            for table in word.tables:
+                rows: list[str] = []
+                for row in table.rows:
+                    cells = [self.normalize_text(cell.text).replace("\n", " ") for cell in row.cells]
+                    if any(cells):
+                        rows.append(" | ".join(cells))
+                if rows:
+                    table_count += 1
+                    blocks.append("\n".join(rows))
+            text = "\n\n".join(blocks)
+            return [DocumentPage(page_number=None, text=text, metadata={"table_count": table_count})], {
+                "parser": "python-docx",
+                "heading_count": heading_count,
+                "table_count": table_count,
+            }
+        except ValueError:
+            raise
+        except Exception as exc:
+            raise ValueError(f"Failed to parse DOCX: {exc}") from exc
+
+    def _validate_docx_archive(self, file_path: Path) -> None:
+        if not zipfile.is_zipfile(file_path):
+            raise ValueError("DOCX is not a valid Office document archive")
+        try:
+            with zipfile.ZipFile(file_path) as archive:
+                entries = archive.infolist()
+                names = {entry.filename for entry in entries}
+                if "[Content_Types].xml" not in names or "word/document.xml" not in names:
+                    raise ValueError("DOCX is not a valid Office document archive")
+                if len(entries) > self.docx_max_entries:
+                    raise ValueError("DOCX contains too many archive entries")
+                expanded_size = sum(max(0, entry.file_size) for entry in entries)
+                if expanded_size > self.docx_max_uncompressed_bytes:
+                    raise ValueError("DOCX expanded size exceeds the configured limit")
+                for entry in entries:
+                    if entry.file_size <= 4096:
+                        continue
+                    ratio = entry.file_size / max(entry.compress_size, 1)
+                    if ratio > self.docx_max_compression_ratio:
+                        raise ValueError("DOCX compression ratio is suspicious")
+        except zipfile.BadZipFile as exc:
+            raise ValueError("DOCX is not a valid Office document archive") from exc
+
     def _parse_image(self, file_path: Path) -> tuple[list[DocumentPage], dict]:
         result = self.ocr_adapter.extract_text(file_path)
         if result.text:
@@ -232,6 +312,8 @@ class DocumentProcessor:
     def _file_type(self, suffix: str):
         if suffix == ".pdf":
             return "pdf"
+        if suffix == ".docx":
+            return "docx"
         if suffix in {".md", ".markdown"}:
             return "markdown"
         if suffix in {".png", ".jpg", ".jpeg"}:

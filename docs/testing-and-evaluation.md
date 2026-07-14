@@ -9,11 +9,11 @@
 | 层级 | 工具 | 当前覆盖 | 主要失败信号 |
 | --- | --- | --- | --- |
 | 文档质量 | Python stdlib checker | Markdown + SVG + PNG/JPEG 清单 | 失效链接、空 alt、无障碍元数据、伪格式或预览规格 |
-| 后端单元/接口 | pytest | 54 tests | schema、SSRF、上传、拒答、adapter、日志与恢复 |
-| 前端单元/组件 | Vitest + Testing Library | 8 tests | API 超时、Trace 渲染和工作台交互 |
+| 后端单元/接口 | pytest | 72 tests | legacy migration、KB、jobs、DOCX、SSE、多轮、provider、拒答与恢复 |
+| 前端单元/组件 | Vitest + Testing Library | 11 tests | SSE、KB/jobs、API 超时、Trace 和工作台交互 |
 | Demo smoke | pytest | 1 workflow | 导入 → 提问 → 引用的真实内存链路 |
-| 浏览器关键路径 | Playwright Chromium | 4 tests | 上传、URL、问答、引用、拒答、专家参数、反馈 |
-| 检索回归 | 固定 JSONL + Python runner | 30 cases | Recall@5、MRR、引用、拒答阈值 |
+| 浏览器关键路径 | Playwright Chromium | 6 tests | 上传、URL、问答、引用、拒答、KB、任务重试、移动端 |
+| 检索回归 | 固定 JSONL + Python runner | 40 cases | Recall@5、MRR、引用、拒答、回答接受阈值 |
 | 容器集成 | Docker Compose + curl | 2 services | 构建、健康等待和前端代理 |
 
 统计数字是当前基线，不是永久承诺；新增行为时应优先增加覆盖，而不是维持某个测试数量。
@@ -23,6 +23,7 @@
 ```bash
 npm test                 # pytest + Vitest
 npm run lint:docs        # 链接、alt、SVG 元数据、图片格式/清单与 social preview
+npm run lint:secrets     # 跟踪/待提交文本中的高置信度凭据模式
 npm run build            # TypeScript check + Vite production build
 npm run test:demo        # 离线 API smoke
 npm run eval:retrieval   # 固定黄金集与阈值
@@ -102,7 +103,7 @@ MRR = mean(1 / first relevant rank)
 
 ### Answer acceptance
 
-报告额外记录可回答 case 是否没有被错误拒绝，便于区分“召回到了错误来源”和“门槛过高”。当前阈值文件没有把它设为独立 CI 门，但明细会显示。
+可回答 case 是否没有被错误拒绝，便于区分“召回到了错误来源”和“门槛过高”；0.2 将它设为独立 CI 门。
 
 ## 当前门槛
 
@@ -114,6 +115,7 @@ MRR = mean(1 / first relevant rank)
 | MRR | 0.75 |
 | 首条引用准确率 | 0.75 |
 | 拒答准确率 | 0.80 |
+| 回答接受准确率 | 0.85 |
 
 门槛不是漂亮数字展示。修改门槛必须在 PR 中解释：数据集如何变化、失败属于预期产品变化还是回归、为什么新阈值仍能阻止已知故障。
 
@@ -136,7 +138,7 @@ eval/reports/latest.md    # 人可读指标、case 表和需要处理列表
 eval/reports/latest.json  # 机器可读 summary、checks 与 rows
 ```
 
-报告目录被 Git 忽略，GitHub Actions 每次都上传 artifact。阈值失败时 runner 返回非零退出码；需要只记录新基线时可直接运行脚本的 `--no-fail`，但不能把它用于 CI 绕过门禁。
+报告会写入 latest 快照，GitHub Actions 每次都上传 artifact。阈值失败时 runner 返回非零退出码并列出失败指标与 case；需要只记录新基线时可直接运行脚本的 `--no-fail`，但不能把它用于 CI 绕过门禁。
 
 ## 新增回归 case 的流程
 

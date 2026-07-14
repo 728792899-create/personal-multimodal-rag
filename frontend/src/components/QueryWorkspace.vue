@@ -169,7 +169,10 @@ const presets = [
 
     <div v-if="workbench.loading.value" class="query-loading" aria-live="polite">
       <span class="spinner" aria-hidden="true"></span>
-      正在召回、去重并审计证据…
+      <span v-if="workbench.streamPhase.value === 'retrieving'">正在召回、融合与去重证据…</span>
+      <span v-else-if="workbench.streamPhase.value === 'streaming'">证据已就绪，正在生成回答…</span>
+      <span v-else-if="workbench.streamPhase.value === 'auditing'">正在流式生成，最终引用审计尚未完成…</span>
+      <span v-else>正在召回、去重并审计证据…</span>
     </div>
 
     <section v-if="workbench.compareResult.value" class="comparison" aria-labelledby="comparison-title">

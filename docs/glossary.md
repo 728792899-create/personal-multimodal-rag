@@ -23,10 +23,15 @@
 | MRR | 第一个相关结果排名倒数的平均值 |
 | Eval draft | 由反馈或人工创建、尚未进入固定黄金集的候选 case |
 | Golden set | 固定、脱敏、可重复执行并设有阈值的评测集 |
-| Registry | SQLite 中保存的文档、内容、历史、反馈和操作数据 |
+| Registry | SQLite 中保存的知识库、文档、会话、任务、历史、反馈和操作数据 |
+| Knowledge base | 检索前的数据范围；本地组织能力，不是多租户授权边界 |
+| Index job | 文件/URL 入库的持久状态，含阶段、进度、租约、尝试和取消 |
+| Lease | worker 对任务的限时 claim；过期后可恢复排队 |
+| Idempotency key | KB、内容、chunker 与 index 配置生成的稳定键，避免重复入库 |
+| SSE | 服务端事件流；按递增 sequence 发送 retrieval、delta、completed/refusal/error、done |
 | Workspace | 生产多团队隔离单位；当前 Beta 尚未实现完整边界 |
 | Trust boundary | 数据或控制权跨越不同信任级别的位置，必须重新校验和授权 |
 | State machine | idle、pending、success、error、cancel、retry 等可见且可恢复的前端状态 |
 | Social preview | GitHub 分享链接时显示的 1280×640 项目预览图，不是产品截图 |
-| Responses provider | 使用 OpenAI-compatible `/v1/responses` 的回答 adapter |
+| Responses provider | 使用 OpenAI `/v1/responses` typed streaming events 且 `store:false` 的回答 adapter |
 | Offline default | mock embedding + memory vector + template answer 的零 Key 路径 |

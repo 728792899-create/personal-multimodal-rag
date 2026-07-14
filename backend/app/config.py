@@ -22,6 +22,7 @@ _load_dotenv()
 
 @dataclass
 class Settings:
+    app_environment: str = os.getenv("APP_ENVIRONMENT", "local")
     embedding_provider: str = os.getenv("EMBEDDING_PROVIDER", "mock")
     embedding_model: str = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
     embedding_dimension: int = int(os.getenv("EMBEDDING_DIMENSION", "0") or "0")
@@ -73,6 +74,17 @@ class Settings:
         "yes",
         "on",
     }
+    provider_fallback_allowed: bool = os.getenv(
+        "PROVIDER_FALLBACK_ALLOWED",
+        "1" if os.getenv("APP_ENVIRONMENT", "local") in {"local", "test", "development"} else "0",
+    ).strip().lower() in {"1", "true", "yes", "on"}
+    chunker_version: str = os.getenv("CHUNKER_VERSION", "paragraph-v1")
+    index_version: str = os.getenv("INDEX_VERSION", "hybrid-v1")
+    ingestion_poll_seconds: float = float(os.getenv("INGESTION_POLL_SECONDS", "0.10"))
+    ingestion_lease_seconds: int = int(os.getenv("INGESTION_LEASE_SECONDS", "120"))
+    ollama_base_url: str = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
+    ollama_chat_model: str = os.getenv("OLLAMA_CHAT_MODEL", "qwen3:8b")
+    ollama_embedding_model: str = os.getenv("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")
 
     def resolved_embedding_dimension(self) -> int:
         if self.embedding_dimension:

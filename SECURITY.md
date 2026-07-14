@@ -2,7 +2,7 @@
 
 ## Supported version
 
-`0.1.x` is a single-user/small-team Beta. Security fixes target the latest `main`; older snapshots are not maintained.
+`0.2.x` is a single-user/small-team, single-instance Beta. Security fixes target the latest `main`; older snapshots are not maintained.
 
 ## Reporting a vulnerability
 
@@ -22,6 +22,7 @@ Do not test against systems or data you do not own. Maintainers should acknowled
 - Keep `RAG_ALLOW_PRIVATE_URLS=0` unless the service is isolated and the imported private hosts are explicitly trusted.
 - Use per-workspace object prefixes and row-level authorization before enabling multiple teams.
 - Treat uploaded content and generated answers as untrusted; scan files and apply retention/deletion policies appropriate to the deployment.
+- Keep the built-in SQLite index worker single-instance; migrate to an authenticated external queue before horizontal scaling.
 - Set Sentry `send_default_pii=false` and never attach document text or authorization headers to events.
 
 ## Current defenses

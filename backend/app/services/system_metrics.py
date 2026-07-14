@@ -11,7 +11,11 @@ def build_system_metrics(
     feedback_stats: dict,
     operations: list[dict],
     chunk_count: int,
+    index_jobs: list[dict] | None = None,
+    conversation_metrics: dict | None = None,
 ) -> dict:
+    index_jobs = index_jobs or []
+    conversation_metrics = conversation_metrics or {}
     quality_scores = []
     for document in documents:
         quality = document.metadata.get("quality")
@@ -48,6 +52,20 @@ def build_system_metrics(
             "avg_confidence": round(mean(confidences), 4) if confidences else 0,
             "fallback_count": len(fallbacks),
             "no_answer_count": sum(1 for item in history if not item.get("citations")),
+            **conversation_metrics,
+        },
+        "ingestion": {
+            "queue_depth": sum(1 for item in index_jobs if item.get("status") in {"queued", "running", "cancelling"}),
+            "failed_count": sum(1 for item in index_jobs if item.get("status") == "failed"),
+            "cancelled_count": sum(1 for item in index_jobs if item.get("status") == "cancelled"),
+            "retry_count": sum(max(0, int(item.get("attempts", 0)) - 1) for item in index_jobs),
+            "by_status": {
+                status: sum(1 for item in index_jobs if item.get("status") == status)
+                for status in ["queued", "running", "succeeded", "failed", "cancelling", "cancelled"]
+            },
+            "index_version_mismatch_count": sum(
+                1 for document in documents if document.metadata.get("index_status") == "needs_rebuild"
+            ),
         },
         "feedback": feedback_stats,
         "operations": {

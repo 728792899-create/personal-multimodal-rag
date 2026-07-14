@@ -78,6 +78,7 @@ class HybridRetriever:
         search_mode: str = "hybrid",
         search_profile: str = "balanced",
         document_ids: Optional[list[str]] = None,
+        knowledge_base_ids: Optional[list[str]] = None,
         bm25_weight: Optional[float] = None,
         vector_weight: Optional[float] = None,
         mmr_lambda: Optional[float] = None,
@@ -92,10 +93,15 @@ class HybridRetriever:
         fallbacks: list[dict] = []
         query_analysis = analyze_query(query)
         document_filter = {item for item in (document_ids or []) if item}
+        knowledge_base_filter = {item for item in (knowledge_base_ids or []) if item}
         chunks = {
             chunk_id: chunk
             for chunk_id, chunk in self.vector_store.chunks.items()
-            if not document_filter or chunk.document_id in document_filter
+            if (not document_filter or chunk.document_id in document_filter)
+            and (
+                not knowledge_base_filter
+                or self._knowledge_base_for_document(chunk.document_id) in knowledge_base_filter
+            )
         }
         try:
             rewritten_queries = self._rewrite_queries(query, enabled=query_rewrite)
@@ -124,7 +130,7 @@ class HybridRetriever:
         if active_vector_weight > 0 and chunks:
             try:
                 query_vectors = self.embedding_provider.embed_batch(rewritten_queries)
-                vector_fetch_k = len(self.vector_store.chunks) if document_filter else active_candidate_k
+                vector_fetch_k = len(self.vector_store.chunks) if (document_filter or knowledge_base_filter) else active_candidate_k
                 for query_vec in query_vectors:
                     for item in self.vector_store.search(query_vec, top_k=vector_fetch_k):
                         chunk_id = item["chunk"].chunk_id
@@ -217,6 +223,7 @@ class HybridRetriever:
             "search_mode": search_mode,
             "search_profile": search_profile,
             "document_ids": sorted(document_filter),
+            "knowledge_base_ids": sorted(knowledge_base_filter),
             "scoring": f"{active_bm25_weight} * normalized BM25 + {active_vector_weight} * vector similarity",
             "bm25_weight": active_bm25_weight,
             "vector_weight": active_vector_weight,
@@ -249,6 +256,12 @@ class HybridRetriever:
             },
         }
         return ranked, trace
+
+    def _knowledge_base_for_document(self, document_id: str) -> str:
+        document = self.documents.get(document_id)
+        if document is None:
+            return "default"
+        return str(document.metadata.get("knowledge_base_id", "default"))
 
     def delete_document(self, document_id: str) -> bool:
         if document_id not in self.documents:

@@ -1,7 +1,6 @@
 import { computed, onBeforeUnmount, ref, shallowRef } from 'vue'
 
 import {
-  askQuestion,
   clearHistory,
   compareSearchStrategies,
   createEvalCase,
@@ -10,7 +9,6 @@ import {
   getDocumentDetail,
   getKnowledgeOverview,
   getSystemMetrics,
-  importUrl,
   listDocuments,
   listEvalDrafts,
   listHistory,
@@ -23,7 +21,6 @@ import {
   saveKnowledgeCard,
   searchDocuments,
   submitFeedback,
-  uploadDocument,
   type ApiError,
   type AppMode,
   type AskResponse,
@@ -47,10 +44,19 @@ import {
   type SearchProfile,
   type SystemMetrics,
   type WorkMode,
+  type ConversationStreamEvent,
 } from '../api'
+import { useConversations } from './useConversations'
+import { useIngestionJobs } from './useIngestionJobs'
+import { useKnowledgeBases } from './useKnowledgeBases'
+import { useProviderStatus } from './useProviderStatus'
 
 
 export function useWorkbench() {
+  const knowledgeBaseState = useKnowledgeBases()
+  const ingestionState = useIngestionJobs()
+  const conversationState = useConversations()
+  const providerState = useProviderStatus()
   const documents = ref<DocumentMeta[]>([])
   const history = ref<HistoryItem[]>([])
   const overview = ref<KnowledgeOverview | null>(null)
@@ -114,7 +120,10 @@ export function useWorkbench() {
   const bm25Weight = computed(() => Number((1 - vectorBalance.value).toFixed(2)))
   const vectorWeight = computed(() => Number(vectorBalance.value.toFixed(2)))
   const scopeSet = computed(() => new Set(scopedDocumentIds.value))
-  const scopeLabel = computed(() => scopedDocumentIds.value.length ? `${scopedDocumentIds.value.length} 份资料` : '全部资料')
+  const scopeLabel = computed(() => {
+    const base = knowledgeBaseState.selectedKnowledgeBase.value?.name || '默认知识库'
+    return scopedDocumentIds.value.length ? `${base} · ${scopedDocumentIds.value.length} 份资料` : `${base} · 全部资料`
+  })
   const filteredDocuments = computed(() => {
     const keyword = documentFilter.value.trim().toLowerCase()
     return keyword
@@ -125,6 +134,7 @@ export function useWorkbench() {
   const diagnostics = computed(() => answer.value?.diagnostics ?? [])
   const citationAudit = computed(() => answer.value?.citation_audit)
   const trust = computed(() => answer.value?.trust)
+  const streamAuditPending = computed(() => ['retrieving', 'streaming', 'auditing'].includes(conversationState.streamPhase.value))
 
   function clearError() {
     error.value = ''
@@ -141,7 +151,10 @@ export function useWorkbench() {
   }
 
   async function refreshDocuments() {
-    const [nextDocuments, nextOverview] = await Promise.all([listDocuments(), getKnowledgeOverview()])
+    const [nextDocuments, nextOverview] = await Promise.all([
+      listDocuments({}, knowledgeBaseState.selectedKnowledgeBaseId.value),
+      getKnowledgeOverview(),
+    ])
     documents.value = nextDocuments
     overview.value = nextOverview
     const existing = new Set(nextDocuments.map((doc) => doc.id))
@@ -166,7 +179,15 @@ export function useWorkbench() {
   async function boot() {
     booting.value = true
     clearError()
-    const results = await Promise.allSettled([refreshDocuments(), refreshActivity()])
+    const knowledgeResult = await Promise.allSettled([knowledgeBaseState.refreshKnowledgeBases()])
+    const results = await Promise.allSettled([
+      refreshDocuments(),
+      refreshActivity(),
+      ingestionState.refreshIndexJobs(),
+      conversationState.refreshConversations(),
+      providerState.refreshProviderStatus(),
+    ])
+    results.push(...knowledgeResult)
     const failure = results.find((item) => item.status === 'rejected')
     if (failure?.status === 'rejected') reportError(failure.reason, '工作台初始化失败', boot)
     booting.value = false
@@ -180,6 +201,7 @@ export function useWorkbench() {
         search_mode: 'hybrid',
         search_profile: 'balanced',
         document_ids: scopedDocumentIds.value,
+        knowledge_base_ids: [knowledgeBaseState.selectedKnowledgeBaseId.value],
         bm25_weight: 0.62,
         vector_weight: 0.38,
         mmr_lambda: 0.78,
@@ -194,6 +216,7 @@ export function useWorkbench() {
       search_mode: searchMode.value,
       search_profile: searchProfile.value,
       document_ids: scopedDocumentIds.value,
+      knowledge_base_ids: [knowledgeBaseState.selectedKnowledgeBaseId.value],
       bm25_weight: bm25Weight.value,
       vector_weight: vectorWeight.value,
       mmr_lambda: mmrLambda.value,
@@ -243,9 +266,31 @@ export function useWorkbench() {
     compareResult.value = null
     try {
       const options = buildRetrievalOptions()
-      answer.value = workMode.value === 'answer'
-        ? await askQuestion(question.value.trim(), options, { signal: runController.signal })
-        : searchOnlyAnswer(await searchDocuments(question.value.trim(), options, { signal: runController.signal }))
+      if (workMode.value === 'answer') {
+        answer.value = await conversationState.askInConversation(
+          question.value.trim(),
+          [knowledgeBaseState.selectedKnowledgeBaseId.value],
+          options,
+          (event: ConversationStreamEvent, partialText: string) => {
+            if (event.type === 'retrieval.completed' && event.retrieval_trace) {
+              answer.value = {
+                answer: '',
+                citations: event.citations || [],
+                retrieval_trace: event.retrieval_trace,
+                generation_trace: {},
+                confidence: event.confidence ?? 0,
+                diagnostics: event.diagnostics || [],
+              }
+            } else if (event.type === 'answer.delta' && answer.value) {
+              answer.value = { ...answer.value, answer: partialText }
+            } else if (event.type === 'answer.completed' || event.type === 'refusal') {
+              answer.value = event.response
+            }
+          },
+        )
+      } else {
+        answer.value = searchOnlyAnswer(await searchDocuments(question.value.trim(), options, { signal: runController.signal }))
+      }
       selectedCitation.value = answer.value.citations[0] ?? null
       inspectorTab.value = 'trace'
       await refreshActivity()
@@ -259,6 +304,7 @@ export function useWorkbench() {
 
   function cancelRun() {
     runController?.abort()
+    conversationState.cancelStream()
     loading.value = false
   }
 
@@ -269,7 +315,11 @@ export function useWorkbench() {
     uploading.value = true
     clearError()
     try {
-      await uploadDocument(selectedFile.value, { signal: uploadController.signal })
+      await ingestionState.ingestFile(
+        selectedFile.value,
+        knowledgeBaseState.selectedKnowledgeBaseId.value,
+        uploadController.signal,
+      )
       selectedFile.value = null
       await Promise.all([refreshDocuments(), refreshActivity()])
     } catch (caught) {
@@ -287,7 +337,11 @@ export function useWorkbench() {
     importingUrl.value = true
     clearError()
     try {
-      await importUrl(urlToImport.value.trim(), '', { signal: importController.signal })
+      await ingestionState.ingestUrl(
+        urlToImport.value.trim(),
+        knowledgeBaseState.selectedKnowledgeBaseId.value,
+        importController.signal,
+      )
       urlToImport.value = ''
       await Promise.all([refreshDocuments(), refreshActivity()])
     } catch (caught) {
@@ -387,6 +441,51 @@ export function useWorkbench() {
 
   function clearScope() {
     scopedDocumentIds.value = []
+  }
+
+  async function selectKnowledgeBase(knowledgeBaseId: string) {
+    if (knowledgeBaseId === knowledgeBaseState.selectedKnowledgeBaseId.value) return
+    knowledgeBaseState.selectedKnowledgeBaseId.value = knowledgeBaseId
+    scopedDocumentIds.value = []
+    selectedDocument.value = null
+    answer.value = null
+    await refreshDocuments()
+  }
+
+  async function addKnowledgeBase() {
+    try {
+      const created = await knowledgeBaseState.addKnowledgeBase()
+      if (created) {
+        knowledgeBaseState.selectedKnowledgeBaseId.value = created.id
+        scopedDocumentIds.value = []
+        answer.value = null
+        await refreshDocuments()
+      }
+    } catch (caught) {
+      reportError(caught, '创建知识库失败', addKnowledgeBase)
+    }
+  }
+
+  async function startNewConversation() {
+    conversationState.activeConversationId.value = ''
+    conversationState.conversationMessages.value = []
+    answer.value = null
+  }
+
+  async function openConversation(conversationId: string) {
+    try {
+      await conversationState.selectConversation(conversationId)
+      const assistant = [...conversationState.conversationMessages.value]
+        .reverse()
+        .find((item) => item.role === 'assistant' && item.status === 'completed')
+      const storedResponse = assistant?.metadata?.response
+      if (storedResponse && typeof storedResponse === 'object') {
+        answer.value = storedResponse as AskResponse
+        selectedCitation.value = answer.value.citations[0] ?? null
+      }
+    } catch (caught) {
+      reportError(caught, '会话加载失败', () => openConversation(conversationId))
+    }
   }
 
   function useHistory(item: HistoryItem) {
@@ -519,6 +618,7 @@ export function useWorkbench() {
     runController?.abort()
     uploadController?.abort()
     importController?.abort()
+    conversationState.cancelStream()
   })
 
   return {
@@ -537,6 +637,26 @@ export function useWorkbench() {
     toggleScope, clearScope, useHistory, eraseHistory, handleFeedback, handleRewrite,
     handleSaveCard, handleCreateEvalCase, handleRunEvalDrafts, handleDiagnosticAction,
     resetRetrievalControls, retryLast, clearError,
+    knowledgeBases: knowledgeBaseState.knowledgeBases,
+    selectedKnowledgeBaseId: knowledgeBaseState.selectedKnowledgeBaseId,
+    selectedKnowledgeBase: knowledgeBaseState.selectedKnowledgeBase,
+    loadingKnowledgeBases: knowledgeBaseState.loadingKnowledgeBases,
+    newKnowledgeBaseName: knowledgeBaseState.newKnowledgeBaseName,
+    indexJobs: ingestionState.indexJobs,
+    activeJobs: ingestionState.activeJobs,
+    cancelIndexJob: ingestionState.cancelJob,
+    retryIndexJob: ingestionState.retryJob,
+    conversations: conversationState.conversations,
+    conversationMessages: conversationState.conversationMessages,
+    activeConversationId: conversationState.activeConversationId,
+    streamPhase: conversationState.streamPhase,
+    streamAuditPending,
+    providerStatus: providerState.providerStatus,
+    selectKnowledgeBase,
+    addKnowledgeBase,
+    startNewConversation,
+    selectConversation: openConversation,
+    removeConversation: conversationState.removeConversation,
   }
 }
 

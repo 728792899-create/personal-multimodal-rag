@@ -132,4 +132,6 @@ def system_metrics():
         feedback_stats=registry.feedback_stats(),
         operations=registry.list_operations(limit=200),
         chunk_count=len(retriever.vector_store.chunks),
+        index_jobs=registry.list_index_jobs(limit=200),
+        conversation_metrics=registry.conversation_metrics(limit=200),
     )

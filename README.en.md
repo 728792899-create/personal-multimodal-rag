@@ -12,7 +12,7 @@
 
 [Quick start](#zero-key-quick-start) · [Case study](docs/case-study.md) · [Architecture](docs/architecture.md) · [Evaluation](docs/evaluation-results.md) · [Security](docs/security-model.md) · [Full documentation](docs/README.md)
 
-The project is a deployable single-user/small-team Beta rather than a chat UI wrapped around one model call. It ingests PDF, Markdown, text, images and public URLs; combines BM25 and vector recall; applies fusion, MMR and reranking; refuses unsupported questions; and links every answer back to inspectable chunks.
+The project is a durable single-instance Beta rather than a chat UI wrapped around one model call. It ingests PDF, DOCX, Markdown, text, images and public URLs into isolated knowledge bases; combines BM25 and vector recall; persists conversations; streams audited answers; refuses unsupported questions; and links every answer back to inspectable chunks.
 
 The default path is deterministic and offline: hash embeddings, an in-memory vector store and template answers require **no API key and make no paid API calls**. Optional adapters expose the production integration boundaries without making the local demo depend on them.
 
@@ -22,8 +22,9 @@ The default path is deterministic and offline: hash embeddings, an in-memory vec
 | --- | --- | --- |
 | File upload and guarded URL import | Evidence threshold and explicit refusal | FastAPI, Vue 3, Docker Compose |
 | Ordinary and expert modes | Stage-by-stage retrieval Trace | pytest, Vitest and Playwright |
-| Citation and neighboring context | Citation coverage audit | Fixed 30-case offline golden set |
+| Citation and neighboring context | Citation coverage audit | Fixed 40-case offline golden set |
 | Feedback to evaluation draft | Request IDs, timeout, cancel and retry | Health checks and five-job CI |
+| Durable local index jobs | Lease recovery and index compatibility | 72 backend / 11 frontend / 6 E2E tests |
 
 ![System map from ingestion to evidence-constrained answers and evaluation](docs/assets/system-overview.svg)
 
@@ -85,16 +86,17 @@ Read the [architecture guide](docs/architecture.md), [code tour](docs/code-tour.
 
 ## Deterministic evaluation
 
-![Thirty-case offline scorecard with thresholds for recall, ranking, citation and refusal](docs/assets/evaluation-scorecard.svg)
+![Forty-case offline scorecard with thresholds for recall, ranking, citation and refusal](docs/assets/evaluation-scorecard.svg)
 
 | Metric | Recorded result | CI minimum |
 | --- | ---: | ---: |
 | Recall@5 | 1.0000 | 0.90 |
-| MRR | 1.0000 | 0.75 |
-| First-citation accuracy | 1.0000 | 0.75 |
+| MRR | 0.9844 | 0.75 |
+| First-citation accuracy | 0.9688 | 0.75 |
 | Refusal accuracy | 1.0000 | 0.80 |
+| Answer-acceptance accuracy | 1.0000 | 0.85 |
 
-The set contains 30 sanitized cases: 24 answerable and 6 refusal cases. These numbers are regression signals for fixed repository fixtures—not a claim about open-domain production quality. See [evaluation results and caveats](docs/evaluation-results.md).
+The set contains 40 sanitized cases: 32 answerable and 8 refusal cases, including knowledge-base isolation, multi-turn follow-ups and real DOCX table parsing. These numbers are regression signals for fixed repository fixtures—not a claim about open-domain production quality. See [evaluation results and caveats](docs/evaluation-results.md).
 
 Run all acceptance checks with offline providers enforced:
 
@@ -102,7 +104,7 @@ Run all acceptance checks with offline providers enforced:
 npm run verify
 ```
 
-Or run `npm test`, `npm run lint:docs`, `npm run build`, `npm run test:demo`, `npm run eval:retrieval`, and `npm run test:e2e` separately.
+Or run `npm test`, `npm run lint:docs`, `npm run lint:secrets`, `npm run build`, `npm run test:demo`, `npm run eval:retrieval`, and `npm run test:e2e` separately.
 
 ## Security and production boundary
 
@@ -110,7 +112,7 @@ Or run `npm test`, `npm run lint:docs`, `npm run build`, `npm run test:demo`, `n
 
 Implemented controls cover upload type/size/signature checks, SSRF-aware URL validation across redirects, optional bearer authentication, process-local rate limiting, timeouts, cancellation, source cleanup, request IDs and sensitive-log redaction. The default Sentry integration disables PII and request bodies.
 
-This repository does **not** claim multi-tenant isolation. SQLite, local uploads, memory vectors and process-local rate limiting fit the local/single-instance Beta. Production teams still need workspace-scoped authorization, background indexing, object storage, pgvector migrations, Redis-backed limits, malware scanning, backups and operational ownership. The boundary and migration steps are explicit in the [security model](docs/security-model.md) and [production adapter plan](docs/production-adapters.md).
+This repository does **not** claim multi-tenant isolation. Versioned SQLite migrations, a lease-based local worker, local uploads, memory vectors and process-local rate limiting fit the local/single-instance Beta. Production teams still need workspace-scoped authorization, a distributed queue, object storage, pgvector migrations, Redis-backed limits, malware scanning, backups and operational ownership. The boundary and migration steps are explicit in the [Durable Local 0.2 guide](docs/durable-local-0.2.md), [security model](docs/security-model.md), and [production adapter plan](docs/production-adapters.md).
 
 ## License
 

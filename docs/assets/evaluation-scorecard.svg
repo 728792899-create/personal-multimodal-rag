@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1440" height="760" viewBox="0 0 1440 760" role="img" aria-labelledby="title desc">
   <title id="title">Offline retrieval evaluation scorecard</title>
-  <desc id="desc">Thirty fixed cases include twenty-four answerable and six refusal questions; Recall at 5, MRR, first citation accuracy and refusal accuracy are all 1.0 and exceed their configured thresholds.</desc>
+  <desc id="desc">Forty fixed cases include thirty-two answerable and eight refusal questions. Recall at 5 is 1.0, MRR is 0.9844, first citation accuracy is 0.9688, refusal accuracy and answer acceptance are 1.0; all exceed configured thresholds.</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#071629"/><stop offset="1" stop-color="#10373b"/></linearGradient>
     <linearGradient id="bar" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#14b8a6"/><stop offset="1" stop-color="#60a5fa"/></linearGradient>
@@ -9,19 +9,20 @@
   <rect width="1440" height="760" rx="28" fill="url(#bg)"/>
   <text x="54" y="62" class="h">Deterministic offline regression · 2026-07-14</text>
   <text x="54" y="92" class="sub">Fixed sanitized fixtures measure code regression—not open-domain production quality.</text>
-  <rect x="54" y="126" width="408" height="112" rx="20" class="card"/><text x="80" y="162" class="k">GOLDEN SET</text><text x="80" y="205" class="v">30 cases</text><text x="246" y="178" class="t">24 answerable</text><text x="246" y="205" class="t">6 refusal</text>
-  <rect x="486" y="126" width="408" height="112" rx="20" class="card"/><text x="512" y="162" class="k">SOURCE COVERAGE</text><text x="512" y="205" class="v">5 documents</text><text x="720" y="178" class="c">system · technical · workflow</text><text x="720" y="203" class="c">deployment · evaluation</text>
+  <rect x="54" y="126" width="408" height="112" rx="20" class="card"/><text x="80" y="162" class="k">GOLDEN SET</text><text x="80" y="205" class="v">40 cases</text><text x="246" y="178" class="t">32 answerable</text><text x="246" y="205" class="t">8 refusal</text>
+  <rect x="486" y="126" width="408" height="112" rx="20" class="card"/><text x="512" y="162" class="k">SOURCE COVERAGE</text><text x="512" y="205" class="v">6 documents</text><text x="720" y="178" class="c">system · technical · workflow</text><text x="720" y="203" class="c">deployment · evaluation · DOCX</text>
   <rect x="918" y="126" width="468" height="112" rx="20" class="card"/><text x="944" y="162" class="k">DECISION BALANCE</text><text x="944" y="205" class="v">80 / 20</text><text x="1120" y="178" class="t">answer / refuse</text><text x="1120" y="205" class="c">prevents recall-only optimization</text>
 
   <text x="54" y="286" class="k">METRICS · ACTUAL VS MINIMUM</text>
   <g>
-    <text x="54" y="332" class="t">Recall@5</text><rect x="252" y="310" width="920" height="28" rx="14" class="track"/><rect x="252" y="310" width="920" height="28" rx="14" fill="url(#bar)"/><line x1="1080" y1="302" x2="1080" y2="346" class="threshold"/><text x="1200" y="333" class="v">1.00</text><text x="1304" y="333" class="c">min .90</text>
-    <text x="54" y="402" class="t">MRR</text><rect x="252" y="380" width="920" height="28" rx="14" class="track"/><rect x="252" y="380" width="920" height="28" rx="14" fill="url(#bar)"/><line x1="942" y1="372" x2="942" y2="416" class="threshold"/><text x="1200" y="403" class="v">1.00</text><text x="1304" y="403" class="c">min .75</text>
-    <text x="54" y="472" class="t">First citation</text><rect x="252" y="450" width="920" height="28" rx="14" class="track"/><rect x="252" y="450" width="920" height="28" rx="14" fill="url(#bar)"/><line x1="942" y1="442" x2="942" y2="486" class="threshold"/><text x="1200" y="473" class="v">1.00</text><text x="1304" y="473" class="c">min .75</text>
-    <text x="54" y="542" class="t">Refusal accuracy</text><rect x="252" y="520" width="920" height="28" rx="14" class="track"/><rect x="252" y="520" width="920" height="28" rx="14" fill="url(#bar)"/><line x1="988" y1="512" x2="988" y2="556" class="threshold"/><text x="1200" y="543" class="v">1.00</text><text x="1304" y="543" class="c">min .80</text>
+    <text x="54" y="326" class="t">Recall@5</text><rect x="252" y="306" width="920" height="24" rx="12" class="track"/><rect x="252" y="306" width="920" height="24" rx="12" fill="url(#bar)"/><line x1="1080" y1="299" x2="1080" y2="337" class="threshold"/><text x="1200" y="327" class="v">1.000</text><text x="1320" y="327" class="c">.90</text>
+    <text x="54" y="381" class="t">MRR</text><rect x="252" y="361" width="920" height="24" rx="12" class="track"/><rect x="252" y="361" width="906" height="24" rx="12" fill="url(#bar)"/><line x1="942" y1="354" x2="942" y2="392" class="threshold"/><text x="1200" y="382" class="v">0.984</text><text x="1320" y="382" class="c">.75</text>
+    <text x="54" y="436" class="t">First citation</text><rect x="252" y="416" width="920" height="24" rx="12" class="track"/><rect x="252" y="416" width="891" height="24" rx="12" fill="url(#bar)"/><line x1="942" y1="409" x2="942" y2="447" class="threshold"/><text x="1200" y="437" class="v">0.969</text><text x="1320" y="437" class="c">.75</text>
+    <text x="54" y="491" class="t">Refusal accuracy</text><rect x="252" y="471" width="920" height="24" rx="12" class="track"/><rect x="252" y="471" width="920" height="24" rx="12" fill="url(#bar)"/><line x1="988" y1="464" x2="988" y2="502" class="threshold"/><text x="1200" y="492" class="v">1.000</text><text x="1320" y="492" class="c">.80</text>
+    <text x="54" y="546" class="t">Answer acceptance</text><rect x="252" y="526" width="920" height="24" rx="12" class="track"/><rect x="252" y="526" width="920" height="24" rx="12" fill="url(#bar)"/><line x1="1034" y1="519" x2="1034" y2="557" class="threshold"/><text x="1200" y="547" class="v">1.000</text><text x="1320" y="547" class="c">.85</text>
   </g>
-  <rect x="54" y="590" width="1332" height="116" rx="20" class="card"/>
-  <text x="80" y="626" class="t">Case mix</text>
-  <text x="80" y="658" class="c">evaluation 7 · refusal 6 · retrieval 3 · aigc 2 · deployment 2 · known-gap 2 · local-demo 2 · trust 2 · architecture/backend/frontend/observability 1 each</text>
-  <text x="80" y="682" class="c">Threshold markers are yellow. Full case-level output is written to eval/reports/latest.md and uploaded by CI.</text>
+  <rect x="54" y="586" width="1332" height="120" rx="20" class="card"/>
+  <text x="80" y="622" class="t">Case mix</text>
+  <text x="80" y="654" class="c">Original 30 + knowledge-base isolation · multi-turn follow-up · DOCX table parsing · provider/index-version regression</text>
+  <text x="80" y="680" class="c">Yellow markers are CI minimums. Exact category/source distributions and case rows are generated in eval/reports/latest.md.</text>
 </svg>

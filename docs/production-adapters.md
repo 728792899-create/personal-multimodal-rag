@@ -7,8 +7,8 @@
 | 关注点 | 本地 Beta | 生产建议 | 状态 |
 | --- | --- | --- | --- |
 | 身份 | 可选 Bearer token | OIDC/OAuth2 网关 + 短期会话 | 网关未部署 |
-| 工作区 | 单一 registry | `workspace_id` 贯穿 document/chunk/history/eval，服务端强制过滤 | 需 schema 迁移 |
-| 索引任务 | 请求内同步；重启补建 | 队列 + 幂等 worker + retry/DLQ | 未部署外部队列 |
+| 工作区 | 多 KB 数据范围；无授权租户 | `workspace_id` 贯穿 KB/document/chunk/conversation/job/eval，服务端强制过滤 | 需 schema/认证迁移 |
+| 索引任务 | SQLite 事实源 + 单实例 worker + lease/retry/cancel | 外部队列 + 幂等 worker + retry/DLQ | 本地已实现；外部队列未部署 |
 | 向量 | memory / 可选 Chroma/pgvector adapter | pgvector + 维度/模型版本分区 | adapter 已有，外部库未验收 |
 | 文件 | 本地 `data/uploads` | S3-compatible object store + presigned upload + AV scan | 未部署对象存储 |
 | 限流 | 单进程滑动窗口 | Redis/网关按 user/workspace 限流 | 未部署 Redis |
@@ -23,9 +23,11 @@
 ```text
 workspaces(id, name, created_at)
 memberships(workspace_id, user_id, role)
-documents(id, workspace_id, object_key, content_hash, status, ...)
+knowledge_bases(id, workspace_id, ...)
+documents(id, workspace_id, knowledge_base_id, object_key, content_hash, status, ...)
 chunks(id, workspace_id, document_id, embedding_model, ...)
-history(id, workspace_id, user_id, ...)
+conversations/messages(id, workspace_id, user_id, ...)
+index_jobs(id, workspace_id, idempotency_key, lease, ...)
 eval_cases(id, workspace_id, ...)
 ```
 
@@ -49,7 +51,7 @@ flowchart LR
   W -->|"retry exhausted"| DLQ["DLQ + alert"]
 ```
 
-幂等键建议使用 `workspace_id + content_hash + embedding_model + chunker_version`。删除流程先把文档标为 deleting，再异步删除向量和对象，最终写审计事件；worker 必须能安全重跑。
+0.2 已使用 `knowledge_base + content/url hash + embedding/index/chunker version` 生成本地幂等键，并公开稳定任务状态机。迁出时在键中增加服务端 workspace；删除流程先把文档标为 deleting，再异步删除向量和对象，最终写审计事件；worker 必须能安全处理重复投递。
 
 ## pgvector
 

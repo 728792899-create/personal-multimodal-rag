@@ -142,6 +142,7 @@ export interface RetrievalTrace {
   mmr_selected: number
   returned: number
   document_ids: string[]
+  knowledge_base_ids?: string[]
   embedding_provider: string
   embedding_model: string
   vector_store: string
@@ -238,6 +239,7 @@ export interface RetrievalOptions {
   search_mode?: SearchMode
   search_profile?: SearchProfile
   document_ids?: string[]
+  knowledge_base_ids?: string[]
   bm25_weight?: number
   vector_weight?: number
   mmr_lambda?: number
@@ -379,7 +381,24 @@ export interface EvaluationResult {
 
 export interface SystemMetrics {
   knowledge: { document_count: number; chunk_count: number; avg_quality_score: number; low_quality_count: number }
-  answering: { history_count: number; avg_confidence: number; fallback_count: number; no_answer_count: number }
+  answering: {
+    history_count: number
+    avg_confidence: number
+    fallback_count: number
+    no_answer_count: number
+    streamed_message_count?: number
+    cancelled_count?: number
+    provider_error_count?: number
+    avg_first_token_ms?: number
+  }
+  ingestion?: {
+    queue_depth: number
+    failed_count: number
+    cancelled_count: number
+    retry_count: number
+    by_status: Record<string, number>
+    index_version_mismatch_count: number
+  }
   feedback: FeedbackStats
   operations: {
     total: number
@@ -394,3 +413,75 @@ export interface RequestOptions {
   signal?: AbortSignal
   timeoutMs?: number
 }
+
+export interface KnowledgeBase {
+  id: string
+  name: string
+  description: string
+  is_default: boolean
+  document_count: number
+  created_at: string
+  updated_at: string
+}
+
+export type IndexJobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelling' | 'cancelled'
+
+export interface IndexJob {
+  id: string
+  source_type: 'file' | 'url'
+  source_name: string
+  knowledge_base_id: string
+  status: IndexJobStatus
+  stage: string
+  progress: number
+  attempts: number
+  max_attempts: number
+  cancel_requested: boolean
+  deduped: boolean
+  error_code: string
+  error_message: string
+  document_id: string
+  created_at: string
+  updated_at: string
+  started_at: string
+  completed_at: string
+}
+
+export interface Conversation {
+  id: string
+  title: string
+  knowledge_base_ids: string[]
+  message_count: number
+  created_at: string
+  updated_at: string
+}
+
+export interface ConversationMessage {
+  id: string
+  conversation_id: string
+  role: 'user' | 'assistant' | 'system'
+  content: string
+  status: 'streaming' | 'completed' | 'failed' | 'cancelled' | string
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface ProviderStatus {
+  status: 'ready' | 'degraded'
+  environment: string
+  fallback_allowed: boolean
+  providers: {
+    answer: { provider: string; configured: boolean; mode: string; capabilities: string[] }
+    embedding: { provider: string; configured: boolean; mode: string; capabilities: string[] }
+    vector_store: { provider: string; configured: boolean }
+  }
+}
+
+export type ConversationStreamEvent =
+  | { type: 'retrieval.started'; request_id: string; conversation_id: string; message_id: string; sequence: number; context_message_count: number }
+  | ({ type: 'retrieval.completed'; request_id: string; conversation_id: string; message_id: string; sequence: number } & Partial<AskResponse>)
+  | { type: 'answer.delta'; request_id: string; conversation_id: string; message_id: string; sequence: number; delta: string }
+  | { type: 'answer.completed' | 'refusal'; request_id: string; conversation_id: string; message_id: string; sequence: number; response: AskResponse }
+  | { type: 'error'; request_id: string; conversation_id: string; message_id: string; sequence: number; code: string; message: string }
+  | { type: 'done'; request_id: string; conversation_id: string; message_id: string; sequence: number; status: string }

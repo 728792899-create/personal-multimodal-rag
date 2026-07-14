@@ -20,24 +20,24 @@
 
 ### 1. 导入资料
 
-可以上传 PDF、Markdown、纯文本、PNG 或 JPEG，也可以导入公开 HTTP(S) URL。导入不是简单地把文件交给解析器，后端会依次处理：
+可以上传 PDF、DOCX、Markdown、纯文本、PNG 或 JPEG，也可以导入公开 HTTP(S) URL。导入会先进入可恢复任务：
 
-1. 校验文件名、扩展名、大小、空内容和 PDF/图片签名。
+1. 校验文件名、扩展名、大小、空内容、PDF/图片签名与 DOCX Office ZIP 边界。
 2. URL 导入校验 scheme、嵌入凭据、DNS、重定向、最终地址、内容类型和响应大小。
-3. 解析文本；图片在可选 Tesseract 环境下执行 OCR。
-4. 使用 SHA-256 识别重复内容。
-5. 切分 chunk、计算文档质量并写入 SQLite registry。
-6. 将 chunk 写入 BM25 与当前 vector store。
+3. 用 KB、内容、chunker/embedding/index version 建立幂等 job。
+4. 本地 worker 领取任务，解析文本/DOCX；图片在可选 Tesseract 环境下 OCR。
+5. 分块、嵌入、写入、质量分析；阶段间支持取消，失败最多自动尝试三次。
+6. 将文档写入 SQLite，将 chunk 写入 BM25 与当前 vector store。
 
 文档卡片会显示索引状态、chunk 数量、字符数与质量摘要。失败时会保留明确原因和重试入口；未成功的临时上传文件会清理。
 
 ### 2. 选择检索范围
 
-默认使用整个知识库。勾选文档后，请求会携带 `document_ids`，检索和回答只在所选范围内运行。这是演示中的资料范围过滤，不应被误解为生产多租户隔离；真正的 workspace 强制边界见[生产适配方案](production-adapters.md)。
+先选择知识库，再可选具体文档。请求先按 `knowledge_base_ids` 隔离，再应用 `document_ids`。这仍是本地资料范围，不应被误解为多租户授权；真正的 workspace 边界见[生产适配方案](production-adapters.md)。
 
 ### 3. 提问
 
-普通模式只暴露必要选项，适合日常问答。提交后可以取消正在运行的请求；超时、429 或服务暂时不可用时，错误条会显示可读原因、请求 ID 与重试按钮。
+普通模式只暴露必要选项，适合日常问答。会话与消息保存在 SQLite，回答通过 SSE 增量显示；完成前标为“待审计”，最终事件才发布引用与可信度。提交后可以停止；超时、429 或 Provider 不可用时显示可读原因、请求 ID 与重试。
 
 回答有两种合法结果：
 

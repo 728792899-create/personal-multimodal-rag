@@ -38,6 +38,7 @@ class RetrievalOptions(BaseModel):
     search_mode: Literal["hybrid", "keyword", "semantic"] = "hybrid"
     search_profile: Literal["balanced", "precision", "recall"] = "balanced"
     document_ids: list[str] = Field(default_factory=list)
+    knowledge_base_ids: list[str] = Field(default_factory=list)
     bm25_weight: Optional[float] = Field(None, ge=0, le=1)
     vector_weight: Optional[float] = Field(None, ge=0, le=1)
     mmr_lambda: Optional[float] = Field(None, ge=0, le=1)
@@ -61,6 +62,35 @@ class SearchCompareRequest(RetrievalOptions):
 class UrlImportRequest(BaseModel):
     url: str = Field(..., min_length=8, max_length=2048)
     title: str = Field("", max_length=200)
+    knowledge_base_id: str = Field("default", min_length=1, max_length=80)
+
+
+class KnowledgeBaseCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=120)
+    description: str = Field("", max_length=500)
+
+
+class KnowledgeBaseUpdate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=120)
+    description: Optional[str] = Field(None, max_length=500)
+
+
+class IngestionUrlRequest(UrlImportRequest):
+    pass
+
+
+class ConversationCreate(BaseModel):
+    title: str = Field("新会话", max_length=160)
+    knowledge_base_ids: list[str] = Field(default_factory=lambda: ["default"])
+
+
+class ConversationUpdate(BaseModel):
+    title: Optional[str] = Field(None, max_length=160)
+    knowledge_base_ids: Optional[list[str]] = None
+
+
+class ConversationMessageRequest(RetrievalOptions):
+    question: str = Field(..., min_length=1, max_length=4000)
 
 
 class AskResponse(BaseModel):

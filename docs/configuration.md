@@ -7,6 +7,8 @@
 ### 零 Key 离线演示
 
 ```env
+APP_ENVIRONMENT=local
+PROVIDER_FALLBACK_ALLOWED=1
 EMBEDDING_PROVIDER=mock
 EMBEDDING_MODEL=hash-mock
 EMBEDDING_DIMENSION=256
@@ -29,19 +31,19 @@ ANSWER_PROVIDER=template
 
 需要安装可选依赖。切换 embedding 模型或维度时必须使用新 collection 并重建，不能把不同维度混写。
 
-### OpenAI-compatible 回答
+### OpenAI Responses 回答
 
 ```env
 EMBEDDING_PROVIDER=mock
 VECTOR_STORE=chroma
-ANSWER_PROVIDER=responses
+ANSWER_PROVIDER=openai_responses
 ANSWER_MODEL=<responses-compatible-model>
 ANSWER_BASE_URL=https://api.openai.com/v1
 ANSWER_API_KEY=<from-secret-manager>
 QUERY_REWRITE_PROVIDER=none
 ```
 
-建议先只替换 answer provider，确认回答接法和降级，再单独迁移 embedding。真实 provider 会产生网络请求与费用；测试脚本会显式清空 Key 并强制离线模式。
+建议先只替换 answer provider，确认 SSE、引用审计和失败语义，再单独迁移 embedding。真实 provider 会产生网络请求与费用；测试脚本会显式清空 Key 并强制离线模式。
 
 ### 真实 embedding
 
@@ -64,7 +66,7 @@ CHROMA_COLLECTION=personal_knowledge_openai_v1
 
 | 变量 | 默认/示例 | 说明 |
 | --- | --- | --- |
-| `EMBEDDING_PROVIDER` | `mock` | `mock` 或 `openai` |
+| `EMBEDDING_PROVIDER` | `mock` | `mock`、`openai`、`sentence_transformers`（`huggingface` 别名）或 `ollama` |
 | `EMBEDDING_MODEL` | `hash-mock` | provider 模型名 |
 | `EMBEDDING_DIMENSION` | `256` | mock 默认 256；OpenAI 未设置时解析为 1536 |
 | `OPENAI_API_KEY` | 空 | embedding provider 凭据 |
@@ -100,7 +102,7 @@ CHROMA_COLLECTION=personal_knowledge_openai_v1
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
-| `ANSWER_PROVIDER` | `template` | `template` 或 `responses` |
+| `ANSWER_PROVIDER` | `template` | `template`、`openai_responses`、`openai_compatible_chat` 或 `ollama` |
 | `ANSWER_MODEL` | `gpt-5.5` | Responses-compatible 模型名 |
 | `ANSWER_BASE_URL` | 空 | 未设置时回退 `OPENAI_BASE_URL` |
 | `ANSWER_API_KEY` | 空 | 未设置时回退 `OPENAI_API_KEY` |
@@ -111,13 +113,29 @@ CHROMA_COLLECTION=personal_knowledge_openai_v1
 | `QUERY_REWRITE_API_KEY` | answer Key | 改写凭据 |
 | `QUERY_REWRITE_COUNT` | 2 | 候选改写数量 |
 
-provider 初始化或请求失败时会降级到模板回答或原查询，并对错误文本脱敏。降级会进入 Trace，不能静默伪装成正常在线模型结果。
+`responses`/`openai-responses` 旧别名继续可用。Responses 请求设置 `store:false`，流式消费官方 typed events；会话状态保存在本地 SQLite。
+
+`APP_ENVIRONMENT=local/test/development` 默认允许显式模板 fallback；production 默认不允许。外部 Provider 未配置/不可用时返回脱敏 `503`，避免生产流量静默变成模板回答。`/api/providers/status` 只返回能力、配置完整性和模式，不返回 Key 或带凭据 URL。
+
+### Ollama
+
+| 变量 | 默认 | 说明 |
+| --- | --- | --- |
+| `OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | 本机 Ollama；Compose 需要 host 可达地址 |
+| `OLLAMA_CHAT_MODEL` | `qwen3:8b` | chat model |
+| `OLLAMA_EMBEDDING_MODEL` | `nomic-embed-text` | embedding model |
+
+本仓库只有 mock HTTP 契约测试，没有下载模型或伪造在线验证结果。启用前由部署者拉取模型、检查许可、容量与延迟，并用领域评测集重建索引。
 
 ### 文件与 URL
 
 | 变量 | 默认 | 说明 |
 | --- | ---: | --- |
 | `DOCUMENT_REGISTRY_PATH` | `./data/registry.sqlite3` | SQLite registry |
+| `CHUNKER_VERSION` | `paragraph-v1` | 写入文档和幂等键的 chunker 版本 |
+| `INDEX_VERSION` | `hybrid-v1` | 索引兼容门；变化后需要 rebuild |
+| `INGESTION_POLL_SECONDS` | `0.10` | 本地 worker 空闲轮询间隔 |
+| `INGESTION_LEASE_SECONDS` | `120` | 任务 claim 租约 |
 | `MAX_UPLOAD_BYTES` | 20 MiB | 上传硬上限 |
 | `UPLOAD_PROCESSING_TIMEOUT_SECONDS` | 90 | 预留的处理超时配置 |
 | `URL_IMPORT_TIMEOUT_SECONDS` | 12 | URL 网络超时 |
@@ -136,6 +154,8 @@ provider 初始化或请求失败时会降级到模板回答或原查询，并�
 | `SENTRY_DSN` | 空 | 安装可选依赖后启用 |
 | `SENTRY_ENVIRONMENT` | `local` | 环境标签 |
 | `SENTRY_TRACES_SAMPLE_RATE` | 0.05 | tracing 采样率 |
+| `APP_ENVIRONMENT` | `local` | local/test/development 可选择离线 fallback；production fail closed |
+| `PROVIDER_FALLBACK_ALLOWED` | 环境推导 | 显式控制回答 Provider 失败时是否使用 template |
 
 `API_AUTH_TOKEN` 适合 curl、受信反向代理或单用户 API。当前前端不会把 secret 编译进浏览器 bundle；如果启用 token，应由同源网关在服务端注入认证，或实现正式登录流程。
 
@@ -162,3 +182,4 @@ curl --fail http://127.0.0.1:8010/ready
 5. 检查拒答率、首条引用、延迟和 fallback。
 6. 切换流量并保留回滚路径。
 7. 确认日志、Sentry 和报告中没有敏感内容。
+8. 检查 `/api/providers/status` 和 `needs_rebuild` 文档数为预期值。

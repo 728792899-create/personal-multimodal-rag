@@ -6,6 +6,7 @@ import { useWorkbenchContext } from '../composables/workbenchContext'
 const workbench = useWorkbenchContext()
 
 const resultLabel = computed(() => {
+  if (workbench.streamAuditPending.value) return '生成中 · 待审计'
   if (workbench.isRefusal.value) return '已安全拒答'
   if (workbench.workMode.value === 'search') return '检索完成'
   return '回答已生成'
@@ -24,7 +25,7 @@ function percent(value?: number) {
         <h2 id="answer-title">{{ workbench.workMode.value === 'search' ? '检索证据' : '证据回答' }}</h2>
       </div>
       <div
-        :class="['result-status', { refused: workbench.isRefusal.value }]"
+        :class="['result-status', { refused: workbench.isRefusal.value, pending: workbench.streamAuditPending.value }]"
         role="status"
         aria-live="polite"
       >
@@ -33,7 +34,14 @@ function percent(value?: number) {
       </div>
     </header>
 
-    <section v-if="workbench.trust.value" :class="['trust-summary', `trust-${workbench.trust.value.level}`]">
+    <section v-if="workbench.streamAuditPending.value" class="trust-summary audit-pending" role="status" aria-live="polite">
+      <div>
+        <span class="status-badge neutral">引用审计中</span>
+        <strong>当前文本尚未形成最终可信结论</strong>
+        <p>完整响应到达后，系统才会展示引用准确性、覆盖率和可信等级。</p>
+      </div>
+    </section>
+    <section v-else-if="workbench.trust.value" :class="['trust-summary', `trust-${workbench.trust.value.level}`]">
       <div>
         <span class="status-badge">{{ workbench.trust.value.label }}</span>
         <strong>置信度 {{ percent(workbench.answer.value.confidence || 0) }}</strong>
@@ -107,7 +115,7 @@ function percent(value?: number) {
       </div>
     </section>
 
-    <section v-if="workbench.answer.value.answer" class="answer-actions" aria-labelledby="answer-actions-title">
+    <section v-if="workbench.answer.value.answer && !workbench.streamAuditPending.value" class="answer-actions" aria-labelledby="answer-actions-title">
       <h3 id="answer-actions-title">复用与反馈</h3>
       <div class="inline-actions wrap-actions">
         <button type="button" class="button secondary-button" :disabled="workbench.rewriting.value" @click="workbench.handleRewrite('highlights')">改写为要点</button>

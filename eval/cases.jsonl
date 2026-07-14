@@ -22,9 +22,19 @@
 {"id":"eval-wrong-citation","category":"evaluation","question":"wrong_citation 表示什么问题？","should_answer":true,"expected_sources":["05-evaluation-feedback.md"],"expected_keywords":["引用片段无法支撑答案"]}
 {"id":"eval-regression","category":"evaluation","question":"为什么每次调整后要用同一批样本回归？","should_answer":true,"expected_sources":["05-evaluation-feedback.md"],"expected_keywords":["避免只对某一个问题做局部优化"]}
 {"id":"eval-profiles","category":"evaluation","question":"评测时应该对比哪些检索 profile？","should_answer":true,"expected_sources":["05-evaluation-feedback.md"],"expected_keywords":["keyword、semantic、hybrid、hybrid + rerank"]}
-{"id":"refuse-payment","category":"refusal","question":"支付系统的每日对账差异如何自动冲正？","should_answer":false,"expected_sources":[],"expected_keywords":[]}
+{"id":"refuse-payment","category":"refusal","question":"支付系统的每日对账差异如何自动冲正？","should_answer":false,"min_score":0.35,"expected_sources":[],"expected_keywords":[]}
 {"id":"refuse-ios","category":"refusal","question":"iOS App Store 的证书轮换流程是什么？","should_answer":false,"expected_sources":[],"expected_keywords":[]}
 {"id":"refuse-weather","category":"refusal","question":"天气预报 API 的供应商 SLA 是多少？","should_answer":false,"expected_sources":[],"expected_keywords":[]}
 {"id":"refuse-medical","category":"refusal","question":"如何根据 MRI 影像诊断脑部肿瘤？","should_answer":false,"expected_sources":[],"expected_keywords":[]}
 {"id":"refuse-video","category":"refusal","question":"视频转码的 HLS 切片参数应该怎么配置？","should_answer":false,"expected_sources":[],"expected_keywords":[]}
 {"id":"refuse-tax","category":"refusal","question":"跨境电商增值税申报需要哪些会计分录？","should_answer":false,"expected_sources":[],"expected_keywords":[]}
+{"id":"docx-job-source","category":"docx-table","question":"本地后台索引任务的事实来源是什么？","should_answer":true,"expected_sources":["06-operations-table.docx"],"expected_keywords":["SQLite index_jobs"]}
+{"id":"docx-job-states","category":"docx-table","question":"索引任务从等待到失败有哪些状态？","should_answer":true,"expected_sources":["06-operations-table.docx"],"expected_keywords":["queued","running","failed"]}
+{"id":"docx-job-retry","category":"docx-table","question":"后台索引失败前最多自动尝试多少次？","should_answer":true,"expected_sources":["06-operations-table.docx"],"expected_keywords":["三次"]}
+{"id":"docx-job-cancel","category":"docx-table","question":"运行中的索引任务如何取消？","should_answer":true,"expected_sources":["06-operations-table.docx"],"expected_keywords":["阶段边界协作取消"]}
+{"id":"kb-operations-answer","category":"knowledge-base-isolation","question":"任务租约过期后如何恢复？","should_answer":true,"knowledge_base_ids":["operations"],"expected_sources":["06-operations-table.docx"],"expected_keywords":["重新排队"]}
+{"id":"kb-default-isolation","category":"knowledge-base-isolation","question":"后台任务租约过期后如何恢复？","should_answer":false,"min_score":0.35,"knowledge_base_ids":["default"],"expected_sources":[],"expected_keywords":[]}
+{"id":"followup-eval-metrics","category":"multi-turn","conversation_context":["固定黄金评测集关注 Recall@K、MRR、引用准确率和拒答行为。"],"question":"它重点检查哪些指标？","should_answer":true,"expected_sources":["05-evaluation-feedback.md"],"expected_keywords":["Recall@K","MRR"]}
+{"id":"followup-job-idempotency","category":"multi-turn","conversation_context":["我们刚才在讨论 Durable Local 索引任务。"],"question":"重复提交是如何避免的？","should_answer":true,"knowledge_base_ids":["operations"],"expected_sources":["06-operations-table.docx"],"expected_keywords":["幂等键"]}
+{"id":"provider-matrix","category":"provider","question":"Durable Local 支持哪些回答和 embedding provider？","should_answer":true,"knowledge_base_ids":["operations"],"expected_sources":["06-operations-table.docx"],"expected_keywords":["OpenAI Responses","Ollama"]}
+{"id":"kb-operations-refusal","category":"knowledge-base-isolation","question":"Kubernetes Ingress 的 TLS 配置是什么？","should_answer":false,"min_score":0.5,"knowledge_base_ids":["operations"],"expected_sources":[],"expected_keywords":[]}

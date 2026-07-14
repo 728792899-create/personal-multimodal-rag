@@ -12,8 +12,9 @@ export function importUrl(url: string, title = '', options: RequestOptions = {})
   return apiRequest('/api/imports/url', { method: 'POST', ...jsonBody({ url, title }) }, { timeoutMs: 30_000, ...options })
 }
 
-export async function listDocuments(options: RequestOptions = {}): Promise<DocumentMeta[]> {
-  const data = await apiRequest<{ documents: DocumentMeta[] }>('/api/documents', {}, options)
+export async function listDocuments(options: RequestOptions = {}, knowledgeBaseId = ''): Promise<DocumentMeta[]> {
+  const query = knowledgeBaseId ? `?knowledge_base_id=${encodeURIComponent(knowledgeBaseId)}` : ''
+  const data = await apiRequest<{ documents: DocumentMeta[] }>(`/api/documents${query}`, {}, options)
   return data.documents
 }
 

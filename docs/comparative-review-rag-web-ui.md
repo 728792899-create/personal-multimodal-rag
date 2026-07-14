@@ -1,0 +1,48 @@
+# `rag-web-ui` 对比审查与取舍
+
+本轮以 [`rag-web-ui/rag-web-ui`](https://github.com/rag-web-ui/rag-web-ui) 的提交 `905fb04669ae6f2a0cb3690d82a547b860e80dd4` 为固定审查基线。参考项目使用 Apache-2.0；本仓库只吸收架构思想，没有复制其实现代码。
+
+## 结论
+
+参考项目在“通用知识库产品”体验上领先：知识库集合、持久聊天、流式回答、上传预览与进度、DOCX、多模型/向量库选择更完整。本项目原有优势则是混合检索、MMR、rerank、证据拒答、引用审计、可读 Trace 和确定性黄金集。0.2 的目标是把两类优势合并成 Durable Local Beta，同时避免为了功能表面一致引入不必要的框架和基础设施。
+
+| 维度 | 参考项目审查结果 | 本项目 0.2 选择 |
+| --- | --- | --- |
+| 前端 | Next 14、React、Tailwind/Shadcn、Vercel AI SDK；上传与聊天产品面较完整 | 保留 Vue 3；拆出知识库、任务、会话、Provider composable 和 API 模块 |
+| 后端 | FastAPI + LangChain，多类 Provider 与向量库 | 保留轻量领域接口；不引入 LangChain |
+| 数据 | MySQL/Alembic、MinIO、Chroma/Qdrant、JWT/API Key | SQLite 幂等迁移 + 本地文件 + memory；生产边界单独文档化 |
+| 入库 | 上传后处理、轮询进度、DOCX | SQLite 任务事实源、租约恢复、三次重试、取消、DOCX 防 ZIP bomb |
+| 会话 | 持久聊天与 SSE | 本地持久会话、稳定 SSE event union、断连取消、最终引用审计 |
+| 检索 | 以向量检索为主 | 保留 KB 隔离后的 BM25 + vector + fusion + MMR + rerank |
+| 质量 | 缺少固定 RAG 回归门禁 | 保留并扩展 40 条黄金集与五项 CI 阈值 |
+
+## 吸收的能力
+
+1. 知识库成为一级对象，而不只是前端文档筛选器。
+2. 会话与消息保存在服务端；刷新浏览器不会丢失对话事实。
+3. 上传/URL 默认走任务模型，HTTP 请求不承担完整索引生命周期。
+4. 流式回答先展示正文，完成后再发布引用审计，避免把未完成文本标记为可信。
+5. DOCX 保留标题、段落和表格文本，并对 Office ZIP 结构施加资源边界。
+6. Provider 状态以只读诊断端点呈现，浏览器不保存密钥。
+
+## 明确没有照搬
+
+- 不引入 LangChain：当前检索/拒答/引用链路需要保持透明和可测试。
+- 不建设伪多租户：知识库是本地数据分区，不是授权边界；JWT 和 workspace 权限必须一起设计。
+- 不在数据库或浏览器保存原始 API Key：外部凭据仍来自服务端环境/secret manager。
+- 不把 FastAPI 进程内 background task 伪装成可靠队列：当前 worker 以 SQLite 任务和租约恢复为事实来源；多实例前必须迁移到外部队列。
+- 不使用 floating `latest` 镜像、默认数据库口令或公网对象桶作为演示捷径。
+
+## 审查发现的风险及对应控制
+
+对参考实现的静态审查显示，通用 RAG UI 常见风险包括：大型组件/路由、流式状态重复更新、向量检索缺少拒答与引用质量门、debug 日志泄露上下文或 Key、跨知识库查询只使用第一存储、进程内任务在重启后丢失，以及 Compose 默认凭据。0.2 分别通过领域拆分、递增 SSE 序号与最终事件、KB 先隔离再检索、脱敏日志、SQLite 租约任务、零 Key Compose 默认值进行控制。
+
+这些结论是对指定提交的工程审查，不代表参考项目的后续版本仍保持相同状态。重新对比时必须更新提交哈希和本页结论。
+
+## 验证入口
+
+- 数据/任务测试：`backend/tests/test_durable_local.py`
+- Provider 契约测试：`backend/tests/test_provider_adapters.py`、`backend/tests/test_responses_client.py`
+- UI 与流式测试：`frontend/src/pages/WorkbenchPage.test.ts`、`frontend/src/api/conversations.test.ts`
+- 真实路径：`frontend/e2e/workbench.spec.ts`
+- 固定质量门：`eval/cases.jsonl`、`eval/thresholds.json`

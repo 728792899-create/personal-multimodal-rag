@@ -13,7 +13,7 @@
 | `data-model.svg` | 1440×780 SVG | 当前 SQLite/vector 数据与生产迁移边界 | 仓库内代码原生绘制 |
 | `security-boundaries.svg` | 1440×760 SVG | 不可信输入和外部服务的信任边界 | 仓库内代码原生绘制 |
 | `frontend-state-machine.svg` | 1440×560 SVG | 前端异步动作的可恢复状态 | 仓库内代码原生绘制 |
-| `evaluation-scorecard.svg` | 1440×760 SVG | 30 条固定黄金集成绩卡 | 仓库内代码原生绘制 |
+| `evaluation-scorecard.svg` | 1440×760 SVG | 40 条固定黄金集五项成绩卡 | 仓库内代码原生绘制 |
 | `social-preview.svg` | 1280×640 SVG | GitHub social preview 的确定性源文件 | 仓库内代码原生绘制 |
 | `social-preview.png` | 1280×640 PNG | GitHub Settings 上传与英文 README 预览 | 从同名 SVG 确定性导出 |
 

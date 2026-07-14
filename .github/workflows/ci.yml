@@ -8,6 +8,8 @@ permissions:
   contents: read
 
 env:
+  APP_ENVIRONMENT: test
+  PROVIDER_FALLBACK_ALLOWED: "1"
   EMBEDDING_PROVIDER: mock
   VECTOR_STORE: memory
   ANSWER_PROVIDER: template
@@ -19,6 +21,7 @@ env:
 jobs:
   docs:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -26,9 +29,12 @@ jobs:
           python-version: "3.11"
       - name: Check documentation links and SVG accessibility
         run: python scripts/check_docs.py
+      - name: Scan tracked files for committed secrets
+        run: python scripts/check_secrets.py
 
   backend:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -44,6 +50,7 @@ jobs:
 
   frontend:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -73,6 +80,7 @@ jobs:
 
   retrieval-eval:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -93,6 +101,7 @@ jobs:
 
   docker-compose:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: [docs, backend, frontend, retrieval-eval]
     steps:
       - uses: actions/checkout@v4

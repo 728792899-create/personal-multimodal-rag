@@ -1473,6 +1473,152 @@ summary span {
   background: var(--bg-danger);
 }
 
+.provider-health {
+  display: inline-flex;
+  margin-top: 5px;
+  border-radius: 999px;
+  background: var(--bg-accent-soft);
+  color: var(--accent);
+  padding: 3px 7px;
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.provider-health.degraded {
+  background: var(--bg-warning);
+  color: var(--warning);
+}
+
+.knowledge-base-switcher {
+  display: grid;
+  gap: 7px;
+  margin-bottom: var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--bg-accent-soft);
+  padding: var(--space-3);
+}
+
+.knowledge-base-switcher > label {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.inline-create {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+}
+
+.task-section,
+.conversation-section {
+  margin-top: var(--space-4);
+  border-top: 1px solid var(--border-default);
+  padding-top: var(--space-3);
+}
+
+.task-list,
+.conversation-list {
+  display: grid;
+  gap: 7px;
+  margin-top: var(--space-2);
+}
+
+.task-list article {
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+  padding: 8px;
+}
+
+.task-list strong,
+.task-list span,
+.task-list p {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}
+
+.task-list span {
+  margin-top: 2px;
+  color: var(--text-muted);
+}
+
+.task-list progress {
+  width: 100%;
+  height: 7px;
+  accent-color: var(--accent);
+}
+
+.task-error {
+  color: var(--danger);
+}
+
+.job-status {
+  margin-left: auto;
+  border-radius: 999px;
+  background: var(--bg-muted);
+  padding: 4px 7px;
+  font-weight: 750;
+}
+
+.job-status.succeeded { background: var(--bg-accent-soft); color: var(--accent); }
+.job-status.failed { background: var(--bg-danger); color: var(--danger); }
+.job-status.running,
+.job-status.queued { background: #eaf3fa; color: var(--info); }
+
+.new-conversation {
+  margin-top: var(--space-2);
+}
+
+.conversation-list article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 5px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+  padding: 5px;
+}
+
+.conversation-list article.active {
+  border-color: var(--accent);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.conversation-list article > button:first-child {
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  padding: 5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.conversation-list strong,
+.conversation-list span {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}
+
+.conversation-list span {
+  margin-top: 3px;
+  color: var(--text-muted);
+}
+
+.result-status.pending {
+  background: #eaf3fa;
+  color: var(--info);
+}
+
+.audit-pending {
+  border-color: #b8d3e4;
+  background: #f1f7fb;
+}
+
 @media (max-width: 1280px) {
   .workspace {
     grid-template-columns: 290px minmax(0, 1fr);

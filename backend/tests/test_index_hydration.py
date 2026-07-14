@@ -29,3 +29,36 @@ def test_persisted_chunks_are_not_reembedded(tmp_path):
     rebuilt = hydrate_retriever(retriever, processor, [document])
 
     assert rebuilt == 0
+
+
+def test_incompatible_embedding_metadata_is_quarantined_for_rebuild(tmp_path):
+    source = tmp_path / "legacy.md"
+    source.write_text("legacy vector dimensions must not mix", encoding="utf-8")
+    processor = DocumentProcessor()
+    document = processor.parse_file(source)
+    document.metadata.update({
+        "embedding_provider": "mock",
+        "embedding_model": "legacy-hash",
+        "embedding_dimension": 64,
+        "index_version": "legacy-v0",
+    })
+    retriever = HybridRetriever()
+    retriever.add_document(document, processor.split(document))
+    quarantined = []
+
+    rebuilt = hydrate_retriever(
+        retriever,
+        processor,
+        [document],
+        expected_embedding_provider="mock",
+        expected_embedding_model="hash-mock",
+        expected_embedding_dimension=256,
+        expected_index_version="hybrid-v1",
+        on_mismatch=quarantined.append,
+    )
+
+    assert rebuilt == 0
+    assert document.metadata["index_status"] == "needs_rebuild"
+    assert document.metadata["index_mismatch"]["embedding_dimension"] == {"stored": 64, "expected": 256}
+    assert quarantined == [document]
+    assert not retriever.vector_store.chunks

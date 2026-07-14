@@ -14,8 +14,8 @@
 | --- | --- | --- | --- |
 | Browser → Nginx/API | 参数、文件、认证头 | schema、上传限制、可选 bearer、request ID、限流 | TLS、OIDC/SSO、CSRF/CSP 策略、边缘 WAF |
 | URL → fetcher | 地址、重定向、DNS、响应 | HTTP(S) only、禁凭据、逐跳 SSRF 校验、类型/大小/超时 | 出站代理、DNS pinning 策略、网络 egress allowlist |
-| 文件 → parser/OCR | 文件名、bytes、解析器输出 | 扩展名、大小、空文件、magic bytes、唯一落盘名、失败清理 | 沙箱解析、AV/CDR、解压炸弹与复杂格式隔离 |
-| API → provider | 文本、embedding/answer 请求 | 默认禁用、显式配置、超时、fallback、错误脱敏 | 数据处理协议、区域/保留策略、密钥轮换、配额 |
+| 文件 → parser/OCR | 文件名、bytes、解析器输出 | 扩展名、大小、空文件、magic bytes、DOCX 条目/展开体积/压缩比、唯一落盘名、失败清理 | 沙箱解析、AV/CDR 与复杂格式隔离 |
+| API → provider | 文本、embedding/answer 请求 | 默认禁用、显式配置、超时、production fail-closed、`store:false`、错误脱敏 | 数据处理协议、区域/保留策略、密钥轮换、配额 |
 | API → local storage | 文档、历史、反馈、日志 | 受控路径、SQLite registry、删除路径约束 | 磁盘加密、备份、保留/彻删、workspace 授权 |
 | Runtime → observability | 异常与 trace | 可选 Sentry、默认关闭 PII/body、日志字段脱敏 | 项目访问控制、采样、告警、审计和删除策略 |
 
@@ -23,7 +23,7 @@
 
 ### 恶意上传
 
-风险包括伪装扩展名、超大文件、路径穿越、解析器漏洞和上传残留。当前实现按块读取并限制 20 MB，拒绝空文件和不支持扩展名，对 PDF/PNG/JPEG 校验文件签名，使用随机前缀与 basename 落盘，失败时删除临时文件。纯文本/Markdown 无可靠 magic bytes，仍按不可信文本处理。
+风险包括伪装扩展名、超大文件、ZIP bomb、路径穿越、解析器漏洞和上传残留。当前实现按块读取并限制 20 MB，拒绝空文件和不支持扩展名，对 PDF/PNG/JPEG 校验签名；DOCX 验证 Office 结构、条目数、展开体积和压缩比；使用随机前缀与 basename 落盘，失败时删除暂存文件。纯文本/Markdown 无可靠 magic bytes，仍按不可信文本处理。
 
 高风险生产环境还需要独立解析 worker、系统调用/网络沙箱、病毒扫描和 CPU/内存/页数限制。
 
@@ -41,7 +41,7 @@ URL importer 禁止非 HTTP(S)、嵌入凭据、回环/私网/链路本地/特�
 
 ### 资源耗尽
 
-进程内限流返回 `Retry-After`，网络调用有 timeout，前端支持 Abort。多 worker/多实例时计数不共享；生产需要 Redis/网关限流、队列配额、并发/文档页数限制、provider budget 和后台任务隔离。
+进程内限流返回 `Retry-After`，网络调用有 timeout，前端支持 Abort。索引任务有 SQLite 租约、最大尝试和阶段取消，但只保证单实例；生产需要 Redis/网关限流、外部队列配额、并发/文档页数限制、provider budget 和隔离 worker。
 
 ### 敏感日志与错误
 
@@ -49,7 +49,8 @@ URL importer 禁止非 HTTP(S)、嵌入凭据、回环/私网/链路本地/特�
 
 ## 安全验证清单
 
-- 上传：路径穿越、空文件、超限、扩展名/签名不匹配、解析失败清理。
+- 上传：路径穿越、空文件、超限、扩展名/签名不匹配、DOCX ZIP bomb、解析失败清理。
+- 任务：重复请求、租约恢复、三次尝试、取消/重试、暂存路径不出现在 API。
 - URL：localhost、私网 IP、十进制/IPv6 变体、DNS/重定向、超大/错误类型、超时。
 - API：缺失/错误 token、限流窗口、`Retry-After`、request ID 透传。
 - 删除：只删除目标 document chunk/registry/source，不能越过 upload 根目录。

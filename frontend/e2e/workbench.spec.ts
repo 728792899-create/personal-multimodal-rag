@@ -7,6 +7,11 @@ async function installOfflineApi(page: Page) {
   const documents: Array<Record<string, unknown>> = []
   const askBodies: Array<Record<string, unknown>> = []
   let evalDrafts: Array<Record<string, unknown>> = []
+  let conversations: Array<Record<string, unknown>> = []
+  let knowledgeBases: Array<Record<string, unknown>> = [
+    { id: 'default', name: '默认知识库', description: '', is_default: true, document_count: 0, created_at: '', updated_at: '' },
+  ]
+  let jobs: Array<Record<string, unknown>> = []
 
   await page.route('http://127.0.0.1:4173/api/**', async (route) => {
     const request = route.request()
@@ -19,34 +24,66 @@ async function installOfflineApi(page: Page) {
       body: JSON.stringify(body),
     })
 
-    if (path === '/api/documents' && method === 'POST') {
+    if (path === '/api/knowledge-bases' && method === 'POST') {
+      const body = request.postDataJSON() as Record<string, unknown>
+      const created = { id: 'kb-research', name: body.name, description: '', is_default: false, document_count: 0, created_at: '', updated_at: '' }
+      knowledgeBases.push(created)
+      return json({ knowledge_base: created }, 201)
+    }
+    if (path === '/api/knowledge-bases') return json({ knowledge_bases: knowledgeBases })
+    if (path === '/api/ingestions/file' && method === 'POST') {
       const doc = {
         id: 'doc-upload', filename: 'quality-guide.md', source_type: 'markdown', chunk_count: 2,
         char_count: 180, metadata: { index_status: 'indexed' }, quality: { score: 92 },
       }
       documents.push(doc)
-      return json({ document: doc, chunks: [] })
+      const job = { id: 'job-upload', source_type: 'file', source_name: 'quality-guide.md', knowledge_base_id: 'default', status: 'succeeded', stage: 'complete', progress: 100, attempts: 1, max_attempts: 3, cancel_requested: false, deduped: false, error_code: '', error_message: '', document_id: 'doc-upload', created_at: '', updated_at: '', started_at: '', completed_at: '' }
+      jobs.unshift(job)
+      return json({ job }, 202)
     }
-    if (path === '/api/imports/url' && method === 'POST') {
+    if (path === '/api/ingestions/url' && method === 'POST') {
+      const body = request.postDataJSON() as Record<string, unknown>
+      if (String(body.url).includes('fail.example')) {
+        const failed = { id: 'job-failed', source_type: 'url', source_name: 'fail.example', knowledge_base_id: 'default', status: 'failed', stage: 'failed', progress: 20, attempts: 3, max_attempts: 3, cancel_requested: false, deduped: false, error_code: 'INGESTION_FAILED', error_message: '模拟解析失败', document_id: '', created_at: '', updated_at: '', started_at: '', completed_at: '' }
+        jobs.unshift(failed)
+        return json({ job: failed }, 202)
+      }
       const doc = {
         id: 'doc-url', filename: 'example.com-guide.html', source_type: 'url', chunk_count: 1,
         char_count: 80, metadata: { index_status: 'indexed' }, quality: { score: 84 },
       }
       documents.push(doc)
-      return json({ document: doc, chunks: [] })
+      const job = { id: 'job-url', source_type: 'url', source_name: 'example.com', knowledge_base_id: 'default', status: 'succeeded', stage: 'complete', progress: 100, attempts: 1, max_attempts: 3, cancel_requested: false, deduped: false, error_code: '', error_message: '', document_id: 'doc-url', created_at: '', updated_at: '', started_at: '', completed_at: '' }
+      jobs.unshift(job)
+      return json({ job }, 202)
     }
+    if (path === '/api/index-jobs/job-failed/retry' && method === 'POST') {
+      const recovered = { ...jobs.find((item) => item.id === 'job-failed'), status: 'succeeded', stage: 'complete', progress: 100, attempts: 1, error_code: '', error_message: '', document_id: 'doc-recovered' }
+      jobs = [recovered, ...jobs.filter((item) => item.id !== 'job-failed')]
+      return json({ job: recovered })
+    }
+    if (path === '/api/index-jobs') return json({ jobs })
     if (path === '/api/documents') return json({ documents })
     if (path === '/api/knowledge/overview') return json({
       ...overviewFixture,
       document_count: documents.length,
       chunk_count: documents.reduce((sum, item) => sum + Number(item.chunk_count || 0), 0),
     })
-    if (path === '/api/ask') {
+    if (path === '/api/providers/status') return json({ status: 'ready', environment: 'test', fallback_allowed: true, providers: { answer: { provider: 'template', configured: true, mode: 'offline', capabilities: ['answer'] }, embedding: { provider: 'mock', configured: true, mode: 'offline', capabilities: ['embeddings'] }, vector_store: { provider: 'memory', configured: true } } })
+    if (path === '/api/conversations' && method === 'POST') {
+      const conversation = { id: 'conv-1', title: '新会话', knowledge_base_ids: ['default'], message_count: 0, created_at: '', updated_at: '' }
+      conversations = [conversation]
+      return json({ conversation }, 201)
+    }
+    if (path === '/api/conversations') return json({ conversations })
+    if (path === '/api/conversations/conv-1/messages') return json({ messages: [] })
+    if (path === '/api/conversations/conv-1/messages:stream') {
       const body = request.postDataJSON() as Record<string, unknown>
       askBodies.push(body)
+      let response = answerFixture()
       if (String(body.question).includes('Kubernetes')) {
         const base = answerFixture()
-        return json(answerFixture({
+        response = answerFixture({
           answer: '根据当前知识库资料，无法确定。',
           citations: [], confidence: 0,
           trust: { ...base.trust!, level: 'weak', label: '证据不足', reason: '没有达到拒答阈值的证据。', evidence_count: 0, source_count: 0, coverage: 0 },
@@ -61,9 +98,18 @@ async function installOfflineApi(page: Page) {
               citation_audit: { coverage: 0, grounding: 0, status: 'skipped' },
             },
           },
-        }))
+        })
       }
-      return json(answerFixture())
+      const events = [
+        { type: 'retrieval.started', context_message_count: 0 },
+        { type: 'retrieval.completed', citations: response.citations, retrieval_trace: response.retrieval_trace, confidence: response.confidence, diagnostics: response.diagnostics },
+        ...(response.retrieval_trace.refusal_reason
+          ? [{ type: 'refusal', response }]
+          : [{ type: 'answer.delta', delta: response.answer }, { type: 'answer.completed', response }]),
+        { type: 'done', status: 'completed' },
+      ]
+      const stream = events.map((event, index) => `event: ${event.type}\ndata: ${JSON.stringify({ request_id: 'req', conversation_id: 'conv-1', message_id: 'msg', sequence: index + 1, ...event })}\n\n`).join('')
+      return route.fulfill({ status: 200, contentType: 'text/event-stream', body: stream })
     }
     if (path.startsWith('/api/chunks/')) return json({
       found: true, chunk_id: 'doc-1:0', document_id: 'doc-1', filename: 'quality-guide.md',
@@ -93,11 +139,11 @@ test('upload, URL import, grounded answer, citation and feedback draft', async (
     name: 'quality-guide.md', mimeType: 'text/markdown', buffer: Buffer.from('# 评测\nRecall@K 与 MRR。'),
   })
   await page.getByTestId('upload-button').click()
-  await expect(page.getByText('quality-guide.md', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: /quality-guide\.md markdown/ })).toBeVisible()
 
   await page.getByTestId('url-input').fill('https://example.com/guide')
   await page.getByTestId('url-import-button').click()
-  await expect(page.getByText('example.com-guide.html', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: /example\.com-guide\.html url/ })).toBeVisible()
 
   await page.getByRole('textbox', { name: '问题' }).fill('RAG 如何评测？')
   await page.getByTestId('run-query').click()
@@ -126,4 +172,26 @@ test('expert parameters and no-evidence refusal are explicit', async ({ page }) 
   await expect(page.locator('[data-stage="decision"]')).toContainText('回答决策')
   await expect(page.locator('[data-stage="decision"]')).toContainText('拒绝回答')
   expect(api.askBodies[0]).toMatchObject({ candidate_k: 40, question: '资料里有 Kubernetes 配置吗？' })
+})
+
+test('knowledge-base creation, narrow layout and failed job retry stay usable', async ({ page }) => {
+  await installOfflineApi(page)
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/')
+
+  await expect(page.getByText('Provider ready')).toBeVisible()
+  await page.locator('.inline-create input').fill('研究资料')
+  await page.locator('form.inline-create button').click()
+  await expect(page.locator('#knowledge-base-select')).toHaveValue('kb-research')
+
+  await page.locator('#knowledge-base-select').selectOption('default')
+  await page.getByTestId('url-input').fill('https://fail.example/guide')
+  await page.getByTestId('url-import-button').click()
+  await expect(page.getByRole('alert')).toContainText('模拟解析失败')
+
+  const taskSection = page.locator('details.task-section')
+  if (!(await taskSection.getAttribute('open'))) await taskSection.locator('summary').click()
+  await taskSection.getByRole('button', { name: '重试' }).click()
+  await expect(taskSection.getByText('succeeded')).toBeVisible()
+  await expect(page.locator('#main-workspace')).toBeVisible()
 })

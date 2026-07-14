@@ -26,7 +26,7 @@ class ResponsesClient:
         self.http_client = http_client
 
     def create_text(self, prompt: str) -> str:
-        payload = {"model": self.model, "input": prompt}
+        payload = {"model": self.model, "input": prompt, "store": False}
         request = {
             "url": f"{self.base_url}/responses",
             "headers": {
@@ -45,6 +45,45 @@ class ResponsesClient:
         if not text:
             raise ValueError("Responses API returned no text output")
         return text
+
+    def stream_text(self, prompt: str):
+        """Yield typed Responses text deltas from the official SSE protocol."""
+        payload = {"model": self.model, "input": prompt, "store": False, "stream": True}
+        request = {
+            "url": f"{self.base_url}/responses",
+            "headers": {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+                "Accept": "text/event-stream",
+            },
+            "json": payload,
+            "timeout": self.timeout_seconds,
+        }
+        stream = self.http_client.stream("POST", **request) if self.http_client is not None else httpx.stream("POST", **request)
+        completed = False
+        with stream as response:
+            response.raise_for_status()
+            for line in response.iter_lines():
+                if not line.startswith("data:"):
+                    continue
+                raw = line[5:].strip()
+                if not raw or raw == "[DONE]":
+                    continue
+                event = json.loads(raw)
+                event_type = str(event.get("type") or "")
+                if event_type == "response.output_text.delta":
+                    delta = event.get("delta")
+                    if isinstance(delta, str) and delta:
+                        yield delta
+                elif event_type == "response.completed":
+                    completed = True
+                    break
+                elif event_type in {"error", "response.failed"}:
+                    error = event.get("error") or event.get("response", {}).get("error") or {}
+                    message = error.get("message") if isinstance(error, dict) else str(error)
+                    raise ValueError(message or "Responses API stream failed")
+        if not completed:
+            raise ValueError("Responses API stream ended before response.completed")
 
     def create_json(self, prompt: str) -> Any:
         text = self.create_text(prompt)

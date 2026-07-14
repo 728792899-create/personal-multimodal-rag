@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -20,6 +21,7 @@ METRIC_LABELS = {
     "mrr": "MRR",
     "citation_accuracy": "引用准确率",
     "refusal_accuracy": "拒答准确率",
+    "answer_acceptance_accuracy": "可回答接受率",
 }
 
 
@@ -51,7 +53,34 @@ def build_offline_engine(documents_dir: Path) -> RagEngine:
         raise ValueError(f"No Markdown fixtures found in {documents_dir}")
     for path in paths:
         document = processor.parse_file(path)
+        document.metadata["knowledge_base_id"] = "operations" if path.name.startswith(("04-", "05-")) else "default"
         retriever.add_document(document, processor.split(document))
+    for spec_path in sorted(documents_dir.glob("*.docx.json")):
+        spec = json.loads(spec_path.read_text(encoding="utf-8"))
+        try:
+            from docx import Document as WordDocument
+        except ImportError as exc:
+            raise RuntimeError("python-docx is required for DOCX evaluation fixtures") from exc
+        with tempfile.TemporaryDirectory(prefix="rag-eval-docx-") as temp_dir:
+            filename = spec_path.name.removesuffix(".json")
+            docx_path = Path(temp_dir) / filename
+            word = WordDocument()
+            for block in spec.get("blocks", []):
+                if block.get("type") == "heading":
+                    word.add_heading(str(block.get("text") or ""), level=int(block.get("level") or 1))
+                elif block.get("type") == "paragraph":
+                    word.add_paragraph(str(block.get("text") or ""))
+                elif block.get("type") == "table":
+                    rows = block.get("rows") or []
+                    if rows:
+                        table = word.add_table(rows=len(rows), cols=max(len(row) for row in rows))
+                        for row_index, row in enumerate(rows):
+                            for column_index, value in enumerate(row):
+                                table.cell(row_index, column_index).text = str(value)
+            word.save(docx_path)
+            document = processor.parse_file(docx_path, original_name=filename)
+            document.metadata["knowledge_base_id"] = str(spec.get("knowledge_base_id") or "default")
+            retriever.add_document(document, processor.split(document))
     return RagEngine(retriever)
 
 
@@ -77,7 +106,15 @@ def evaluate_cases(cases: list[dict], engine: RagEngine, top_k: int = 5) -> list
     rows: list[dict] = []
     for case in cases:
         should_answer = bool(case.get("should_answer", True))
-        result = engine.ask(case["question"], top_k=top_k, query_rewrite=False)
+        context = [str(item) for item in case.get("conversation_context", []) if item]
+        effective_question = "\n".join([*context[-4:], case["question"]])
+        result = engine.ask(
+            effective_question,
+            top_k=top_k,
+            query_rewrite=False,
+            knowledge_base_ids=case.get("knowledge_base_ids") or [],
+            min_score=case.get("min_score"),
+        )
         citations = result.get("citations", [])
         relevant_ranks = [
             index
@@ -100,6 +137,8 @@ def evaluate_cases(cases: list[dict], engine: RagEngine, top_k: int = 5) -> list
                 "expected_sources": sorted(_expected_sources(case)),
                 "top_sources": [citation.get("filename", "") for citation in citations[:3]],
                 "refusal_reason": refusal_reason,
+                "knowledge_base_ids": case.get("knowledge_base_ids") or [],
+                "min_score": case.get("min_score"),
                 "top_score": citations[0].get("rerank_score", 0) if citations else 0,
             }
         )
@@ -114,6 +153,14 @@ def summarize_rows(rows: list[dict], top_k: int = 5) -> dict:
     citation_accuracy = sum(bool(row["citation_correct"]) for row in answerable) / max(len(answerable), 1)
     refusal_accuracy = sum(bool(row["decision_correct"]) for row in refusal) / max(len(refusal), 1)
     answer_acceptance = sum(bool(row["decision_correct"]) for row in answerable) / max(len(answerable), 1)
+    category_distribution = {
+        category: sum(1 for row in rows if row.get("category", "general") == category)
+        for category in sorted({row.get("category", "general") for row in rows})
+    }
+    source_distribution: dict[str, int] = {}
+    for row in rows:
+        for source in row.get("expected_sources", []):
+            source_distribution[source] = source_distribution.get(source, 0) + 1
     return {
         "cases": len(rows),
         "answerable_cases": len(answerable),
@@ -123,6 +170,8 @@ def summarize_rows(rows: list[dict], top_k: int = 5) -> dict:
         "citation_accuracy": round(citation_accuracy, 4),
         "refusal_accuracy": round(refusal_accuracy, 4),
         "answer_acceptance_accuracy": round(answer_acceptance, 4),
+        "category_distribution": category_distribution,
+        "source_distribution": source_distribution,
     }
 
 
@@ -149,6 +198,13 @@ def markdown_report(report: dict) -> str:
     for check in report["checks"]:
         label = METRIC_LABELS.get(check["metric"], check["metric"])
         lines.append(f"| {label} | {check['actual']:.4f} | {check['minimum']:.4f} | {'通过' if check['passed'] else '失败'} |")
+    lines.extend([
+        "",
+        "## 分布",
+        "",
+        f"- 类别：{json.dumps(report['summary']['category_distribution'], ensure_ascii=False)}",
+        f"- 期望来源：{json.dumps(report['summary']['source_distribution'], ensure_ascii=False)}",
+    ])
     lines.extend(["", "## Case 明细", "", "| ID | 决策 | Recall | 首个相关排名 | 首条引用 | Top 来源 |", "| --- | --- | :---: | ---: | :---: | --- |"])
     for row in report["rows"]:
         recall = "—" if row["recall_hit"] is None else ("✓" if row["recall_hit"] else "✗")

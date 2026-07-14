@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from app.api.common import (
     chunk_payload,
@@ -29,11 +29,11 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
 @router.get("/documents")
-def list_documents():
+def list_documents(knowledge_base_id: str = ""):
     return {
         "documents": [
             document_summary(doc, chunks_for_document(doc.document_id))
-            for doc in registry.load_documents()
+            for doc in registry.load_documents([knowledge_base_id] if knowledge_base_id else None)
         ]
     }
 
@@ -60,11 +60,13 @@ def get_document(document_id: str):
 
 
 @router.post("/documents")
-async def upload_document(file: UploadFile = File(...)):
+async def upload_document(file: UploadFile = File(...), knowledge_base_id: str = Form("default")):
     target: Path | None = None
     keep_target = False
     safe_name = ""
     try:
+        if not registry.get_knowledge_base(knowledge_base_id):
+            raise HTTPException(status_code=404, detail="Knowledge base not found")
         safe_name = safe_upload_name(file.filename)
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         target = DATA_DIR / f"{uuid.uuid4().hex}-{safe_name}"
@@ -85,8 +87,9 @@ async def upload_document(file: UploadFile = File(...)):
         upload_ended = datetime.utcnow()
         parse_started = datetime.utcnow()
         doc = processor.parse_file(target, original_name=safe_name)
+        doc.metadata["knowledge_base_id"] = knowledge_base_id
         parse_ended = datetime.utcnow()
-        existing = registry.find_by_content_hash(doc.metadata.get("content_hash", ""))
+        existing = registry.find_by_content_hash(doc.metadata.get("content_hash", ""), knowledge_base_id)
         if existing:
             chunks = chunks_for_document(existing.document_id)
             registry.log_operation(
@@ -162,6 +165,7 @@ def safe_upload_name(filename: str | None) -> str:
 def validate_file_signature(path: Path, filename: str) -> None:
     signatures = {
         ".pdf": (b"%PDF-",),
+        ".docx": (b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08"),
         ".png": (b"\x89PNG\r\n\x1a\n",),
         ".jpg": (b"\xff\xd8\xff",),
         ".jpeg": (b"\xff\xd8\xff",),
@@ -175,6 +179,8 @@ def validate_file_signature(path: Path, filename: str) -> None:
 def import_url(payload: UrlImportRequest):
     safe_url = sanitize_url_for_log(payload.url)
     try:
+        if not registry.get_knowledge_base(payload.knowledge_base_id):
+            raise HTTPException(status_code=404, detail="Knowledge base not found")
         fetch_started = datetime.utcnow()
         imported = fetch_url(
             payload.url,
@@ -192,8 +198,9 @@ def import_url(payload: UrlImportRequest):
             metadata=imported.metadata,
         )
         doc.title = imported.title
+        doc.metadata["knowledge_base_id"] = payload.knowledge_base_id
         parse_ended = datetime.utcnow()
-        existing = registry.find_by_content_hash(doc.metadata.get("content_hash", ""))
+        existing = registry.find_by_content_hash(doc.metadata.get("content_hash", ""), payload.knowledge_base_id)
         if existing:
             chunks = chunks_for_document(existing.document_id)
             registry.log_operation("url_deduped", f"URL 已存在：{safe_url}", {"document_id": existing.document_id, "url": safe_url})
@@ -215,6 +222,8 @@ def import_url(payload: UrlImportRequest):
             {"document_id": doc.document_id, "url": safe_url, "chunk_count": len(chunks), "quality_score": doc.metadata["quality"]["score"]},
         )
         return {"deduped": False, "document": document_summary(doc, chunks), "chunks": [chunk_payload(chunk) for chunk in chunks[:5]]}
+    except HTTPException:
+        raise
     except Exception as exc:
         message = redact_sensitive_text(exc)
         registry.log_operation("url_import_failed", f"URL 导入失败：{safe_url}", {"url": safe_url, "error": message}, level="error")

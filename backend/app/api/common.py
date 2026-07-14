@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from app.config import settings
 from app.core.store import processor, registry, retriever
 from app.models.domain import Chunk, Document
 from app.models.schemas import RetrievalOptions
@@ -21,6 +22,7 @@ def retrieval_options(payload: RetrievalOptions) -> dict:
         "search_mode": payload.search_mode,
         "search_profile": payload.search_profile,
         "document_ids": payload.document_ids,
+        "knowledge_base_ids": payload.knowledge_base_ids,
         "bm25_weight": payload.bm25_weight,
         "vector_weight": payload.vector_weight,
         "mmr_lambda": payload.mmr_lambda,
@@ -51,6 +53,12 @@ def chunks_for_document(document_id: str) -> list[Chunk]:
 
 
 def index_document(doc: Document, lifecycle: list[dict] | None = None) -> tuple[Document, list[Chunk]]:
+    doc.metadata.setdefault("knowledge_base_id", "default")
+    doc.metadata["chunker_version"] = settings.chunker_version
+    doc.metadata["embedding_provider"] = settings.embedding_provider
+    doc.metadata["embedding_model"] = settings.embedding_model
+    doc.metadata["embedding_dimension"] = settings.resolved_embedding_dimension()
+    doc.metadata["index_version"] = settings.index_version
     doc.metadata["index_status"] = "indexing"
     split_started = datetime.utcnow()
     chunks = processor.split(doc)

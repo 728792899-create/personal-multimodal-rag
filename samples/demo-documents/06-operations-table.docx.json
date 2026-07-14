@@ -1,0 +1,21 @@
+{
+  "knowledge_base_id": "operations",
+  "blocks": [
+    {"type": "heading", "level": 1, "text": "Durable Local 索引任务"},
+    {"type": "paragraph", "text": "SQLite index_jobs 是任务事实来源。worker 使用租约领取任务，进程重启后会把过期 running 任务重新排队。"},
+    {"type": "heading", "level": 2, "text": "状态与恢复"},
+    {
+      "type": "table",
+      "rows": [
+        ["阶段", "状态", "恢复动作"],
+        ["等待", "queued", "worker 领取"],
+        ["执行", "running", "租约过期后重新排队"],
+        ["取消", "cancelling", "阶段边界协作取消"],
+        ["失败", "failed", "人工 retry"]
+      ]
+    },
+    {"type": "paragraph", "text": "任务最多自动尝试三次，失败原因使用安全错误码和脱敏消息保存。内容哈希、知识库、chunker、embedding 与索引版本共同组成幂等键。"},
+    {"type": "heading", "level": 2, "text": "Provider"},
+    {"type": "paragraph", "text": "回答支持 template、OpenAI Responses、OpenAI-compatible chat 与 Ollama；embedding 支持 mock、sentence-transformers、OpenAI-compatible 与 Ollama。"}
+  ]
+}
