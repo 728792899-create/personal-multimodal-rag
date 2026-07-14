@@ -110,6 +110,9 @@ const presets = [
         BM25 {{ workbench.bm25Weight.value.toFixed(2) }} / Vector {{ workbench.vectorWeight.value.toFixed(2) }} ·
         {{ workbench.scopeLabel.value }}
       </p>
+      <p v-if="!workbench.expertParametersValid.value" class="parameter-error" role="status">
+        候选池需为 1–80 的整数，最低分需在 0–1 之间。
+      </p>
     </section>
 
     <div v-else class="default-profile-note">
@@ -142,7 +145,7 @@ const presets = [
           v-if="workbench.appMode.value === 'expert'"
           type="button"
           class="button secondary-button"
-          :disabled="workbench.comparing.value || workbench.loading.value || !workbench.question.value.trim()"
+          :disabled="workbench.comparing.value || workbench.loading.value || !workbench.question.value.trim() || !workbench.expertParametersValid.value"
           @click="workbench.handleCompare"
         >
           {{ workbench.comparing.value ? '对比中…' : '策略对比' }}
@@ -158,7 +161,7 @@ const presets = [
           type="button"
           class="button primary-button run-button"
           data-testid="run-query"
-          :disabled="!workbench.question.value.trim()"
+          :disabled="!workbench.question.value.trim() || !workbench.expertParametersValid.value"
           @click="workbench.handleRun"
         >
           {{ workbench.workMode.value === 'answer' ? '检索并回答' : '检索证据' }}

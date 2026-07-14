@@ -122,6 +122,18 @@ describe('WorkbenchPage workflows', () => {
     expect(wrapper.text()).toContain('已生成评测草稿')
   })
 
+  it('disables execution and explains invalid expert parameters', async () => {
+    const wrapper = mount(WorkbenchPage)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="mode-expert"]').trigger('click')
+    await wrapper.get('input[name="candidate-k"]').setValue('')
+
+    expect(wrapper.get('[data-testid="run-query"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[role="status"]').text()).toContain('候选池需为 1–80 的整数')
+    expect(calls.some((call) => call.path.endsWith('/messages:stream'))).toBe(false)
+  })
+
   it('renders no-evidence refusal as a successful guarded outcome', async () => {
     askResponse = answerFixture({
       answer: '根据当前知识库资料，无法确定。',

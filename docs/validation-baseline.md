@@ -32,14 +32,14 @@
 
 ## 0.2 Durable Local 当前验收
 
-2026-07-14 在 `codex/rag-web-ui-durable-local` 执行全套验收。首次运行的 E2E locator 因任务卡和文档卡同名发生严格定位冲突，按可访问角色修正后 6/6 通过；首次打开真实旧 SQLite 又暴露迁移索引顺序错误，修复后加入 legacy schema 回归。
+2026-07-14 在 `codex/rag-web-ui-durable-local` 执行全套验收。首次运行的 E2E locator 因任务卡和文档卡同名发生严格定位冲突，按可访问角色修正后 6/6 通过；首次打开真实旧 SQLite 又暴露迁移索引顺序错误，修复后加入 legacy schema 回归。系统 Chrome 终验进一步发现 FastAPI 校验数组显示为 `[object Object]`，以及无条件拼接会话历史会让跨主题问题绕过拒答门；两项均先复现、修复并加入回归。
 
 | 项目 | 真实结果 |
 | --- | --- |
 | 文档/图片 | 32 Markdown、10 SVG、12 raster 全部通过；secret scan 通过 |
-| 后端 pytest | 72 passed；含旧表迁移/备份、KB、任务、DOCX、Provider、SSE、多轮 |
-| 前端 Vitest | 4 files / 11 tests passed |
-| `npm run build` | 通过；JS 127.01 kB（gzip 44.49），CSS 25.55 kB（gzip 5.33） |
+| 后端 pytest | 73 passed；含旧表迁移/备份、KB、任务、DOCX、Provider、SSE、多轮与跨主题拒答 |
+| 前端 Vitest | 4 files / 13 tests passed |
+| `npm run build` | 通过；JS 128.37 kB（gzip 45.00），CSS 25.66 kB（gzip 5.35） |
 | Demo smoke | 1 passed |
 | Playwright | 6 passed；desktop Chromium + 390px mobile Chromium |
 | 黄金集 | 40（32 answerable / 8 refusal），五项阈值全部通过 |
@@ -62,7 +62,7 @@
 
 ## Browser 人工验收
 
-在应用内 Browser 打开 Docker 实栈并验证：
+0.1 加固阶段在应用内 Browser 打开 Docker 实栈并验证：
 
 - 普通模式：提交问题、生成证据回答与七阶段 Trace。
 - 引用：点击首条引用后加载相邻上下文。
@@ -77,11 +77,11 @@
 
 新增的五张技术 SVG 与一张 social preview 均通过 XML/标题/描述/字体/裁切目视检查。`social-preview.png` 实测 1280 × 640、PNG 真格式且小于 1 MB；文档脚本会阻止伪扩展名、漏记清单和错误预览规格进入 CI。
 
-0.2 尝试通过内置 Browser 重新打开 Compose 实栈时，Browser 插件连接层报 `Cannot redefine property: process`；按技能要求重连仍失败。随后尝试用 Computer Use 操作本机 Chrome，但 Mac 处于锁屏且无法自动解锁。为避免伪造人工结果，本轮新 UI 的普通/专家/390px/失败重试证据只记录 Playwright 6/6 和 Docker/API 实测，待用户解锁后补一次人工可视复核与新版截图。上面的人工条目和现有截图属于此前 0.1 加固分支的真实取证，不冒充 0.2 新截图。
+0.2 终验时内置 Browser 连接层仍报 `Cannot redefine property: process`，因此按用户要求转接 Computer Use 操作系统 Chrome。Mac 解锁后，系统 Chrome 实测普通模式流式回答、4 条引用与 Trace；专家参数及无效候选池的即时提示/禁用；跨主题支付问题的“已安全拒答”、0 引用和“拒绝回答”；DevTools Responsive 宽 390、高 844 时知识库、问答和质量区域均保留语义可访问；停止后端后显示 502/504 与 Retry，恢复后点击 Retry 生成回答和 4 条引用。测试只使用离线 provider 和仓库样例。现有 `docs/screenshots/` 仍是此前真实取证，没有用空白的设备画布截图覆盖它们。
 
 ## 远端 CI
 
-0.1 加固分支的 GitHub Actions 已实际跑通后端、前端/E2E、检索评测和 Docker Compose。0.2 分支推送后以对应提交的 checks 为准；本地结果不能代替远端 CI。
+0.1 加固分支的 GitHub Actions 已实际跑通。0.2 PR #2 首个功能提交的 push 与 pull_request 两套 backend、docs、frontend、retrieval-eval、docker-compose 共 10 项检查全部通过；后续修复提交仍以对应提交 checks 为准，本地结果不能代替远端 CI。
 
 ## 尚不能在本地证明的外部状态
 

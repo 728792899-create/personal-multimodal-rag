@@ -9,8 +9,8 @@
 | 层级 | 工具 | 当前覆盖 | 主要失败信号 |
 | --- | --- | --- | --- |
 | 文档质量 | Python stdlib checker | Markdown + SVG + PNG/JPEG 清单 | 失效链接、空 alt、无障碍元数据、伪格式或预览规格 |
-| 后端单元/接口 | pytest | 72 tests | legacy migration、KB、jobs、DOCX、SSE、多轮、provider、拒答与恢复 |
-| 前端单元/组件 | Vitest + Testing Library | 11 tests | SSE、KB/jobs、API 超时、Trace 和工作台交互 |
+| 后端单元/接口 | pytest | 73 tests | legacy migration、KB、jobs、DOCX、SSE、多轮、provider、拒答与恢复 |
+| 前端单元/组件 | Vitest + Testing Library | 13 tests | SSE、KB/jobs、API 超时、参数校验、Trace 和工作台交互 |
 | Demo smoke | pytest | 1 workflow | 导入 → 提问 → 引用的真实内存链路 |
 | 浏览器关键路径 | Playwright Chromium | 6 tests | 上传、URL、问答、引用、拒答、KB、任务重试、移动端 |
 | 检索回归 | 固定 JSONL + Python runner | 40 cases | Recall@5、MRR、引用、拒答、回答接受阈值 |

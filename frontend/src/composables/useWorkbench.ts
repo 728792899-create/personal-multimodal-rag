@@ -21,7 +21,7 @@ import {
   saveKnowledgeCard,
   searchDocuments,
   submitFeedback,
-  type ApiError,
+  ApiError,
   type AppMode,
   type AskResponse,
   type ChunkContext,
@@ -135,6 +135,18 @@ export function useWorkbench() {
   const citationAudit = computed(() => answer.value?.citation_audit)
   const trust = computed(() => answer.value?.trust)
   const streamAuditPending = computed(() => ['retrieving', 'streaming', 'auditing'].includes(conversationState.streamPhase.value))
+  const expertParametersValid = computed(() => {
+    if (appMode.value !== 'expert') return true
+    return Number.isInteger(Number(topK.value))
+      && Number(topK.value) >= 1
+      && Number(topK.value) <= 12
+      && Number.isInteger(Number(candidateK.value))
+      && Number(candidateK.value) >= 1
+      && Number(candidateK.value) <= 80
+      && Number.isFinite(Number(minScore.value))
+      && Number(minScore.value) >= 0
+      && Number(minScore.value) <= 1
+  })
 
   function clearError() {
     error.value = ''
@@ -255,6 +267,10 @@ export function useWorkbench() {
 
   async function handleRun() {
     if (!question.value.trim()) return
+    if (!expertParametersValid.value) {
+      reportError(new ApiError('请先修复专家检索参数，再运行查询。'), '检索参数无效')
+      return
+    }
     runController?.abort()
     runController = new AbortController()
     loading.value = true
@@ -354,6 +370,10 @@ export function useWorkbench() {
 
   async function handleCompare() {
     if (!question.value.trim()) return
+    if (!expertParametersValid.value) {
+      reportError(new ApiError('请先修复专家检索参数，再运行策略对比。'), '检索参数无效')
+      return
+    }
     comparing.value = true
     clearError()
     try {
@@ -632,6 +652,7 @@ export function useWorkbench() {
     loadingContext, feedbackSubmitting, rewriting, evalRunning, error, errorRequestId,
     totalChunks, totalChars, avgQualityLabel, bm25Weight, vectorWeight, scopeSet,
     scopeLabel, filteredDocuments, isRefusal, diagnostics, citationAudit, trust,
+    expertParametersValid,
     boot, handleRun, cancelRun, handleUpload, handleImportUrl, handleCompare,
     selectCitation, selectDocument, removeDocument, rebuildOne, rebuildAll,
     toggleScope, clearScope, useHistory, eraseHistory, handleFeedback, handleRewrite,

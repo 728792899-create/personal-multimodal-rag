@@ -746,6 +746,14 @@ summary span {
   margin-top: var(--space-3);
 }
 
+.parameter-error {
+  margin-top: var(--space-2);
+  color: var(--danger);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
 .default-profile-note {
   display: flex;
   align-items: center;

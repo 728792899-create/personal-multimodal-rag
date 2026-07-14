@@ -1,4 +1,4 @@
-import { ApiError, apiRequest, jsonBody } from './client'
+import { ApiError, apiRequest, formatApiErrorDetail, jsonBody } from './client'
 import type { Conversation, ConversationMessage, ConversationStreamEvent, RequestOptions, RetrievalOptions } from './types'
 
 
@@ -39,7 +39,7 @@ export async function streamConversationMessage(
     let detail = `流式请求失败（${response.status}）`
     try {
       const payload = await response.json()
-      if (payload?.detail) detail = String(payload.detail)
+      if (payload?.detail) detail = formatApiErrorDetail(payload.detail, detail)
     } catch { /* response is not JSON */ }
     throw new ApiError(detail, { status: response.status, requestId: response.headers.get('x-request-id') || '' })
   }

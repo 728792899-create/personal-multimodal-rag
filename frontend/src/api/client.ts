@@ -17,6 +17,33 @@ export class ApiError extends Error {
   }
 }
 
+function validationIssueMessage(issue: unknown): string {
+  if (!issue || typeof issue !== 'object') return ''
+  const record = issue as Record<string, unknown>
+  const message = typeof record.msg === 'string'
+    ? record.msg.replace('Input should be a valid integer', '请输入有效整数')
+    : ''
+  const location = Array.isArray(record.loc)
+    ? record.loc.filter((item) => !['body', 'query', 'path'].includes(String(item))).join('.')
+    : ''
+  return [location, message].filter(Boolean).join('：')
+}
+
+export function formatApiErrorDetail(detail: unknown, fallback: string): string {
+  if (typeof detail === 'string' && detail.trim()) return detail.trim()
+  if (Array.isArray(detail)) {
+    const messages = detail.map(validationIssueMessage).filter(Boolean)
+    return messages.length ? `参数校验失败：${messages.join('；')}` : fallback
+  }
+  if (detail && typeof detail === 'object') {
+    const record = detail as Record<string, unknown>
+    for (const key of ['message', 'msg', 'detail', 'error']) {
+      if (key in record) return formatApiErrorDetail(record[key], fallback)
+    }
+  }
+  return fallback
+}
+
 export async function apiRequest<T>(path: string, init: RequestInit = {}, options: RequestOptions = {}): Promise<T> {
   const controller = new AbortController()
   let timedOut = false
@@ -43,8 +70,11 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}, option
       : await response.text()
     if (!response.ok) {
       const retryAfter = Number(response.headers.get('retry-after'))
+      const fallback = `请求失败（${response.status}）`
       throw new ApiError(
-        typeof data === 'object' && data && 'detail' in data ? String(data.detail) : `请求失败（${response.status}）`,
+        typeof data === 'object' && data && 'detail' in data
+          ? formatApiErrorDetail(data.detail, fallback)
+          : fallback,
         {
           status: response.status,
           code: response.status === 429 ? 'RATE_LIMITED' : 'HTTP_ERROR',

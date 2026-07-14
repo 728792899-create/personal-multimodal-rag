@@ -33,6 +33,18 @@ describe('apiRequest', () => {
     })
   })
 
+  it('formats FastAPI validation arrays without leaking object coercion text', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({ detail: [{ type: 'int_type', loc: ['body', 'candidate_k'], msg: 'Input should be a valid integer', input: null }] }),
+      { status: 422, headers: { 'content-type': 'application/json' } },
+    )))
+
+    await expect(apiRequest('/api/ask')).rejects.toMatchObject({
+      message: '参数校验失败：candidate_k：请输入有效整数',
+      status: 422,
+    })
+  })
+
   it('aborts and reports a bounded timeout', async () => {
     vi.useFakeTimers()
     vi.stubGlobal('fetch', vi.fn().mockImplementation((_path, init: RequestInit) => new Promise((_resolve, reject) => {

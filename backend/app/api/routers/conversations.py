@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 
 from fastapi import APIRouter, HTTPException
@@ -15,7 +16,17 @@ from app.services.safe_logging import redact_sensitive_text
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 
 
+CONTEXT_DEPENDENT_QUESTION = re.compile(
+    r"(?:\b(?:it|its|they|them|those|these|the former|the latter|above|previous)\b"
+    r"|它|它的|其(?!实)|上述|前述|前面|刚才|这个(?!\s*(?:RAG|系统|项目))"
+    r"|该(?:流程|机制|方法|方案|指标|任务|文档|回答|功能)|这种|这些|那些|其中|继续)",
+    re.IGNORECASE,
+)
+
+
 def _conversation_retrieval_query(question: str, context: list[dict]) -> tuple[str, int]:
+    if not CONTEXT_DEPENDENT_QUESTION.search(question.strip()):
+        return question, 0
     previous_questions = [
         str(message.get("content") or "").strip()
         for message in context
@@ -23,7 +34,7 @@ def _conversation_retrieval_query(question: str, context: list[dict]) -> tuple[s
         and str(message.get("content") or "").strip()
         and str(message.get("content") or "").strip() != question.strip()
     ]
-    previous_questions = previous_questions[-2:]
+    previous_questions = previous_questions[-1:]
     if not previous_questions:
         return question, 0
     history = "\n".join(f"- {item[:1_000]}" for item in previous_questions)

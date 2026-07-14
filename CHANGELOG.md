@@ -14,6 +14,7 @@
 - OpenAI Responses、OpenAI-compatible Chat 与 Ollama 轻量 adapter；只读 Provider 状态。
 - 稳定 SSE 会话协议、流式正文、断连取消、拒答与完成后引用审计。
 - 知识库删除保护：活动任务阻止删除，强制删除清理终态任务并自动修复持久会话范围。
+- 专家参数前置校验与可读 FastAPI 错误；独立新问题不再继承旧会话词项，通用词重叠不能绕过拒答门。
 - 40 条黄金集及知识库隔离、多轮、DOCX 表格、索引版本回归；新增回答接受准确率门槛。
 - [`rag-web-ui` 固定提交对比审查](docs/comparative-review-rag-web-ui.md)与[0.2 迁移/回滚指南](docs/durable-local-0.2.md)。
 

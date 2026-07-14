@@ -97,3 +97,20 @@ def test_mock_embedding_rejects_only_generic_lexical_overlap(tmp_path):
 
     assert result["citations"] == []
     assert result["retrieval_trace"]["refusal_reason"] == "weak_grounding"
+
+
+def test_mock_embedding_rejects_project_only_overlap(tmp_path):
+    source = tmp_path / "overview.md"
+    source.write_text("该项目面向个人知识库问答，目标是展示检索链路。", encoding="utf-8")
+    processor = DocumentProcessor()
+    document = processor.parse_file(source)
+    retriever = HybridRetriever()
+    retriever.add_document(document, processor.split(document))
+
+    result = RagEngine(retriever).ask(
+        "本项目的支付对账 SLA 和退款审批规则是什么？",
+        query_rewrite=False,
+    )
+
+    assert result["citations"] == []
+    assert result["retrieval_trace"]["refusal_reason"] == "weak_grounding"

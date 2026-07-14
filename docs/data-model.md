@@ -42,7 +42,7 @@ API 接受文件时流式写暂存文件、校验签名并创建 `queued` job。
 
 ## 会话边界
 
-新 SSE 会话事实保存在 `conversations` 与 `conversation_messages`。上下文默认最多最近六轮、约 12,000 字符。流式开始先写空 assistant message，完成后原位更新为最终响应；客户端断开则标记 `cancelled`，异常标记 `failed`。旧 `history` API 保留兼容，不作为新会话上下文来源。
+新 SSE 会话事实保存在 `conversations` 与 `conversation_messages`。上下文默认最多最近六轮、约 12,000 字符；只有明确指代型追问才将最近问题用于检索改写，独立新问题不会继承旧主题词。流式开始先写空 assistant message，完成后原位更新为最终响应；客户端断开则标记 `cancelled`，异常标记 `failed`。旧 `history` API 保留兼容，不作为新会话上下文来源。
 
 ## 生产迁移顺序
 

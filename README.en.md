@@ -24,7 +24,7 @@ The default path is deterministic and offline: hash embeddings, an in-memory vec
 | Ordinary and expert modes | Stage-by-stage retrieval Trace | pytest, Vitest and Playwright |
 | Citation and neighboring context | Citation coverage audit | Fixed 40-case offline golden set |
 | Feedback to evaluation draft | Request IDs, timeout, cancel and retry | Health checks and five-job CI |
-| Durable local index jobs | Lease recovery and index compatibility | 72 backend / 11 frontend / 6 E2E tests |
+| Durable local index jobs | Lease recovery and index compatibility | 73 backend / 13 frontend / 6 E2E tests |
 
 ![System map from ingestion to evidence-constrained answers and evaluation](docs/assets/system-overview.svg)
 

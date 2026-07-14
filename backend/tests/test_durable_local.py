@@ -320,6 +320,19 @@ def test_conversation_follow_up_uses_recent_questions_for_retrieval():
         assert completed["response"]["retrieval_trace"]["conversation_context_used"] is True
         assert completed["response"]["citations"][0]["filename"] == "alphaflux.md"
 
+        independent = client.post(
+            f"/api/conversations/{conversation_id}/messages:stream",
+            json={"question": "What is the payroll reconciliation policy?", "query_rewrite": False},
+        )
+        independent_events = [
+            json.loads(line.removeprefix("data: "))
+            for line in independent.text.splitlines()
+            if line.startswith("data: ")
+        ]
+        refused = next(event for event in independent_events if event["type"] == "refusal")
+        assert refused["response"]["retrieval_trace"]["conversation_context_used"] is False
+        assert refused["response"]["citations"] == []
+
 
 def test_provider_status_never_exposes_secrets(monkeypatch):
     from app.config import settings
