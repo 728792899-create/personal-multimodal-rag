@@ -4,6 +4,8 @@
 
 这张图用于快速理解系统边界；下面的 Mermaid 图展示更接近代码模块的依赖关系。默认离线链路与可选生产 adapter 使用同一套领域接口。
 
+![一次请求经过 Nginx、中间件、领域路由、服务和 provider 的生命周期](assets/request-lifecycle.svg)
+
 ## 1. 系统分层
 
 ```mermaid
@@ -74,6 +76,8 @@ flowchart TB
 | 前端 API | `frontend/src/api/` | 超时/错误 client 与 documents/retrieval/quality API |
 | 后端路由 | `backend/app/api/routers/` | documents/retrieval/quality 领域路由 |
 
+更适合按请求阅读的文件级入口见[代码导览](code-tour.md)。
+
 ## 2. 资料入库与安全边界
 
 ```mermaid
@@ -98,6 +102,8 @@ flowchart LR
 ```
 
 URL 导入默认拒绝回环、内网、链路本地和特殊地址。校验不只发生在初始 URL，还覆盖重定向与最终响应，避免通过跳转绕过 SSRF 防线。
+
+![不可信文件、URL、外部 provider 和本地存储之间的信任边界](assets/security-boundaries.svg)
 
 ## 3. 问答检索时序
 
@@ -171,6 +177,10 @@ flowchart LR
 
 SQLite 保存文档内容与 metadata。启动时先加载 registry，再检查 vector store 已有 chunk；只为缺失文档重建索引。因此 memory store 重启后恢复检索，Chroma 等持久 store 不会重复 embedding 已存在 chunk。
 
+![当前 SQLite 表、vector chunk 和生产 workspace 迁移边界](assets/data-model.svg)
+
+字段、删除语义和迁移顺序见[SQLite 数据模型](data-model.md)。
+
 Compose 的 Nginx 只暴露静态前端与 `/api` 代理，FastAPI `/ready` 返回当前 provider。前后端 healthcheck 与 `depends_on: condition=service_healthy` 防止前端在后端未就绪时被标记为整体可用。
 
 ## 设计取舍
@@ -187,3 +197,4 @@ Compose 的 Nginx 只暴露静态前端与 `/api` 代理，FastAPI `/ready` 返�
 - [API 使用指南](api-reference.md)：端点、payload 与错误语义。
 - [配置指南](configuration.md)：provider、store、门槛与安全配置。
 - [生产适配方案](production-adapters.md)：workspace、任务、pgvector 与对象存储。
+- [安全威胁模型](security-model.md)：信任边界、已实现控制与剩余风险。

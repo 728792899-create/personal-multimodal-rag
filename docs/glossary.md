@@ -25,5 +25,8 @@
 | Golden set | 固定、脱敏、可重复执行并设有阈值的评测集 |
 | Registry | SQLite 中保存的文档、内容、历史、反馈和操作数据 |
 | Workspace | 生产多团队隔离单位；当前 Beta 尚未实现完整边界 |
+| Trust boundary | 数据或控制权跨越不同信任级别的位置，必须重新校验和授权 |
+| State machine | idle、pending、success、error、cancel、retry 等可见且可恢复的前端状态 |
+| Social preview | GitHub 分享链接时显示的 1280×640 项目预览图，不是产品截图 |
 | Responses provider | 使用 OpenAI-compatible `/v1/responses` 的回答 adapter |
 | Offline default | mock embedding + memory vector + template answer 的零 Key 路径 |

@@ -1,5 +1,7 @@
 # 文档中心
 
+[中文项目入口](../README.md) · [English overview](../README.en.md)
+
 这里是 Personal Multimodal RAG 的完整说明入口。README 负责快速判断项目价值；本目录负责解释行为、实现、运行和边界。
 
 ![系统全景图](assets/system-overview.svg)
@@ -8,31 +10,36 @@
 
 ### 第一次体验
 
-1. [产品巡游](product-tour.md)
-2. [5 分钟启动](../README.md#5-分钟离线启动)
-3. [演示脚本](demo-script.md)
-4. [FAQ](faq.md)
+1. [端到端案例](case-study.md)
+2. [产品巡游](product-tour.md)
+3. [5 分钟启动](../README.md#5-分钟离线启动)
+4. [演示脚本](demo-script.md)
+5. [FAQ](faq.md)
 
 ### 前端/产品
 
 1. [产品巡游](product-tour.md)：三栏信息架构、普通/专家模式和状态设计。
 2. [截图清单](screenshots/README.md)：真实桌面、Trace 与移动拒答证据。
 3. [架构说明](architecture.md)：页面、组件、composable 与 API 分层。
-4. [贡献指南](../CONTRIBUTING.md)：可访问性和 E2E 要求。
+4. [前端状态机](assets/frontend-state-machine.svg)：loading、error、cancel 与 retry。
+5. [贡献指南](../CONTRIBUTING.md)：可访问性和 E2E 要求。
 
 ### RAG/评测
 
 1. [检索与可信回答](retrieval-explained.md)
 2. [测试与评测](testing-and-evaluation.md)
-3. [验证基线](validation-baseline.md)
-4. [已知边界](known-limitations.md)
+3. [固定黄金集评测结果](evaluation-results.md)
+4. [验证基线](validation-baseline.md)
+5. [已知边界](known-limitations.md)
 
 ### 后端/集成
 
 1. [API 使用指南](api-reference.md)
 2. [配置指南](configuration.md)
-3. [架构说明](architecture.md)
-4. [安全策略](../SECURITY.md)
+3. [代码导览](code-tour.md)
+4. [SQLite 数据模型](data-model.md)
+5. [安全威胁模型](security-model.md)
+6. [安全策略](../SECURITY.md)
 
 ### 部署/运维
 
@@ -52,7 +59,8 @@
 
 ```mermaid
 flowchart TB
-  HOME["README · 项目入口"] --> TOUR["产品巡游"]
+  HOME["README · 中英文入口"] --> CASE["端到端案例"]
+  HOME --> TOUR["产品巡游"]
   HOME --> START["启动与配置"]
   HOME --> TRUST["检索与评测"]
   HOME --> OPS["部署与运维"]
@@ -61,6 +69,7 @@ flowchart TB
   START --> CFG["配置指南"]
   TRUST --> RET["检索原理"]
   TRUST --> TEST["测试与评测"]
+  TRUST --> SCORE["固定集成绩卡"]
   OPS --> RUN["运维手册"]
   OPS --> PROD["生产适配"]
   TEST --> BASE["验证基线"]

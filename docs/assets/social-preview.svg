@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="title desc">
+  <title id="title">Personal Multimodal RAG GitHub social preview</title>
+  <desc id="desc">A dark navy project card showing mixed documents flowing through hybrid retrieval and evidence verification into a cited answer.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#061426"/><stop offset="1" stop-color="#0d3b42"/></linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#2dd4bf"/><stop offset="1" stop-color="#60a5fa"/></linearGradient>
+    <filter id="glow"><feGaussianBlur stdDeviation="22"/></filter>
+    <style>text{font-family:Arial,Helvetica,sans-serif}.eyebrow{font-size:20px;font-weight:700;letter-spacing:2.4px;fill:#5eead4}.title{font-size:58px;font-weight:700;fill:#f8fafc}.sub{font-size:24px;fill:#cbd5e1}.label{font-size:16px;font-weight:700;fill:#e2e8f0}.tiny{font-size:14px;fill:#94a3b8}</style>
+  </defs>
+  <rect width="1280" height="640" fill="url(#bg)"/>
+  <circle cx="1100" cy="90" r="260" fill="#2563eb" opacity=".14" filter="url(#glow)"/>
+  <circle cx="80" cy="620" r="240" fill="#14b8a6" opacity=".12" filter="url(#glow)"/>
+  <rect x="64" y="64" width="1152" height="512" rx="34" fill="#0b2032" stroke="#285168" stroke-width="2"/>
+  <text x="112" y="128" class="eyebrow">LOCAL-FIRST · EVIDENCE-CENTERED · OFFLINE-EVALUATED</text>
+  <text x="112" y="208" class="title">Personal Multimodal RAG</text>
+  <text x="112" y="252" class="sub">Hybrid retrieval, safe refusal, citations and inspectable quality.</text>
+
+  <g transform="translate(112 320)">
+    <rect width="126" height="92" rx="18" fill="#12344a" stroke="#2f6478"/><text x="22" y="40" class="label">PDF · URL</text><text x="22" y="66" class="tiny">image · notes</text>
+    <path d="M142 46H198" stroke="#67e8f9" stroke-width="5" stroke-linecap="round"/><path d="M188 34l16 12-16 12" fill="none" stroke="#67e8f9" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="220" width="154" height="92" rx="18" fill="#0f4f52" stroke="#2dd4bf"/><text x="242" y="40" class="label">BM25 + Vector</text><text x="242" y="66" class="tiny">fusion · MMR</text>
+    <path d="M390 46H446" stroke="#67e8f9" stroke-width="5" stroke-linecap="round"/><path d="M436 34l16 12-16 12" fill="none" stroke="#67e8f9" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="468" width="154" height="92" rx="18" fill="#173a5f" stroke="#60a5fa"/><text x="490" y="40" class="label">Evidence gate</text><text x="490" y="66" class="tiny">answer or refuse</text>
+    <path d="M638 46H694" stroke="#67e8f9" stroke-width="5" stroke-linecap="round"/><path d="M684 34l16 12-16 12" fill="none" stroke="#67e8f9" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="716" y="-18" width="332" height="128" rx="22" fill="#f8fafc"/>
+    <rect x="742" y="12" width="194" height="10" rx="5" fill="#94a3b8"/><rect x="742" y="36" width="264" height="8" rx="4" fill="#cbd5e1"/><rect x="742" y="56" width="232" height="8" rx="4" fill="#cbd5e1"/>
+    <circle cx="758" cy="86" r="8" fill="#14b8a6"/><rect x="776" y="81" width="92" height="10" rx="5" fill="#5eead4"/><circle cx="900" cy="86" r="8" fill="#60a5fa"/><rect x="918" y="81" width="68" height="10" rx="5" fill="#93c5fd"/>
+  </g>
+  <rect x="112" y="474" width="350" height="48" rx="24" fill="url(#accent)" opacity=".2"/><text x="140" y="505" class="label">Vue · FastAPI · Docker · Playwright</text>
+</svg>

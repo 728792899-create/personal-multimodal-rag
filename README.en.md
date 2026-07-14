@@ -1,0 +1,117 @@
+# Personal Multimodal RAG · Evidence Workbench
+
+[中文说明](README.md) · **English**
+
+[![CI](https://github.com/728792899-create/personal-multimodal-rag/actions/workflows/ci.yml/badge.svg)](https://github.com/728792899-create/personal-multimodal-rag/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-0f766e.svg)](LICENSE)
+[![Offline First](https://img.shields.io/badge/default-offline%20%2F%20zero--key-7c3aed.svg)](.env.example)
+
+![PDF, URL, image and note evidence flowing through hybrid retrieval and a refusal gate](docs/assets/social-preview.png)
+
+**A local-first multimodal RAG workbench where retrieval, refusal and citation quality stay inspectable.**
+
+[Quick start](#zero-key-quick-start) · [Case study](docs/case-study.md) · [Architecture](docs/architecture.md) · [Evaluation](docs/evaluation-results.md) · [Security](docs/security-model.md) · [Full documentation](docs/README.md)
+
+The project is a deployable single-user/small-team Beta rather than a chat UI wrapped around one model call. It ingests PDF, Markdown, text, images and public URLs; combines BM25 and vector recall; applies fusion, MMR and reranking; refuses unsupported questions; and links every answer back to inspectable chunks.
+
+The default path is deterministic and offline: hash embeddings, an in-memory vector store and template answers require **no API key and make no paid API calls**. Optional adapters expose the production integration boundaries without making the local demo depend on them.
+
+## What reviewers can verify
+
+| Product behavior | Trust mechanism | Engineering evidence |
+| --- | --- | --- |
+| File upload and guarded URL import | Evidence threshold and explicit refusal | FastAPI, Vue 3, Docker Compose |
+| Ordinary and expert modes | Stage-by-stage retrieval Trace | pytest, Vitest and Playwright |
+| Citation and neighboring context | Citation coverage audit | Fixed 30-case offline golden set |
+| Feedback to evaluation draft | Request IDs, timeout, cancel and retry | Health checks and five-job CI |
+
+![System map from ingestion to evidence-constrained answers and evaluation](docs/assets/system-overview.svg)
+
+## Interface
+
+| Workbench | Grounded answer | Mobile refusal |
+| --- | --- | --- |
+| ![Ordinary-mode workbench with knowledge and query panels](docs/screenshots/01-workbench-beta.png) | ![Answer citations and seven-stage retrieval trace](docs/screenshots/02-grounded-trace.png) | ![Expert-mode refusal at a 390-pixel viewport](docs/screenshots/03-mobile-expert-refusal.png) |
+
+The extended gallery also shows [URL ingestion](docs/screenshots/04-ingestion-url.png), [neighboring citation context](docs/screenshots/05-citation-context.png), [quality audit](docs/screenshots/06-quality-dashboard.png), [feedback-generated eval drafts](docs/screenshots/07-feedback-eval-draft.png), and [retry after an API failure](docs/screenshots/08-error-retry.png).
+
+## Zero-key quick start
+
+Requirements: Python 3.11+ and Node.js 22+.
+
+```bash
+git clone https://github.com/728792899-create/personal-multimodal-rag.git
+cd personal-multimodal-rag
+
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r backend/requirements.txt
+npm ci
+npm --prefix frontend ci
+cp .env.example .env
+npm run dev
+```
+
+In another terminal, load the repository's sanitized fixtures:
+
+```bash
+source .venv/bin/activate
+npm run demo:bootstrap
+```
+
+Open [http://127.0.0.1:5173](http://127.0.0.1:5173). The default environment uses:
+
+```text
+EMBEDDING_PROVIDER=mock
+VECTOR_STORE=memory
+ANSWER_PROVIDER=template
+QUERY_REWRITE_PROVIDER=none
+```
+
+The Docker path is equally self-contained:
+
+```bash
+docker compose up --build --wait -d
+npm run demo:bootstrap
+```
+
+## Architecture and request lifecycle
+
+![Browser, Nginx, middleware, domain routers, services and provider adapters in one request lifecycle](docs/assets/request-lifecycle.svg)
+
+The Vue application is split into a page, domain components, the `useWorkbench` composable, and API modules. FastAPI keeps a stable composition root while document, retrieval and quality routes live in separate domain routers. The service layer owns ingestion, retrieval, answer generation and citation audit; provider adapters retain offline fallbacks.
+
+Read the [architecture guide](docs/architecture.md), [code tour](docs/code-tour.md), [SQLite data model](docs/data-model.md), and [API reference](docs/api-reference.md) for implementation-level detail.
+
+## Deterministic evaluation
+
+![Thirty-case offline scorecard with thresholds for recall, ranking, citation and refusal](docs/assets/evaluation-scorecard.svg)
+
+| Metric | Recorded result | CI minimum |
+| --- | ---: | ---: |
+| Recall@5 | 1.0000 | 0.90 |
+| MRR | 1.0000 | 0.75 |
+| First-citation accuracy | 1.0000 | 0.75 |
+| Refusal accuracy | 1.0000 | 0.80 |
+
+The set contains 30 sanitized cases: 24 answerable and 6 refusal cases. These numbers are regression signals for fixed repository fixtures—not a claim about open-domain production quality. See [evaluation results and caveats](docs/evaluation-results.md).
+
+Run all acceptance checks with offline providers enforced:
+
+```bash
+npm run verify
+```
+
+Or run `npm test`, `npm run lint:docs`, `npm run build`, `npm run test:demo`, `npm run eval:retrieval`, and `npm run test:e2e` separately.
+
+## Security and production boundary
+
+![Trust boundaries between the browser, API, untrusted input, providers and storage](docs/assets/security-boundaries.svg)
+
+Implemented controls cover upload type/size/signature checks, SSRF-aware URL validation across redirects, optional bearer authentication, process-local rate limiting, timeouts, cancellation, source cleanup, request IDs and sensitive-log redaction. The default Sentry integration disables PII and request bodies.
+
+This repository does **not** claim multi-tenant isolation. SQLite, local uploads, memory vectors and process-local rate limiting fit the local/single-instance Beta. Production teams still need workspace-scoped authorization, background indexing, object storage, pgvector migrations, Redis-backed limits, malware scanning, backups and operational ownership. The boundary and migration steps are explicit in the [security model](docs/security-model.md) and [production adapter plan](docs/production-adapters.md).
+
+## License
+
+[MIT](LICENSE). For contributions and responsible disclosure, see [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).

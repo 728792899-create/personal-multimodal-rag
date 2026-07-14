@@ -1,5 +1,7 @@
 # Personal Multimodal RAG · 证据工作台
 
+**中文** · [English overview](README.en.md)
+
 [![CI](https://github.com/728792899-create/personal-multimodal-rag/actions/workflows/ci.yml/badge.svg)](https://github.com/728792899-create/personal-multimodal-rag/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-0f766e.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-2563eb.svg)](backend/requirements.txt)
@@ -10,7 +12,7 @@
 
 **从 PDF、网页、图片与笔记，到可解释、可拒答、可量化回归的证据链。**
 
-[快速启动](#5-分钟离线启动) · [产品巡游](docs/product-tour.md) · [文档中心](docs/README.md) · [检索原理](docs/retrieval-explained.md) · [API](docs/api-reference.md) · [配置](docs/configuration.md) · [评测](docs/testing-and-evaluation.md) · [运维](docs/operations-runbook.md) · [路线图](docs/roadmap.md)
+[快速启动](#5-分钟离线启动) · [端到端案例](docs/case-study.md) · [产品巡游](docs/product-tour.md) · [文档中心](docs/README.md) · [代码导览](docs/code-tour.md) · [评测结果](docs/evaluation-results.md) · [安全模型](docs/security-model.md)
 
 面向单用户/小团队 Beta 的本地优先多模态 RAG 工作台。它不只展示“上传并问答”，还把 BM25、向量召回、融合去重、MMR、Rerank、拒答决策和引用覆盖率组织成可理解、可回归的证据链。
 
@@ -131,6 +133,8 @@ npm run verify
 
 当前本地验收证据见 [验证基线](docs/validation-baseline.md)。评测失败会生成可读报告到 `eval/reports/latest.md`；CI 会始终上传报告 artifact。
 
+![30 条固定黄金集的指标实际值、门槛与 case 分布](docs/assets/evaluation-scorecard.svg)
+
 | 检查 | 当前本地结果 | CI 门槛 |
 | --- | ---: | ---: |
 | 后端测试 | 54 passed | 全部通过 |
@@ -143,6 +147,8 @@ npm run verify
 
 > 上表是仓库内固定、脱敏、小规模黄金集的回归结果，用于发现代码退化，不代表开放域或真实业务语料上的绝对质量。
 
+完整的数据集构成、判定方式与限制见[固定黄金集评测结果](docs/evaluation-results.md)。
+
 ## 核心体验
 
 ### 界面图集
@@ -152,7 +158,17 @@ npm run verify
 | ![普通模式三栏工作台](docs/screenshots/01-workbench-beta.png) | ![回答、引用与七阶段 Trace](docs/screenshots/02-grounded-trace.png) | ![390px 专家模式与无证据拒答](docs/screenshots/03-mobile-expert-refusal.png) |
 | 管理资料、提问与系统概览 | 检查 BM25、向量、排序和引用 | 无横向溢出，保留完整状态 |
 
-完整的逐步说明见[产品巡游](docs/product-tour.md)。
+| 上传与 URL 导入 | 引用相邻上下文 | 质量与引用审计 |
+| --- | --- | --- |
+| ![上传、URL 表单和索引资料](docs/screenshots/04-ingestion-url.png) | ![展开引用及前后 chunk](docs/screenshots/05-citation-context.png) | ![检索质量、引用覆盖和系统指标](docs/screenshots/06-quality-dashboard.png) |
+| 两条入库路径状态独立 | 从片段返回完整证据 | 诊断召回、排序和覆盖 |
+
+| 反馈生成 eval draft | 504 错误与重试 |
+| --- | --- |
+| ![负反馈和自动生成的评测草稿](docs/screenshots/07-feedback-eval-draft.png) | ![保留最后成功结果的 504 错误与重试入口](docs/screenshots/08-error-retry.png) |
+| 失败进入人工审查闭环 | 请求 ID、错误说明和恢复动作 |
+
+完整的逐步说明见[端到端案例](docs/case-study.md)与[产品巡游](docs/product-tour.md)。
 
 ### 普通模式
 
@@ -175,6 +191,8 @@ npm run verify
 
 ![系统分层、数据流、拒答与评测闭环](docs/assets/system-overview.svg)
 
+![Browser、Nginx、中间件、领域路由、服务和 provider 的请求生命周期](docs/assets/request-lifecycle.svg)
+
 <details>
 <summary>展开 Mermaid 实现链路</summary>
 
@@ -196,7 +214,7 @@ flowchart LR
 
 </details>
 
-前端已经从单体 `App.vue` 拆成页面、领域组件、`useWorkbench` composable 与 `api/{client,documents,retrieval,quality}`；后端原 `routes.py` 现在只做路由组合，文档、检索、质量路由分别维护。详见 [架构说明](docs/architecture.md)。
+前端已经从单体 `App.vue` 拆成页面、领域组件、`useWorkbench` composable 与 `api/{client,documents,retrieval,quality}`；后端原 `routes.py` 现在只做路由组合，文档、检索、质量路由分别维护。详见[代码导览](docs/code-tour.md)、[架构说明](docs/architecture.md)与[SQLite 数据模型](docs/data-model.md)。
 
 ### 七阶段检索
 
@@ -215,6 +233,10 @@ flowchart LR
 - `memory` 向量库重启时会从 SQLite 文档注册表重建缺失索引；持久 store 不重复 embedding 已存在的 chunk。
 
 安全策略与漏洞报告见 [SECURITY.md](SECURITY.md)。
+
+![浏览器、API、不可信输入、外部 provider 和存储的安全信任边界](docs/assets/security-boundaries.svg)
+
+具体威胁、已实现控制和剩余风险见[安全威胁模型](docs/security-model.md)。
 
 ## OpenAI 可选接法
 
@@ -263,8 +285,11 @@ GitHub Actions 分五个 job：
 
 | 我想要…… | 从这里开始 | 继续深入 |
 | --- | --- | --- |
+| 看完整使用案例 | [端到端案例](docs/case-study.md) | [产品巡游](docs/product-tour.md) |
 | 快速理解产品 | [产品巡游](docs/product-tour.md) | [演示脚本](docs/demo-script.md) |
+| 审查代码结构 | [代码导览](docs/code-tour.md) | [数据模型](docs/data-model.md) |
 | 审查检索质量 | [检索原理](docs/retrieval-explained.md) | [测试与评测](docs/testing-and-evaluation.md) |
+| 查看固定成绩 | [评测结果](docs/evaluation-results.md) | [验证基线](docs/validation-baseline.md) |
 | 集成后端 | [API 使用指南](docs/api-reference.md) | [架构说明](docs/architecture.md) |
 | 切换 provider | [配置指南](docs/configuration.md) | [生产适配方案](docs/production-adapters.md) |
 | 运行和排障 | [运维手册](docs/operations-runbook.md) | [故障排查](docs/troubleshooting.md) |
@@ -272,6 +297,7 @@ GitHub Actions 分五个 job：
 | 查看真实证据 | [验证基线](docs/validation-baseline.md) | [项目复盘](docs/project-retrospective.md) |
 | 参与开发 | [贡献指南](CONTRIBUTING.md) | [路线图](docs/roadmap.md) |
 | 解决常见疑问 | [FAQ](docs/faq.md) | [安全策略](SECURITY.md) |
+| 审查威胁边界 | [安全模型](docs/security-model.md) | [生产适配](docs/production-adapters.md) |
 
 ## 关键设计取舍
 

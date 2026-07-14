@@ -9,6 +9,11 @@
 | `03-mobile-expert-refusal.png` | 390×844 | 专家模式、无证据拒答和窄屏无横向溢出 |
 | `01-workbench.jpg` | 1280×720 | 早期工作台基线截图，保留用于前后对照 |
 | `02-grounded-answer.jpg` | 1280×720 | 早期带引用回答截图，保留用于前后对照 |
+| `04-ingestion-url.png` | 1440×900 | 上传入口、URL 导入与已索引资料 |
+| `05-citation-context.png` | 1440×900 | 引用详情与相邻 chunk 上下文 |
+| `06-quality-dashboard.png` | 1440×900 | 检索 Trace、引用审计与系统质量指标 |
+| `07-feedback-eval-draft.png` | 1440×900 | 负反馈与自动生成的 eval draft |
+| `08-error-retry.png` | 1440×900 | API 504、请求 ID、保留成功状态与 retry |
 
 ## 更新截图
 

@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="780" viewBox="0 0 1440 780" role="img" aria-labelledby="title desc">
+  <title id="title">Current local Beta data model and production normalization boundary</title>
+  <desc id="desc">Six SQLite JSON payload tables connect logically to document pages, vector chunks, citations and feedback drafts; a separate lower lane shows the production workspace normalization requirement.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#f8fafc"/><stop offset="1" stop-color="#eef8f7"/></linearGradient>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 10 5 0 10z" fill="#0f766e"/></marker>
+    <filter id="shadow"><feDropShadow dy="7" stdDeviation="9" flood-color="#0f172a" flood-opacity=".12"/></filter>
+    <style>text{font-family:Arial,Helvetica,sans-serif}.h{font-size:30px;font-weight:700;fill:#0f172a}.sub{font-size:16px;fill:#475569}.k{font-size:13px;font-weight:700;letter-spacing:1.3px;fill:#0f766e}.t{font-size:17px;font-weight:700;fill:#0f172a}.c{font-size:13px;fill:#64748b}.box{fill:#fff;stroke:#cbd5e1;stroke-width:1.5}.store{fill:#ecfeff;stroke:#22a6b3;stroke-width:1.5}.line{fill:none;stroke:#0f766e;stroke-width:2;marker-end:url(#arrow)}.dash{fill:none;stroke:#64748b;stroke-width:1.7;stroke-dasharray:6 6;marker-end:url(#arrow)}</style>
+  </defs>
+  <rect width="1440" height="780" rx="28" fill="url(#bg)"/>
+  <text x="54" y="62" class="h">Local JSON registry today, workspace-normalized schema tomorrow</text>
+  <text x="54" y="92" class="sub">Solid lines are stored references; dashed lines are logical links carried inside payloads.</text>
+  <text x="54" y="140" class="k">CURRENT SINGLE-WORKSPACE BETA</text>
+
+  <g filter="url(#shadow)">
+    <rect x="54" y="170" width="250" height="132" rx="18" class="box"/><text x="78" y="204" class="t">documents</text><text x="78" y="232" class="c">document_id · payload</text><text x="78" y="256" class="c">pages + metadata live in JSON</text><text x="78" y="280" class="c">content hash · index status</text>
+    <rect x="356" y="170" width="250" height="132" rx="18" class="store"/><text x="380" y="204" class="t">chunks / vector store</text><text x="380" y="232" class="c">chunk_id · document_id</text><text x="380" y="256" class="c">text · scores · metadata</text><text x="380" y="280" class="c">memory / Chroma / pgvector</text>
+    <rect x="658" y="170" width="250" height="132" rx="18" class="box"/><text x="682" y="204" class="t">history</text><text x="682" y="232" class="c">history_id · question · answer</text><text x="682" y="256" class="c">citations · traces · confidence</text><text x="682" y="280" class="c">created_at</text>
+    <rect x="960" y="170" width="250" height="132" rx="18" class="box"/><text x="984" y="204" class="t">feedback</text><text x="984" y="232" class="c">feedback_id · history_id</text><text x="984" y="256" class="c">rating · failure_type</text><text x="984" y="280" class="c">history snapshot · eval draft</text>
+    <rect x="54" y="350" width="250" height="120" rx="18" class="box"/><text x="78" y="384" class="t">operation_logs</text><text x="78" y="412" class="c">event_type · level</text><text x="78" y="436" class="c">safe payload · created_at</text>
+    <rect x="356" y="350" width="250" height="120" rx="18" class="box"/><text x="380" y="384" class="t">knowledge_cards</text><text x="380" y="412" class="c">card_id · title · payload</text><text x="380" y="436" class="c">source documents + citations</text>
+    <rect x="960" y="350" width="250" height="120" rx="18" class="box"/><text x="984" y="384" class="t">eval_cases</text><text x="984" y="412" class="c">case_id · question · payload</text><text x="984" y="436" class="c">status=draft · expected evidence</text>
+  </g>
+  <path d="M304 236H356" class="line"/><path d="M606 236H658" class="dash"/><path d="M908 236H960" class="line"/><path d="M1085 302V350" class="dash"/><path d="M782 302C782 410 650 410 606 410" class="dash"/>
+  <text x="414" y="326" class="c">document_id</text><text x="916" y="220" class="c">history_id</text>
+
+  <rect x="54" y="522" width="1332" height="204" rx="22" fill="#0f172a"/>
+  <text x="82" y="558" class="k" fill="#5eead4">PRODUCTION NORMALIZATION BOUNDARY</text>
+  <text x="82" y="594" class="t" fill="#f8fafc">workspace_id and user_id must become server-derived columns—not browser-declared JSON.</text>
+  <text x="82" y="626" class="c" fill="#cbd5e1">workspaces → memberships → documents → chunks · history/eval/cards scoped by workspace · object keys scoped with the same boundary</text>
+  <rect x="82" y="656" width="270" height="42" rx="21" fill="#134e4a"/><text x="108" y="682" class="t" fill="#ccfbf1">PostgreSQL + RLS</text>
+  <rect x="372" y="656" width="270" height="42" rx="21" fill="#164e63"/><text x="398" y="682" class="t" fill="#cffafe">pgvector versioning</text>
+  <rect x="662" y="656" width="270" height="42" rx="21" fill="#1e3a8a"/><text x="688" y="682" class="t" fill="#dbeafe">object ownership</text>
+  <rect x="952" y="656" width="350" height="42" rx="21" fill="#312e81"/><text x="978" y="682" class="t" fill="#e0e7ff">async deletion + audit trail</text>
+</svg>

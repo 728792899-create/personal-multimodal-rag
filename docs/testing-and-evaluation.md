@@ -8,7 +8,7 @@
 
 | 层级 | 工具 | 当前覆盖 | 主要失败信号 |
 | --- | --- | --- | --- |
-| 文档质量 | Python stdlib checker | Markdown + SVG | 失效相对链接、空 alt、无标题 SVG |
+| 文档质量 | Python stdlib checker | Markdown + SVG + PNG/JPEG 清单 | 失效链接、空 alt、无障碍元数据、伪格式或预览规格 |
 | 后端单元/接口 | pytest | 54 tests | schema、SSRF、上传、拒答、adapter、日志与恢复 |
 | 前端单元/组件 | Vitest + Testing Library | 8 tests | API 超时、Trace 渲染和工作台交互 |
 | Demo smoke | pytest | 1 workflow | 导入 → 提问 → 引用的真实内存链路 |
@@ -22,7 +22,7 @@
 
 ```bash
 npm test                 # pytest + Vitest
-npm run lint:docs        # Markdown 相对链接、图片 alt、SVG XML/可访问性
+npm run lint:docs        # 链接、alt、SVG 元数据、图片格式/清单与 social preview
 npm run build            # TypeScript check + Vite production build
 npm run test:demo        # 离线 API smoke
 npm run eval:retrieval   # 固定黄金集与阈值
@@ -116,6 +116,10 @@ MRR = mean(1 / first relevant rank)
 | 拒答准确率 | 0.80 |
 
 门槛不是漂亮数字展示。修改门槛必须在 PR 中解释：数据集如何变化、失败属于预期产品变化还是回归、为什么新阈值仍能阻止已知故障。
+
+![固定黄金集的实际值、最低门槛与类别分布](assets/evaluation-scorecard.svg)
+
+当前 case 构成、记录结果和解释限制见[固定黄金集评测结果](evaluation-results.md)。
 
 ## 报告
 

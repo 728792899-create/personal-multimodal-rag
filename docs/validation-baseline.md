@@ -20,7 +20,7 @@
 
 | 项目 | 结果 |
 | --- | --- |
-| 文档检查 | 24 个 Markdown 相对链接/图片 alt 通过；4 个 SVG XML/可访问性通过 |
+| 文档检查 | 30 个 Markdown、10 个 SVG、12 个 raster image 通过链接、alt、格式、清单与可访问性校验 |
 | 后端 pytest | 54 passed |
 | 前端 Vitest | 3 files / 8 tests passed |
 | `npm run build` | 通过；JS 113.32 kB（gzip 40.42），CSS 23.27 kB（gzip 4.98） |
@@ -52,6 +52,10 @@
 - 错误恢复：后端停止后显示 504、alert 与唯一重试按钮；恢复服务后点击重试，alert 消失并生成回答与 4 条引用。
 
 截图位于 `docs/screenshots/`，均使用仓库示例资料与离线 provider。
+
+第二轮文档取证新增五张 1440 × 900 真实截图：公开 `example.com` URL 导入、引用上下文、质量/引用审计、负反馈 eval draft、504 与 Retry。Browser 同时复核普通/专家模式，并在 390 × 844 下确认 `scrollWidth === clientWidth === 390`。故障注入使用临时 Nginx 2 秒 upstream timeout 与暂停的后端容器；恢复后点击 Retry，错误 alert 归零且 answer status 返回“回答已生成”。
+
+新增的五张技术 SVG 与一张 social preview 均通过 XML/标题/描述/字体/裁切目视检查。`social-preview.png` 实测 1280 × 640、PNG 真格式且小于 1 MB；文档脚本会阻止伪扩展名、漏记清单和错误预览规格进入 CI。
 
 ## 远端 CI
 
