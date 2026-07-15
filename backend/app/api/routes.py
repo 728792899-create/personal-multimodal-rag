@@ -13,6 +13,7 @@ from app.api.routers.knowledge_bases import router as knowledge_bases_router
 from app.api.routers.ingestion import router as ingestion_router
 from app.api.routers.conversations import router as conversations_router
 from app.api.routers.providers import router as providers_router
+from app.api.routers.parsers import router as parsers_router
 
 
 router = APIRouter()
@@ -23,3 +24,4 @@ router.include_router(knowledge_bases_router)
 router.include_router(ingestion_router)
 router.include_router(conversations_router)
 router.include_router(providers_router)
+router.include_router(parsers_router)

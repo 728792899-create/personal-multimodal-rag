@@ -21,6 +21,8 @@ from app.services.responses_client import ResponsesClient
 from app.services.index_hydration import hydrate_retriever
 from app.services.vectorstore import ChromaVectorStore, MemoryVectorStore, PgVectorStore
 from app.services.ingestion_jobs import IngestionWorker
+from app.services.object_store import LocalObjectStore
+from app.services.parser_worker import ParserWorkerClient
 from app.services.provider_clients import OllamaChatClient, OpenAICompatibleChatClient
 
 
@@ -148,6 +150,11 @@ def create_query_rewriter():
 
 processor = DocumentProcessor()
 registry = DocumentRegistry(settings.document_registry_path)
+object_store = LocalObjectStore(settings.object_store_path)
+parser_worker_client = ParserWorkerClient(
+    settings.parser_worker_url,
+    timeout_seconds=settings.parser_timeout_seconds,
+)
 retriever = HybridRetriever(
     embedding_provider=create_embedding_provider(),
     vector_store=create_vector_store(),
@@ -179,4 +186,11 @@ rag_engine = RagEngine(
     citation_overlap_threshold=settings.citation_overlap_threshold,
     allow_generation_fallback=settings.provider_fallback_allowed,
 )
-ingestion_worker = IngestionWorker(registry, processor, retriever, settings)
+ingestion_worker = IngestionWorker(
+    registry,
+    processor,
+    retriever,
+    settings,
+    object_store=object_store,
+    parser_client=parser_worker_client,
+)

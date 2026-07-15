@@ -10,7 +10,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Iterator
 
-from app.models.domain import Document
+from app.models.domain import Document, DocumentElement
+from app.services.safe_logging import redact_private_metadata
 
 
 DEFAULT_KNOWLEDGE_BASE_ID = "default"
@@ -29,7 +30,7 @@ class DocumentRegistry:
     SQLite URI plus a keeper connection to preserve test compatibility.
     """
 
-    CURRENT_SCHEMA_VERSION = 3
+    CURRENT_SCHEMA_VERSION = 4
 
     def __init__(self, db_path: str):
         self.db_path = db_path
@@ -63,15 +64,19 @@ class DocumentRegistry:
 
     @contextmanager
     def _connection(self) -> Iterator[sqlite3.Connection]:
-        connection = self._new_connection()
-        try:
-            yield connection
-            connection.commit()
-        except Exception:
-            connection.rollback()
-            raise
-        finally:
-            connection.close()
+        # SQLite is the single-instance fact store. Serializing short local
+        # transactions avoids shared-memory table locks between the API and
+        # background worker while retaining one connection per operation.
+        with self._lock:
+            connection = self._new_connection()
+            try:
+                yield connection
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+            finally:
+                connection.close()
 
     def close(self) -> None:
         if self._keeper is not None:
@@ -111,6 +116,7 @@ class DocumentRegistry:
                     document.model_dump_json(),
                 ),
             )
+            self._replace_document_elements(connection, document)
 
     def load_documents(self, knowledge_base_ids: list[str] | None = None) -> list[Document]:
         with self._connection() as connection:
@@ -157,6 +163,137 @@ class DocumentRegistry:
     def delete_document(self, document_id: str) -> None:
         with self._connection() as connection:
             connection.execute("DELETE FROM documents WHERE document_id = ?", (document_id,))
+
+    # Multimodal elements and assets -------------------------------------------
+
+    def list_document_elements(self, document_id: str) -> list[dict]:
+        with self._connection() as connection:
+            rows = connection.execute(
+                "SELECT payload FROM document_elements WHERE document_id = ? ORDER BY element_order",
+                (document_id,),
+            ).fetchall()
+        return [self._element_payload(DocumentElement.model_validate_json(row["payload"])) for row in rows]
+
+    def create_asset(
+        self,
+        *,
+        knowledge_base_id: str,
+        kind: str,
+        object_key: str,
+        original_name: str,
+        media_type: str,
+        sha256: str,
+        size_bytes: int,
+        document_id: str | None = None,
+        metadata: dict | None = None,
+        expires_at: str = "",
+        asset_id: str | None = None,
+    ) -> dict:
+        stored_id = asset_id or str(uuid.uuid4())
+        created_at = _utcnow()
+        with self._connection() as connection:
+            self._assert_knowledge_base(connection, knowledge_base_id)
+            if document_id and not connection.execute(
+                "SELECT 1 FROM documents WHERE document_id = ?", (document_id,)
+            ).fetchone():
+                raise ValueError("Document not found")
+            connection.execute(
+                """
+                INSERT INTO assets
+                  (asset_id, document_id, knowledge_base_id, kind, object_key,
+                   original_name, media_type, sha256, size_bytes, metadata,
+                   expires_at, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    stored_id, document_id, knowledge_base_id, kind, object_key,
+                    original_name[:240], media_type[:120], sha256, max(0, int(size_bytes)),
+                    json.dumps(metadata or {}, ensure_ascii=False), expires_at, created_at,
+                ),
+            )
+        return self.get_asset(stored_id) or {}
+
+    def get_asset(self, asset_id: str, *, include_private: bool = False) -> dict | None:
+        with self._connection() as connection:
+            row = connection.execute("SELECT * FROM assets WHERE asset_id = ?", (asset_id,)).fetchone()
+        return self._asset_payload(row, include_private=include_private) if row else None
+
+    def list_assets(
+        self,
+        *,
+        document_id: str | None = None,
+        kind: str | None = None,
+        include_private: bool = False,
+    ) -> list[dict]:
+        clauses: list[str] = []
+        params: list[str] = []
+        if document_id is not None:
+            clauses.append("document_id = ?")
+            params.append(document_id)
+        if kind is not None:
+            clauses.append("kind = ?")
+            params.append(kind)
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        with self._connection() as connection:
+            rows = connection.execute(f"SELECT * FROM assets{where} ORDER BY created_at", tuple(params)).fetchall()
+        return [self._asset_payload(row, include_private=include_private) for row in rows]
+
+    def link_asset(self, asset_id: str, document_id: str) -> dict | None:
+        with self._connection() as connection:
+            if not connection.execute("SELECT 1 FROM documents WHERE document_id = ?", (document_id,)).fetchone():
+                raise ValueError("Document not found")
+            cursor = connection.execute(
+                "UPDATE assets SET document_id = ? WHERE asset_id = ?",
+                (document_id, asset_id),
+            )
+        return self.get_asset(asset_id) if cursor.rowcount else None
+
+    def delete_asset(self, asset_id: str) -> dict | None:
+        asset = self.get_asset(asset_id, include_private=True)
+        if not asset:
+            return None
+        with self._connection() as connection:
+            connection.execute("DELETE FROM assets WHERE asset_id = ?", (asset_id,))
+        return asset
+
+    def asset_reference_count(self, object_key: str) -> int:
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT COUNT(*) AS count FROM assets WHERE object_key = ?",
+                (object_key,),
+            ).fetchone()
+        return int(row["count"] if row else 0)
+
+    def create_parser_run(
+        self,
+        *,
+        document_id: str,
+        provider: str,
+        parser: str,
+        status: str,
+        payload: dict | None = None,
+        job_id: str = "",
+    ) -> dict:
+        run_id = str(uuid.uuid4())
+        created_at = _utcnow()
+        with self._connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO parser_runs
+                  (run_id, document_id, job_id, provider, parser, status, payload, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (run_id, document_id, job_id, provider, parser, status, json.dumps(payload or {}, ensure_ascii=False), created_at, created_at),
+            )
+        return self.list_parser_runs(document_id)[0]
+
+    def list_parser_runs(self, document_id: str) -> list[dict]:
+        with self._connection() as connection:
+            rows = connection.execute(
+                "SELECT * FROM parser_runs WHERE document_id = ? ORDER BY created_at DESC",
+                (document_id,),
+            ).fetchall()
+        return [self._parser_run_payload(row) for row in rows]
 
     # Knowledge bases -----------------------------------------------------------
 
@@ -835,6 +972,53 @@ class DocumentRegistry:
                   completed_at TEXT NOT NULL DEFAULT '',
                   FOREIGN KEY (knowledge_base_id) REFERENCES knowledge_bases(knowledge_base_id)
                 );
+                CREATE TABLE IF NOT EXISTS assets (
+                  asset_id TEXT PRIMARY KEY,
+                  document_id TEXT,
+                  knowledge_base_id TEXT NOT NULL,
+                  kind TEXT NOT NULL,
+                  object_key TEXT NOT NULL,
+                  original_name TEXT NOT NULL,
+                  media_type TEXT NOT NULL,
+                  sha256 TEXT NOT NULL,
+                  size_bytes INTEGER NOT NULL,
+                  metadata TEXT NOT NULL,
+                  expires_at TEXT NOT NULL DEFAULT '',
+                  created_at TEXT NOT NULL,
+                  FOREIGN KEY (document_id) REFERENCES documents(document_id) ON DELETE CASCADE,
+                  FOREIGN KEY (knowledge_base_id) REFERENCES knowledge_bases(knowledge_base_id)
+                );
+                CREATE TABLE IF NOT EXISTS document_elements (
+                  element_id TEXT PRIMARY KEY,
+                  document_id TEXT NOT NULL,
+                  knowledge_base_id TEXT NOT NULL,
+                  element_type TEXT NOT NULL,
+                  page_number INTEGER,
+                  element_order INTEGER NOT NULL,
+                  payload TEXT NOT NULL,
+                  FOREIGN KEY (document_id) REFERENCES documents(document_id) ON DELETE CASCADE,
+                  FOREIGN KEY (knowledge_base_id) REFERENCES knowledge_bases(knowledge_base_id)
+                );
+                CREATE TABLE IF NOT EXISTS parser_runs (
+                  run_id TEXT PRIMARY KEY,
+                  document_id TEXT NOT NULL,
+                  job_id TEXT NOT NULL DEFAULT '',
+                  provider TEXT NOT NULL,
+                  parser TEXT NOT NULL,
+                  status TEXT NOT NULL,
+                  payload TEXT NOT NULL,
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL,
+                  FOREIGN KEY (document_id) REFERENCES documents(document_id) ON DELETE CASCADE
+                );
+                CREATE TABLE IF NOT EXISTS enrichment_cache (
+                  cache_key TEXT PRIMARY KEY,
+                  provider TEXT NOT NULL,
+                  model TEXT NOT NULL,
+                  prompt_version TEXT NOT NULL,
+                  payload TEXT NOT NULL,
+                  created_at TEXT NOT NULL
+                );
                 """
             )
             self._add_column_if_missing(connection, "documents", "knowledge_base_id", "TEXT NOT NULL DEFAULT 'default'")
@@ -847,6 +1031,11 @@ class DocumentRegistry:
                 CREATE INDEX IF NOT EXISTS idx_documents_hash ON documents(content_hash, knowledge_base_id);
                 CREATE INDEX IF NOT EXISTS idx_jobs_status ON index_jobs(status, next_attempt_at);
                 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON conversation_messages(conversation_id, created_at);
+                CREATE INDEX IF NOT EXISTS idx_assets_document ON assets(document_id, kind);
+                CREATE INDEX IF NOT EXISTS idx_assets_expiry ON assets(expires_at);
+                CREATE INDEX IF NOT EXISTS idx_elements_document ON document_elements(document_id, element_order);
+                CREATE INDEX IF NOT EXISTS idx_elements_kb_type ON document_elements(knowledge_base_id, element_type);
+                CREATE INDEX IF NOT EXISTS idx_parser_runs_document ON parser_runs(document_id, created_at);
                 """
             )
             now = _utcnow()
@@ -865,6 +1054,7 @@ class DocumentRegistry:
                 document.metadata.setdefault("knowledge_base_id", DEFAULT_KNOWLEDGE_BASE_ID)
                 document.metadata.setdefault("chunker_version", "paragraph-v1")
                 document.metadata.setdefault("index_version", "hybrid-v1")
+                document.metadata.setdefault("source_available", False)
                 connection.execute(
                     """
                     UPDATE documents SET knowledge_base_id = ?, content_hash = ?, index_version = ?, payload = ?
@@ -887,6 +1077,27 @@ class DocumentRegistry:
         columns = {row["name"] for row in connection.execute(f"PRAGMA table_info({table})").fetchall()}
         if column not in columns:
             connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+    def _replace_document_elements(self, connection: sqlite3.Connection, document: Document) -> None:
+        connection.execute("DELETE FROM document_elements WHERE document_id = ?", (document.document_id,))
+        knowledge_base_id = str(document.metadata.get("knowledge_base_id") or DEFAULT_KNOWLEDGE_BASE_ID)
+        for element in document.elements:
+            connection.execute(
+                """
+                INSERT INTO document_elements
+                  (element_id, document_id, knowledge_base_id, element_type, page_number, element_order, payload)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    element.element_id,
+                    document.document_id,
+                    knowledge_base_id,
+                    element.type,
+                    element.page_number,
+                    element.order,
+                    element.model_dump_json(),
+                ),
+            )
 
     def _assert_knowledge_base(self, connection: sqlite3.Connection, knowledge_base_id: str) -> None:
         row = connection.execute(
@@ -963,3 +1174,56 @@ class DocumentRegistry:
         if include_payload:
             result["payload"] = json.loads(row["payload"])
         return result
+
+    @staticmethod
+    def _element_payload(element: DocumentElement) -> dict:
+        return {
+            "id": element.element_id,
+            "document_id": element.document_id,
+            "type": element.type,
+            "order": element.order,
+            "text": element.text,
+            "page_number": element.page_number,
+            "bbox": element.bbox,
+            "heading_path": element.heading_path,
+            "asset_id": element.asset_id,
+            "caption": element.caption,
+            "footnotes": element.footnotes,
+            "table": element.table,
+            "latex": element.latex,
+            "confidence": element.confidence,
+            "metadata": redact_private_metadata(element.metadata),
+        }
+
+    @staticmethod
+    def _asset_payload(row: sqlite3.Row, *, include_private: bool = False) -> dict:
+        payload = {
+            "id": row["asset_id"],
+            "document_id": row["document_id"],
+            "knowledge_base_id": row["knowledge_base_id"],
+            "kind": row["kind"],
+            "original_name": row["original_name"],
+            "media_type": row["media_type"],
+            "sha256": row["sha256"],
+            "size_bytes": int(row["size_bytes"]),
+            "metadata": json.loads(row["metadata"]),
+            "expires_at": row["expires_at"],
+            "created_at": row["created_at"],
+        }
+        if include_private:
+            payload["object_key"] = row["object_key"]
+        return payload
+
+    @staticmethod
+    def _parser_run_payload(row: sqlite3.Row) -> dict:
+        return {
+            "id": row["run_id"],
+            "document_id": row["document_id"],
+            "job_id": row["job_id"],
+            "provider": row["provider"],
+            "parser": row["parser"],
+            "status": row["status"],
+            "payload": json.loads(row["payload"]),
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }

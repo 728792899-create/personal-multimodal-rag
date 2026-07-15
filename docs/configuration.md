@@ -37,7 +37,7 @@ ANSWER_PROVIDER=template
 EMBEDDING_PROVIDER=mock
 VECTOR_STORE=chroma
 ANSWER_PROVIDER=openai_responses
-ANSWER_MODEL=<responses-compatible-model>
+ANSWER_MODEL=gpt-5.6
 ANSWER_BASE_URL=https://api.openai.com/v1
 ANSWER_API_KEY=<from-secret-manager>
 QUERY_REWRITE_PROVIDER=none
@@ -103,7 +103,7 @@ CHROMA_COLLECTION=personal_knowledge_openai_v1
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
 | `ANSWER_PROVIDER` | `template` | `template`、`openai_responses`、`openai_compatible_chat` 或 `ollama` |
-| `ANSWER_MODEL` | `gpt-5.5` | Responses-compatible 模型名 |
+| `ANSWER_MODEL` | `gpt-5.6` | Responses-compatible 模型名，可由环境变量覆盖 |
 | `ANSWER_BASE_URL` | 空 | 未设置时回退 `OPENAI_BASE_URL` |
 | `ANSWER_API_KEY` | 空 | 未设置时回退 `OPENAI_API_KEY` |
 | `ANSWER_TIMEOUT_SECONDS` | 45 | 生成网络超时 |
@@ -132,10 +132,15 @@ CHROMA_COLLECTION=personal_knowledge_openai_v1
 | 变量 | 默认 | 说明 |
 | --- | ---: | --- |
 | `DOCUMENT_REGISTRY_PATH` | `./data/registry.sqlite3` | SQLite registry |
+| `OBJECT_STORE_PATH` | `./data/objects` | 内容寻址的原件与派生资源目录；不要直接作为静态目录公开 |
 | `CHUNKER_VERSION` | `paragraph-v1` | 写入文档和幂等键的 chunker 版本 |
 | `INDEX_VERSION` | `hybrid-v1` | 索引兼容门；变化后需要 rebuild |
 | `INGESTION_POLL_SECONDS` | `0.10` | 本地 worker 空闲轮询间隔 |
 | `INGESTION_LEASE_SECONDS` | `120` | 任务 claim 租约 |
+| `PARSER_PROVIDER` | `builtin` | `builtin` 不下载模型；`mineru/docling/paddleocr` 通过隔离 worker |
+| `PARSER_WORKER_URL` | `http://parser-worker:8090` | 仅后端访问的解析 worker 地址 |
+| `PARSER_TIMEOUT_SECONDS` | `300` | 单次高级解析的硬超时 |
+| `PARSER_FALLBACK_ALLOWED` | 环境推导 | 本地允许回退内置解析；production 默认 fail closed |
 | `MAX_UPLOAD_BYTES` | 20 MiB | 上传硬上限 |
 | `UPLOAD_PROCESSING_TIMEOUT_SECONDS` | 90 | 预留的处理超时配置 |
 | `URL_IMPORT_TIMEOUT_SECONDS` | 12 | URL 网络超时 |
@@ -170,6 +175,15 @@ docker compose config
 docker compose up --build --wait -d
 curl --fail http://127.0.0.1:8010/ready
 ```
+
+高级解析器不进入默认镜像，也不会在普通启动时下载模型。只有明确需要 MinerU、Docling 或 PaddleOCR 时才运行：
+
+```bash
+docker compose --profile advanced-parser up --build --wait -d
+PARSER_PROVIDER=mineru docker compose --profile advanced-parser up --build --wait -d
+```
+
+`parser-worker` 以非 root、只读根文件系统、丢弃 Linux capabilities、独立临时目录和资源上限运行。它只接收后端上传的本地文件，不处理 URL、浏览器凭据或 Provider Key。首次构建会下载大型依赖，耗时和磁盘占用必须在真实部署环境人工验收。
 
 生产环境不要直接暴露示例端口和默认 DSN。应使用 TLS ingress、secret manager、受限网络、持久卷与备份策略。
 

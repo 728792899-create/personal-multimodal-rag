@@ -114,3 +114,35 @@ def test_mock_embedding_rejects_project_only_overlap(tmp_path):
 
     assert result["citations"] == []
     assert result["retrieval_trace"]["refusal_reason"] == "weak_grounding"
+
+
+def test_mock_embedding_rejects_automatic_only_overlap(tmp_path):
+    source = tmp_path / "jobs.md"
+    source.write_text("索引任务最多自动尝试三次，失败后记录脱敏错误。", encoding="utf-8")
+    processor = DocumentProcessor()
+    document = processor.parse_file(source)
+    retriever = HybridRetriever()
+    retriever.add_document(document, processor.split(document))
+
+    result = RagEngine(retriever).ask(
+        "支付系统的每日对账差异如何自动冲正？",
+        min_score=0.05,
+        query_rewrite=False,
+    )
+
+    assert result["citations"] == []
+    assert result["retrieval_trace"]["refusal_reason"] == "weak_grounding"
+
+
+def test_deterministic_idempotency_alias_finds_explicit_evidence(tmp_path):
+    source = tmp_path / "jobs.md"
+    source.write_text("内容哈希和索引版本共同组成幂等键。", encoding="utf-8")
+    processor = DocumentProcessor()
+    document = processor.parse_file(source)
+    retriever = HybridRetriever()
+    retriever.add_document(document, processor.split(document))
+
+    result = RagEngine(retriever).ask("重复提交是如何避免的？", query_rewrite=False)
+
+    assert result["citations"]
+    assert "幂等键" in result["citations"][0]["text"]

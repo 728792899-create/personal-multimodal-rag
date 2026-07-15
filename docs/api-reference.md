@@ -39,11 +39,16 @@ curl --fail http://127.0.0.1:8010/ready
 | --- | --- | --- |
 | GET | `/api/documents` | 文档、索引状态与质量摘要 |
 | GET | `/api/documents/{document_id}` | 文档页、chunk 与 metadata |
+| GET | `/api/documents/{document_id}/elements` | 按原始顺序返回类型化文档元素 |
+| GET | `/api/documents/{document_id}/source` | 受控下载原件；无受管原件时 `404` |
+| GET | `/api/assets/{asset_id}` | 受控读取文档资源；不暴露 object key/本地路径 |
 | POST | `/api/documents` | `multipart/form-data` 上传并索引 |
 | POST | `/api/imports/url` | 导入公开 HTTP(S) 页面 |
 | DELETE | `/api/documents/{document_id}` | 删除 registry、索引和受管上传文件 |
 | POST | `/api/documents/{document_id}/rebuild` | 重建单文档索引 |
+| POST | `/api/documents/{document_id}/reindex` | 0.3 语义别名；行为与 rebuild 兼容 |
 | POST | `/api/documents/rebuild-all` | 重建全部文档索引 |
+| GET | `/api/parsers/status` | 内置/高级解析 profile 的可用性；不触发模型下载 |
 
 同步上传/URL API为 0.1 客户端保留。0.2 前端默认使用后面的异步任务接口。
 
@@ -79,7 +84,7 @@ URL 导入只允许公开 HTTP(S) 地址。回环、内网、链路本地、嵌�
 | POST | `/api/index-jobs/{id}/retry` | 仅 failed/cancelled 可重试 |
 | DELETE | `/api/index-jobs/{id}` | 请求取消；running 先进入 cancelling |
 
-文件表单字段是 `file` 与 `knowledge_base_id`。任务状态为 `queued/running/succeeded/failed/cancelling/cancelled`；阶段为 `receive/validate/parse/chunk/embed/write/quality/complete`。重复幂等请求会返回已有任务，不重复创建文档。
+文件表单字段是 `file`、`knowledge_base_id` 与可选 `parser_profile`。默认 profile 为 `builtin`；`mineru/docling/paddleocr/auto` 需要隔离 parser worker。任务状态为 `queued/running/succeeded/failed/cancelling/cancelled`；0.3 阶段包含 `receive/validate/parse/extract_elements/chunk/embed/quality/complete`，后续 graph/enrichment 阶段保持向后兼容。重复幂等请求会返回已有任务，不重复创建文档。
 
 强制删除知识库会级联清理其文档与终态任务，并从持久会话范围移除该库；若会话不再选择任何库，则回退到默认库。为避免 worker 写回已删除空间，仍处于 queued/running/cancelling 的任务必须先取消并等待终态。
 

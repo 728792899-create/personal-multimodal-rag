@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from app.services.text_utils import tokenize
+from app.services.text_utils import retrieval_tokens, tokenize
 
 
 class BaseReranker(ABC):
@@ -26,7 +26,7 @@ class KeywordReranker(BaseReranker):
     name = "keyword"
 
     def rerank(self, question: str, candidates: list[dict], top_k: int) -> list[dict]:
-        query_tokens = set(tokenize(question))
+        query_tokens = set(retrieval_tokens(question))
         reranked = []
         for item in candidates:
             chunk = item["chunk"]

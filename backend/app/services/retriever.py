@@ -8,7 +8,7 @@ from app.services.query_intelligence import analyze_query
 from app.services.query_rewriter import BaseQueryRewriter, NoopQueryRewriter
 from app.services.reranker import BaseReranker, KeywordReranker
 from app.services.safe_logging import redact_sensitive_text
-from app.services.text_utils import tokenize
+from app.services.text_utils import retrieval_tokens, tokenize
 from app.services.vectorstore import BaseVectorStore, MemoryVectorStore
 
 
@@ -116,7 +116,7 @@ class HybridRetriever:
                     "action": "use_original_query",
                 }
             )
-        query_token_sets = [tokenize(item) for item in rewritten_queries]
+        query_token_sets = [retrieval_tokens(item) for item in rewritten_queries]
         query_terms = sorted({token for tokens in query_token_sets for token in tokens})
         active_candidate_k = self._resolve_candidate_k(
             top_k=top_k,

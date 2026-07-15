@@ -4,6 +4,15 @@
 
 ## Unreleased
 
+### Added
+
+- 0.3 多模态统一 IR：text、heading、image、table、equation、code 元素，保留页码、顺序、bbox、标题路径、结构化表格和精确引用 ID。
+- 内容寻址本地对象存储、原件受控下载、PDF/DOCX 内嵌图片物化、引用计数与删除/失败回滚。
+- SQLite schema v4：`assets`、`document_elements`、`parser_runs`、`enrichment_cache`，旧文档明确标记原件可用性。
+- 可选隔离 parser worker，固定 RAG-Anything `1.3.1`/`a8c27f7`，支持 MinerU、Docling、PaddleOCR profile 与 `content_list` 转换。
+- 递归/增量/并发上限/`dry-run` 批量目录导入 CLI，以及解析器能力与元素/资源 API。
+- [RAG-Anything 固定提交对比审查](docs/comparative-review-rag-anything.md)。
+
 ## 0.2.0-beta
 
 ### Added

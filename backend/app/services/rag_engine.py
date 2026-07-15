@@ -6,13 +6,13 @@ from app.services.answer_generator import BaseAnswerGenerator, TemplateAnswerGen
 from app.services.citation_audit import audit_answer
 from app.services.embeddings import MockEmbeddingProvider
 from app.services.retriever import HybridRetriever
-from app.services.safe_logging import redact_sensitive_text
+from app.services.safe_logging import redact_private_metadata, redact_sensitive_text
 
 
 LOW_INFORMATION_MATCHES = {
     "api", "app", "store", "系统", "流程", "方式", "功能", "参数", "配置", "应该", "需要",
     "问题", "资料", "文档", "项目", "目的", "规则", "内容", "相关", "什么", "怎么", "如何",
-    "多少", "是否", "提供", "哪些", "当前",
+    "多少", "是否", "提供", "哪些", "当前", "自动",
 }
 
 
@@ -376,7 +376,10 @@ class RagEngine:
             "text": chunk.text,
             "page_number": chunk.page_number,
             "heading_path": chunk.heading_path,
-            "metadata": chunk.metadata,
+            "element_ids": chunk.element_ids,
+            "modality": chunk.modality,
+            "parent_element_id": chunk.parent_element_id,
+            "metadata": redact_private_metadata(chunk.metadata),
             "parent_context": self._parent_context(chunk),
             "score": round(float(item["score"]), 4),
             "bm25_score": round(float(item["bm25_score"]), 4),

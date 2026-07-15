@@ -9,6 +9,15 @@ _SENSITIVE_PATTERNS = (
     re.compile(r"(?i)\b([A-Za-z0-9_-]*(?:api[_-]?key|token|password|secret))\s*[:=]\s*[^\s,;]+"),
     re.compile(r"\bsk-[A-Za-z0-9_-]{8,}\b"),
 )
+_PRIVATE_METADATA_KEYS = {
+    "source_path",
+    "image_path",
+    "file_path",
+    "staged_path",
+    "object_key",
+    "local_path",
+    "output_dir",
+}
 
 
 def redact_sensitive_text(value: object) -> str:
@@ -36,3 +45,17 @@ def sanitize_url_for_log(value: str) -> str:
         return urlunsplit((parsed.scheme.lower(), host, parsed.path or "/", "", ""))
     except (TypeError, ValueError):
         return "[invalid-url]"
+
+
+def redact_private_metadata(value):
+    """Remove internal filesystem/object coordinates from public JSON payloads."""
+
+    if isinstance(value, dict):
+        return {
+            key: redact_private_metadata(item)
+            for key, item in value.items()
+            if str(key).lower() not in _PRIVATE_METADATA_KEYS
+        }
+    if isinstance(value, list):
+        return [redact_private_metadata(item) for item in value]
+    return value

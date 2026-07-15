@@ -13,7 +13,7 @@
 - [x] pytest、Vitest、Playwright、Docker Compose 健康检查。
 - [x] 上传/URL 安全、限流、脱敏日志与可选 Sentry。
 
-## 当前：0.2 Durable Local
+## 已交付：0.2 Durable Local
 
 目标：让单用户长期使用时的数据、索引和升级更可靠。
 
@@ -24,14 +24,25 @@
 - [x] 多知识库、持久会话、稳定 SSE 与 Provider 状态。
 - [x] DOCX 标题、段落、表格和 ZIP-bomb 防护。
 - [x] 40 条固定黄金集、五项 CI 阈值及 KB/多轮/DOCX/版本 case。
-- [ ] PDF 版面、表格与 OCR 质量分级。
-- [ ] 导出/导入知识库清单和评测集。
-- [ ] 扩充到 100+ 困难 case，加入同名文档、长文档和冲突证据。
-- [ ] 延迟、拒答率和引用覆盖分布 dashboard。
 
 退出条件：代码级重启恢复、迁移、维度门、失败重试和取消已有自动化证据；真实外部 Provider/存储和人工备份恢复仍需部署环境验证。
 
-## 后续版本：0.3 Small-team Beta
+## 当前：0.3 Multimodal Intelligence
+
+目标：把原件、版面元素、图片/表格/公式和图谱导航纳入可重建、可引用、可评测的同一证据模型，同时保持零 Key 默认路径。
+
+- [x] schema v4 多模态元素、内容寻址对象存储、原件与派生资源生命周期。
+- [x] PDF/DOCX 原始顺序、bbox/表格/图片与 element-driven chunk；内置解析器继续零下载。
+- [x] 隔离 parser worker 契约与 RAG-Anything `content_list` adapter；高级镜像仅手动 profile。
+- [x] 递归、增量、并发受控的批量目录导入 CLI。
+- [ ] schema v5 enrichment cache、provenance-backed Graph-lite 与 `hybrid_graph/auto`。
+- [ ] 图片提问、元素查看器、graph Trace 与精确引用跳转。
+- [ ] 扩展至 100 条多模态黄金集和 parser/asset/graph 专项 CI。
+- [ ] 解析质量、OCR、caption、表格、公式和图谱覆盖 dashboard。
+
+退出条件：对象/元素迁移与删除、解析 fallback/取消、图谱 provenance、图片提问、100 条固定集及 Browser 普通/专家/窄屏验收均有真实自动化或人工证据。
+
+## 后续版本：0.4 Small-team Beta
 
 目标：建立真正的身份、工作区和异步任务边界。
 

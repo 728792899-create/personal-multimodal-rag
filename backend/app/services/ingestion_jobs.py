@@ -8,6 +8,9 @@ from pathlib import Path
 from app.services.document_quality import assess_document_quality, lifecycle_event, summarize_document
 from app.services.safe_logging import redact_sensitive_text
 from app.services.url_importer import fetch_url
+from app.services.object_store import LocalObjectStore
+from app.services.parser_worker import document_from_content_list
+from app.services.multimodal_assets import materialize_document_assets
 
 
 class JobCancelled(Exception):
@@ -15,12 +18,14 @@ class JobCancelled(Exception):
 
 
 class IngestionWorker:
-    def __init__(self, registry, processor, retriever, settings, *, fetcher=fetch_url):
+    def __init__(self, registry, processor, retriever, settings, *, fetcher=fetch_url, object_store=None, parser_client=None):
         self.registry = registry
         self.processor = processor
         self.retriever = retriever
         self.settings = settings
         self.fetcher = fetcher
+        self.object_store = object_store or LocalObjectStore(settings.object_store_path)
+        self.parser_client = parser_client
         self.worker_id = f"local-{uuid.uuid4().hex[:10]}"
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -55,22 +60,64 @@ class IngestionWorker:
             self._process(job)
         except JobCancelled:
             self.registry.request_index_job_cancel(job["id"])
-            self._cleanup_staged_file(job)
+            self._cleanup_source_asset(job)
         except Exception as exc:
-            failed = self.registry.fail_index_job(job["id"], "INGESTION_FAILED", redact_sensitive_text(exc))
-            if failed and failed["status"] in {"failed", "cancelled"}:
-                self._cleanup_staged_file(job)
+            self.registry.fail_index_job(job["id"], "INGESTION_FAILED", redact_sensitive_text(exc))
         return True
 
     def _process(self, job: dict) -> None:
         self._check_cancel(job["id"])
         self.registry.update_index_job(job["id"], stage="parse", progress=20)
         parse_started = datetime.utcnow()
+        parser_provider = "builtin"
+        parser_profile = str(job["payload"].get("parser_profile") or "builtin")
         if job["source_type"] == "file":
-            path = Path(job["payload"]["staged_path"])
+            asset_id = str(job["payload"].get("asset_id") or "")
+            asset = self.registry.get_asset(asset_id, include_private=True) if asset_id else None
+            path = self.object_store.path_for(asset["object_key"]) if asset else Path(str(job["payload"].get("staged_path") or ""))
             if not path.is_file():
-                raise ValueError("Staged upload is unavailable")
-            document = self.processor.parse_file(path, original_name=job["source_name"])
+                raise ValueError("Durable source object is unavailable")
+            use_worker = parser_profile in {"mineru", "docling", "paddleocr"} or (
+                parser_profile == "auto" and str(self.settings.parser_provider).lower() != "builtin"
+            )
+            if use_worker:
+                if self.parser_client is None:
+                    raise ValueError("Parser worker is not configured")
+                try:
+                    parsed = self.parser_client.parse(
+                        path,
+                        job["source_name"],
+                        parser_profile,
+                        cancel_check=lambda: self._cancel_requested(job["id"]),
+                    )
+                    document = document_from_content_list(
+                        parsed.get("content_list") or [],
+                        source_path=path,
+                        original_name=job["source_name"],
+                        parser_name=str(parsed.get("parser") or parser_profile),
+                    )
+                    parser_provider = "raganything_worker"
+                except Exception as exc:
+                    if not self.settings.parser_fallback_allowed:
+                        raise
+                    document = self.processor.parse_file(path, original_name=job["source_name"])
+                    document.metadata.update({
+                        "parser_fallback_from": parser_profile,
+                        "parser_fallback_reason": redact_sensitive_text(exc),
+                    })
+            else:
+                document = self.processor.parse_file(path, original_name=job["source_name"])
+            document.file_path = str(path)
+            if asset:
+                document.metadata.update({
+                    "source_available": True,
+                    "source_asset_id": asset["id"],
+                    "source_sha256": asset["sha256"],
+                })
+                if document.file_type == "image":
+                    for element in document.elements:
+                        if element.type == "image" and element.metadata.get("source_asset_role"):
+                            element.asset_id = asset["id"]
         elif job["source_type"] == "url":
             imported = self.fetcher(
                 job["payload"]["url"],
@@ -97,6 +144,8 @@ class IngestionWorker:
                 "embedding_model": self.settings.embedding_model,
                 "embedding_dimension": self.settings.resolved_embedding_dimension(),
                 "index_version": self.settings.index_version,
+                "parser_provider": parser_provider,
+                "parser_profile": parser_profile,
             }
         )
         existing = self.registry.find_by_content_hash(
@@ -105,16 +154,18 @@ class IngestionWorker:
         )
         if existing:
             self.registry.complete_index_job(job["id"], existing.document_id, deduped=True)
-            self._cleanup_staged_file(job)
+            self._cleanup_source_asset(job)
             return
 
         self._check_cancel(job["id"])
-        self.registry.update_index_job(job["id"], stage="chunk", progress=45)
+        self.registry.update_index_job(job["id"], stage="extract_elements", progress=35)
+        self._check_cancel(job["id"])
+        self.registry.update_index_job(job["id"], stage="chunk", progress=50)
         split_started = datetime.utcnow()
         chunks = self.processor.split(document)
         split_ended = datetime.utcnow()
         self._check_cancel(job["id"])
-        self.registry.update_index_job(job["id"], stage="embed", progress=65)
+        self.registry.update_index_job(job["id"], stage="embed", progress=70)
         index_started = datetime.utcnow()
         self.retriever.add_document(document, chunks)
         index_ended = datetime.utcnow()
@@ -129,6 +180,18 @@ class IngestionWorker:
         document.metadata["quality"] = assess_document_quality(document, chunks)
         document.metadata["summary"] = summarize_document(document, chunks)
         self.registry.save_document(document)
+        asset_id = str(job["payload"].get("asset_id") or "")
+        if asset_id:
+            self.registry.link_asset(asset_id, document.document_id)
+        materialize_document_assets(document, self.registry, self.object_store)
+        self.registry.create_parser_run(
+            document_id=document.document_id,
+            job_id=job["id"],
+            provider=parser_provider,
+            parser=str(document.metadata.get("parser") or "builtin"),
+            status="succeeded",
+            payload={"element_count": len(document.elements), "parser_profile": job["payload"].get("parser_profile", "builtin")},
+        )
         self.registry.complete_index_job(job["id"], document.document_id)
         self.registry.log_operation(
             "index_job_succeeded",
@@ -137,12 +200,21 @@ class IngestionWorker:
         )
 
     def _check_cancel(self, job_id: str) -> None:
-        current = self.registry.get_index_job(job_id)
-        if not current or current["cancel_requested"] or self._stop.is_set():
+        if self._cancel_requested(job_id):
             raise JobCancelled()
 
-    def _cleanup_staged_file(self, job: dict) -> None:
+    def _cancel_requested(self, job_id: str) -> bool:
+        current = self.registry.get_index_job(job_id)
+        return not current or bool(current["cancel_requested"]) or self._stop.is_set()
+
+    def _cleanup_source_asset(self, job: dict) -> None:
         if job.get("source_type") != "file":
+            return
+        asset_id = str(job.get("payload", {}).get("asset_id") or "")
+        if asset_id:
+            asset = self.registry.delete_asset(asset_id)
+            if asset and self.registry.asset_reference_count(asset["object_key"]) == 0:
+                self.object_store.delete(asset["object_key"])
             return
         path = Path(str(job.get("payload", {}).get("staged_path") or ""))
         if path.name:

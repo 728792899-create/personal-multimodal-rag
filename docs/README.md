@@ -40,8 +40,9 @@
 4. [代码导览](code-tour.md)
 5. [SQLite 数据模型](data-model.md)
 6. [`rag-web-ui` 对比审查](comparative-review-rag-web-ui.md)
-7. [安全威胁模型](security-model.md)
-8. [安全策略](../SECURITY.md)
+7. [RAG-Anything 对比审查](comparative-review-rag-anything.md)
+8. [安全威胁模型](security-model.md)
+9. [安全策略](../SECURITY.md)
 
 ### 部署/运维
 

@@ -18,6 +18,8 @@
 
 默认使用 deterministic hash embedding、内存向量库和模板回答：**无需真实 API Key、不会调用付费 API**。PDF、DOCX、Markdown、文本、图片 OCR、URL 导入、持久会话、引用上下文、质量审计、反馈评测和专家参数均保留。
 
+正在交付的 **0.3 Multimodal Intelligence** 将文档拆成可审查的 text、heading、image、table、equation、code 元素；原件与内嵌资源进入内容寻址对象存储，chunk 保留元素 provenance。默认内置解析器仍然零下载；MinerU、Docling、PaddleOCR 只通过隔离的可选 Compose profile 接入。设计取舍见 [RAG-Anything 固定提交对比审查](docs/comparative-review-rag-anything.md)。
+
 ## 一分钟看懂
 
 ![系统从资料输入到质量回归的完整地图](docs/assets/system-overview.svg)

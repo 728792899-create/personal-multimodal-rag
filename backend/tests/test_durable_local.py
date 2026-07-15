@@ -57,7 +57,9 @@ def test_registry_migrates_a_pre_02_documents_table_and_creates_backup(tmp_path)
 
     migrated = DocumentRegistry(str(path))
 
-    assert migrated.get_document(legacy.document_id).metadata["knowledge_base_id"] == "default"
+    migrated_document = migrated.get_document(legacy.document_id)
+    assert migrated_document.metadata["knowledge_base_id"] == "default"
+    assert migrated_document.metadata["source_available"] is False
     assert migrated.schema_version == migrated.CURRENT_SCHEMA_VERSION
     assert list(tmp_path.glob("legacy.sqlite3.bak-*"))
 

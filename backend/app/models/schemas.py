@@ -9,6 +9,9 @@ class DocumentMeta(BaseModel):
     source_type: str
     chunk_count: int
     char_count: int
+    element_count: int = 0
+    modality_counts: dict[str, int] = Field(default_factory=dict)
+    source_available: bool = False
     metadata: dict = Field(default_factory=dict)
 
 
@@ -20,6 +23,9 @@ class ChunkOut(BaseModel):
     text: str
     page_number: Optional[int] = None
     heading_path: list[str] = Field(default_factory=list)
+    element_ids: list[str] = Field(default_factory=list)
+    modality: str = "text"
+    parent_element_id: Optional[str] = None
     metadata: dict = Field(default_factory=dict)
     score: float = 0
     bm25_score: float = 0
@@ -63,6 +69,7 @@ class UrlImportRequest(BaseModel):
     url: str = Field(..., min_length=8, max_length=2048)
     title: str = Field("", max_length=200)
     knowledge_base_id: str = Field("default", min_length=1, max_length=80)
+    parser_profile: Literal["builtin", "auto", "mineru", "docling", "paddleocr"] = "builtin"
 
 
 class KnowledgeBaseCreate(BaseModel):

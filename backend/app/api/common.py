@@ -11,7 +11,7 @@ from app.services.document_quality import (
     lifecycle_event,
     summarize_document,
 )
-from app.services.safe_logging import redact_sensitive_text
+from app.services.safe_logging import redact_private_metadata, redact_sensitive_text
 from app.services.text_utils import tokenize
 
 
@@ -79,7 +79,7 @@ def index_document(doc: Document, lifecycle: list[dict] | None = None) -> tuple[
 
 
 def document_summary(doc: Document, chunks: list[Chunk]) -> dict:
-    metadata = dict(doc.metadata)
+    metadata = redact_private_metadata(dict(doc.metadata))
     quality = metadata.get("quality")
     if not isinstance(quality, dict):
         quality = assess_document_quality(doc, chunks)
@@ -92,11 +92,17 @@ def document_summary(doc: Document, chunks: list[Chunk]) -> dict:
     metadata["quality"] = quality
     metadata["summary"] = summary
     metadata["lifecycle"] = lifecycle
+    modality_counts: dict[str, int] = {}
+    for element in doc.elements:
+        modality_counts[element.type] = modality_counts.get(element.type, 0) + 1
     return {
         "id": doc.id,
         "filename": doc.filename,
         "source_type": doc.source_type,
         "chunk_count": len(chunks),
+        "element_count": len(doc.elements),
+        "modality_counts": modality_counts,
+        "source_available": bool(doc.metadata.get("source_available")),
         "char_count": len(doc.text),
         "metadata": metadata,
         "quality": quality,
@@ -114,7 +120,10 @@ def chunk_payload(chunk: Chunk) -> dict:
         "text": chunk.text,
         "page_number": chunk.page_number,
         "heading_path": chunk.heading_path,
-        "metadata": chunk.metadata,
+        "element_ids": chunk.element_ids,
+        "modality": chunk.modality,
+        "parent_element_id": chunk.parent_element_id,
+        "metadata": redact_private_metadata(chunk.metadata),
     }
 
 

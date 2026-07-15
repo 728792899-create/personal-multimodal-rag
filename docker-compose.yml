@@ -13,10 +13,15 @@ services:
       ANSWER_PROVIDER: ${ANSWER_PROVIDER:-template}
       QUERY_REWRITE_PROVIDER: ${QUERY_REWRITE_PROVIDER:-none}
       DOCUMENT_REGISTRY_PATH: /app/data/registry.sqlite3
+      OBJECT_STORE_PATH: /app/data/objects
       CHUNKER_VERSION: ${CHUNKER_VERSION:-paragraph-v1}
       INDEX_VERSION: ${INDEX_VERSION:-hybrid-v1}
       INGESTION_POLL_SECONDS: ${INGESTION_POLL_SECONDS:-0.10}
       INGESTION_LEASE_SECONDS: ${INGESTION_LEASE_SECONDS:-120}
+      PARSER_PROVIDER: ${PARSER_PROVIDER:-builtin}
+      PARSER_WORKER_URL: ${PARSER_WORKER_URL:-http://parser-worker:8090}
+      PARSER_TIMEOUT_SECONDS: ${PARSER_TIMEOUT_SECONDS:-300}
+      PARSER_FALLBACK_ALLOWED: ${PARSER_FALLBACK_ALLOWED:-1}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
       ANSWER_BASE_URL: ${ANSWER_BASE_URL:-}
@@ -40,6 +45,32 @@ services:
       retries: 5
     restart: unless-stopped
 
+  parser-worker:
+    profiles: ["advanced-parser"]
+    build:
+      context: .
+      dockerfile: parser-worker/Dockerfile
+    environment:
+      PARSER_JOB_DIR: /tmp/parser-jobs
+      PARSER_MAX_BYTES: ${PARSER_MAX_BYTES:-52428800}
+    read_only: true
+    tmpfs:
+      - /tmp:size=4g,mode=1777
+    volumes:
+      - parser_cache:/home/parser/.cache
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 512
+    mem_limit: ${PARSER_MEMORY_LIMIT:-8g}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=2)"]
+      interval: 30s
+      timeout: 3s
+      start_period: 60s
+      retries: 3
+    restart: unless-stopped
+
   frontend:
     build:
       context: .
@@ -56,3 +87,6 @@ services:
       start_period: 5s
       retries: 5
     restart: unless-stopped
+
+volumes:
+  parser_cache:

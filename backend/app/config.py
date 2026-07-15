@@ -46,7 +46,7 @@ class Settings:
     mmr_lambda: float = float(os.getenv("MMR_LAMBDA", "0.78"))
 
     answer_provider: str = os.getenv("ANSWER_PROVIDER", "template")
-    answer_model: str = os.getenv("ANSWER_MODEL", os.getenv("OPENAI_MODEL", "gpt-5.5"))
+    answer_model: str = os.getenv("ANSWER_MODEL", os.getenv("OPENAI_MODEL", "gpt-5.6"))
     answer_base_url: str = os.getenv("ANSWER_BASE_URL", os.getenv("OPENAI_BASE_URL", ""))
     answer_api_key: str = os.getenv("ANSWER_API_KEY", os.getenv("OPENAI_API_KEY", ""))
     answer_timeout_seconds: float = float(os.getenv("ANSWER_TIMEOUT_SECONDS", "45"))
@@ -58,6 +58,7 @@ class Settings:
     query_rewrite_count: int = int(os.getenv("QUERY_REWRITE_COUNT", "2"))
 
     document_registry_path: str = os.getenv("DOCUMENT_REGISTRY_PATH", "./data/registry.sqlite3")
+    object_store_path: str = os.getenv("OBJECT_STORE_PATH", "./data/objects")
     max_upload_bytes: int = int(os.getenv("MAX_UPLOAD_BYTES", str(20 * 1024 * 1024)))
     upload_processing_timeout_seconds: float = float(os.getenv("UPLOAD_PROCESSING_TIMEOUT_SECONDS", "90"))
     url_import_timeout_seconds: float = float(os.getenv("URL_IMPORT_TIMEOUT_SECONDS", "12"))
@@ -82,6 +83,13 @@ class Settings:
     index_version: str = os.getenv("INDEX_VERSION", "hybrid-v1")
     ingestion_poll_seconds: float = float(os.getenv("INGESTION_POLL_SECONDS", "0.10"))
     ingestion_lease_seconds: int = int(os.getenv("INGESTION_LEASE_SECONDS", "120"))
+    parser_provider: str = os.getenv("PARSER_PROVIDER", "builtin")
+    parser_worker_url: str = os.getenv("PARSER_WORKER_URL", "http://parser-worker:8090")
+    parser_timeout_seconds: float = float(os.getenv("PARSER_TIMEOUT_SECONDS", "300"))
+    parser_fallback_allowed: bool = os.getenv(
+        "PARSER_FALLBACK_ALLOWED",
+        "1" if os.getenv("APP_ENVIRONMENT", "local") in {"local", "test", "development"} else "0",
+    ).strip().lower() in {"1", "true", "yes", "on"}
     ollama_base_url: str = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
     ollama_chat_model: str = os.getenv("OLLAMA_CHAT_MODEL", "qwen3:8b")
     ollama_embedding_model: str = os.getenv("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")

@@ -28,7 +28,7 @@ async def lifespan(_: FastAPI):
 app = FastAPI(
     title="Personal Multimodal RAG",
     description="Local-first knowledge base QA with hybrid retrieval and citations.",
-    version="0.2.0",
+    version="0.3.0",
     lifespan=lifespan,
 )
 

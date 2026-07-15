@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import mimetypes
 import uuid
 from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 
 from app.api.common import (
     chunk_payload,
@@ -14,12 +16,13 @@ from app.api.common import (
     index_document,
 )
 from app.config import settings
-from app.core.store import processor, registry, retriever
+from app.core.store import object_store, processor, registry, retriever
 from app.models.domain import Document
 from app.models.schemas import UrlImportRequest
 from app.services.document_quality import assess_document_quality, lifecycle_event, summarize_document
 from app.services.document_processor import SUPPORTED_EXTENSIONS
-from app.services.safe_logging import redact_sensitive_text, sanitize_url_for_log
+from app.services.safe_logging import redact_private_metadata, redact_sensitive_text, sanitize_url_for_log
+from app.services.multimodal_assets import delete_document_assets, materialize_document_assets
 from app.services.url_importer import fetch_url
 
 
@@ -51,7 +54,7 @@ def get_document(document_id: str):
             "created_at": doc.created_at.isoformat(),
             "page_count": len(doc.pages),
             "pages": [
-                {"page_number": page.page_number, "text": page.text, "metadata": page.metadata}
+                {"page_number": page.page_number, "text": page.text, "metadata": redact_private_metadata(page.metadata)}
                 for page in doc.pages
             ],
         },
@@ -59,10 +62,38 @@ def get_document(document_id: str):
     }
 
 
+@router.get("/documents/{document_id}/elements")
+def get_document_elements(document_id: str):
+    if not registry.get_document(document_id):
+        raise HTTPException(status_code=404, detail="Document not found")
+    return {"elements": registry.list_document_elements(document_id)}
+
+
+@router.get("/documents/{document_id}/source")
+def get_document_source(document_id: str):
+    doc = registry.get_document(document_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    assets = registry.list_assets(document_id=document_id, kind="source", include_private=True)
+    if not assets:
+        raise HTTPException(status_code=404, detail="Original source is unavailable; re-upload the document to enable reparsing")
+    return _asset_file_response(assets[0], attachment=True)
+
+
+@router.get("/assets/{asset_id}")
+def get_asset(asset_id: str):
+    asset = registry.get_asset(asset_id, include_private=True)
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+    return _asset_file_response(asset, attachment=asset["kind"] == "source")
+
+
 @router.post("/documents")
 async def upload_document(file: UploadFile = File(...), knowledge_base_id: str = Form("default")):
     target: Path | None = None
-    keep_target = False
+    stored_object_key = ""
+    indexed_document_id = ""
+    upload_completed = False
     safe_name = ""
     try:
         if not registry.get_knowledge_base(knowledge_base_id):
@@ -102,6 +133,11 @@ async def upload_document(file: UploadFile = File(...), knowledge_base_id: str =
                 "document": document_summary(existing, chunks),
                 "chunks": [chunk_payload(chunk) for chunk in sorted(chunks, key=lambda item: item.index)[:5]],
             }
+        stored = object_store.put_file(target)
+        stored_object_key = stored.object_key
+        doc.file_path = str(stored.path)
+        doc.metadata.update({"source_available": True, "source_sha256": stored.sha256})
+        indexed_document_id = doc.document_id
         doc, chunks = index_document(
             doc,
             [
@@ -109,7 +145,31 @@ async def upload_document(file: UploadFile = File(...), knowledge_base_id: str =
                 lifecycle_event("parse", "success", parse_started, parse_ended),
             ],
         )
-        keep_target = True
+        asset = registry.create_asset(
+            knowledge_base_id=knowledge_base_id,
+            kind="source",
+            object_key=stored.object_key,
+            original_name=safe_name,
+            media_type=file.content_type or mimetypes.guess_type(safe_name)[0] or "application/octet-stream",
+            sha256=stored.sha256,
+            size_bytes=stored.size_bytes,
+            document_id=doc.document_id,
+            metadata={"role": "original"},
+        )
+        doc.metadata["source_asset_id"] = asset["id"]
+        if doc.file_type == "image":
+            for element in doc.elements:
+                if element.type == "image" and element.metadata.get("source_asset_role"):
+                    element.asset_id = asset["id"]
+        registry.save_document(doc)
+        materialize_document_assets(doc, registry, object_store)
+        registry.create_parser_run(
+            document_id=doc.document_id,
+            provider="builtin",
+            parser=str(doc.metadata.get("parser") or "builtin"),
+            status="succeeded",
+            payload={"element_count": len(doc.elements), "modality_counts": document_summary(doc, chunks)["modality_counts"]},
+        )
         registry.log_operation(
             "document_uploaded",
             f"上传并索引文档：{doc.file_name}",
@@ -120,6 +180,7 @@ async def upload_document(file: UploadFile = File(...), knowledge_base_id: str =
                 "quality_score": doc.metadata["quality"]["score"],
             },
         )
+        upload_completed = True
         return {
             "deduped": False,
             "document": document_summary(doc, chunks),
@@ -143,8 +204,12 @@ async def upload_document(file: UploadFile = File(...), knowledge_base_id: str =
         )
         raise HTTPException(status_code=400, detail=message) from exc
     finally:
-        if target is not None and not keep_target:
+        if target is not None:
             target.unlink(missing_ok=True)
+        if indexed_document_id and not upload_completed:
+            _rollback_document(indexed_document_id)
+        if stored_object_key and registry.asset_reference_count(stored_object_key) == 0:
+            object_store.delete(stored_object_key)
         await file.close()
 
 
@@ -235,9 +300,13 @@ def delete_document(document_id: str):
     doc = registry.get_document(document_id)
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
+    assets = registry.list_assets(document_id=document_id, include_private=True)
     retriever.delete_document(document_id)
     registry.delete_document(document_id)
     source_deleted = delete_uploaded_source(doc)
+    for asset in assets:
+        if registry.asset_reference_count(asset["object_key"]) == 0:
+            source_deleted = object_store.delete(asset["object_key"]) or source_deleted
     registry.log_operation(
         "document_deleted",
         f"删除文档：{doc.file_name}",
@@ -264,6 +333,13 @@ def _rebuild(doc: Document) -> tuple[Document, list]:
     if source_path.exists():
         rebuilt_doc = processor.parse_file(source_path, original_name=doc.file_name)
         rebuilt_doc.document_id = doc.document_id
+        rebuilt_doc.file_path = doc.file_path
+        rebuilt_doc.metadata = {**doc.metadata, **rebuilt_doc.metadata}
+        for index, element in enumerate(rebuilt_doc.elements):
+            element.document_id = doc.document_id
+            element.element_id = f"{doc.document_id}:element:{index}"
+            if element.type == "image" and element.metadata.get("source_asset_role"):
+                element.asset_id = str(doc.metadata.get("source_asset_id") or "") or None
     rebuilt_doc.metadata["index_status"] = "indexing"
     split_started = datetime.utcnow()
     chunks = processor.split(rebuilt_doc)
@@ -283,6 +359,17 @@ def _rebuild(doc: Document) -> tuple[Document, list]:
     return rebuilt_doc, chunks
 
 
+def _rollback_document(document_id: str) -> None:
+    """Remove every partially-created index and durable object for a failed upload."""
+
+    assets = registry.list_assets(document_id=document_id, include_private=True)
+    retriever.delete_document(document_id)
+    registry.delete_document(document_id)
+    for asset in assets:
+        if registry.asset_reference_count(asset["object_key"]) == 0:
+            object_store.delete(asset["object_key"])
+
+
 @router.post("/documents/{document_id}/rebuild")
 def rebuild_document(document_id: str):
     doc = registry.get_document(document_id)
@@ -291,6 +378,8 @@ def rebuild_document(document_id: str):
     try:
         registry.update_document_status(document_id, "indexing")
         rebuilt_doc, chunks = _rebuild(doc)
+        delete_document_assets(document_id, registry, object_store, kind="derived")
+        materialize_document_assets(rebuilt_doc, registry, object_store)
         registry.log_operation(
             "document_rebuilt",
             f"重建索引：{rebuilt_doc.file_name}",
@@ -302,6 +391,12 @@ def rebuild_document(document_id: str):
         registry.update_document_status(document_id, "failed", message)
         registry.log_operation("document_rebuild_failed", f"重建索引失败：{doc.file_name}", {"document_id": document_id, "filename": doc.file_name, "error": message}, level="error")
         raise HTTPException(status_code=500, detail=f"Failed to rebuild document: {message}") from exc
+
+
+@router.post("/documents/{document_id}/reindex")
+def reindex_document(document_id: str):
+    """0.3 alias with the same compatibility-preserving behavior as rebuild."""
+    return rebuild_document(document_id)
 
 
 @router.post("/documents/rebuild-all")
@@ -317,3 +412,21 @@ def rebuild_all_documents():
             registry.update_document_status(doc.document_id, "failed", message)
             results.append({"document_id": doc.document_id, "filename": doc.file_name, "status": "failed", "error": message})
     return {"rebuilt": True, "results": results}
+
+
+def _asset_file_response(asset: dict, *, attachment: bool) -> FileResponse:
+    try:
+        path = object_store.path_for(asset["object_key"])
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Asset is unavailable") from exc
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Asset is unavailable")
+    safe_name = Path(str(asset.get("original_name") or "asset")).name
+    disposition = "attachment" if attachment else "inline"
+    return FileResponse(
+        path,
+        media_type=asset.get("media_type") or "application/octet-stream",
+        filename=safe_name,
+        content_disposition_type=disposition,
+        headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=60"},
+    )

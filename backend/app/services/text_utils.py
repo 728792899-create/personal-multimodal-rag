@@ -46,6 +46,11 @@ STOPWORDS = {
     "如何",
 }
 
+RETRIEVAL_ALIASES = {
+    "重复提交": ("幂等", "幂等键"),
+    "重复投递": ("幂等", "幂等键"),
+}
+
 
 def tokenize(text: str) -> list[str]:
     tokens: list[str] = []
@@ -66,4 +71,18 @@ def tokenize(text: str) -> list[str]:
                     tokens.append(token)
         else:
             tokens.append(token)
+    return tokens
+
+
+def retrieval_tokens(text: str) -> list[str]:
+    """Tokenize and add a small, auditable domain alias set for lexical recall."""
+
+    tokens = tokenize(text)
+    lowered = text.lower()
+    for phrase, aliases in RETRIEVAL_ALIASES.items():
+        if phrase in lowered:
+            for alias in aliases:
+                for token in tokenize(alias):
+                    if token not in tokens:
+                        tokens.append(token)
     return tokens

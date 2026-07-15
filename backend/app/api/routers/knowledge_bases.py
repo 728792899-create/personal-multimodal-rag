@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query
 
-from app.core.store import registry, retriever
+from app.core.store import object_store, registry, retriever
 from app.models.schemas import KnowledgeBaseCreate, KnowledgeBaseUpdate
 
 
@@ -30,6 +30,11 @@ def update_knowledge_base(knowledge_base_id: str, payload: KnowledgeBaseUpdate):
 @router.delete("/{knowledge_base_id}")
 def delete_knowledge_base(knowledge_base_id: str, force: bool = Query(False)):
     documents = registry.load_documents([knowledge_base_id])
+    assets = [
+        asset
+        for document in documents
+        for asset in registry.list_assets(document_id=document.document_id, include_private=True)
+    ]
     try:
         deleted = registry.delete_knowledge_base(knowledge_base_id, force=force)
     except ValueError as exc:
@@ -39,4 +44,7 @@ def delete_knowledge_base(knowledge_base_id: str, force: bool = Query(False)):
         raise HTTPException(status_code=404, detail="Knowledge base not found")
     for document in documents:
         retriever.delete_document(document.document_id)
+    for asset in assets:
+        if registry.asset_reference_count(asset["object_key"]) == 0:
+            object_store.delete(asset["object_key"])
     return {"deleted": True}
