@@ -9,7 +9,7 @@ from app.services.document_quality import assess_document_quality, lifecycle_eve
 from app.services.safe_logging import redact_sensitive_text
 from app.services.url_importer import fetch_url
 from app.services.object_store import LocalObjectStore
-from app.services.parser_worker import document_from_content_list
+from app.services.parser_worker import ParserJobCancelled, document_from_content_list
 from app.services.multimodal_assets import materialize_document_assets
 
 
@@ -73,7 +73,7 @@ class IngestionWorker:
         try:
             self._process(job)
         except JobCancelled:
-            self.registry.request_index_job_cancel(job["id"])
+            self.registry.complete_index_job_cancellation(job["id"])
             self._cleanup_source_asset(job)
         except Exception as exc:
             self.registry.fail_index_job(job["id"], "INGESTION_FAILED", redact_sensitive_text(exc))
@@ -111,6 +111,8 @@ class IngestionWorker:
                         parser_name=str(parsed.get("parser") or parser_profile),
                     )
                     parser_provider = "raganything_worker"
+                except ParserJobCancelled as exc:
+                    raise JobCancelled() from exc
                 except Exception as exc:
                     if not self.settings.parser_fallback_allowed:
                         raise

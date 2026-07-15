@@ -2,18 +2,21 @@ from __future__ import annotations
 
 from pathlib import Path
 from io import BytesIO
+from types import SimpleNamespace
 
 import fitz
 from docx import Document as WordDocument
 from fastapi.testclient import TestClient
 import httpx
 from PIL import Image
+import pytest
 
 from app.models.domain import DocumentElement
 from app.services.document_processor import DocumentProcessor
 from app.services.document_registry import DocumentRegistry
 from app.services.object_store import LocalObjectStore
-from app.services.parser_worker import ParserWorkerClient, document_from_content_list
+from app.services.ingestion_jobs import IngestionWorker
+from app.services.parser_worker import ParserJobCancelled, ParserWorkerClient, document_from_content_list
 from app.services.multimodal_assets import materialize_document_assets
 
 
@@ -209,6 +212,91 @@ def test_parser_worker_contract_and_content_list_adapter(tmp_path: Path):
     assert document.elements[1].table[1] == ["Graph", "ready"]
     assert document.metadata["parser_provider"] == "raganything_worker"
     assert "/tmp/parser-jobs" not in document.model_dump_json()
+
+
+def test_parser_worker_cancel_and_timeout_cleanup_remote_jobs(tmp_path: Path):
+    source = tmp_path / "sample.pdf"
+    source.write_bytes(b"%PDF-1.4\n")
+    deleted: list[str] = []
+
+    def handler(request: httpx.Request):
+        if request.method == "POST" and request.url.path == "/v1/jobs":
+            return httpx.Response(202, json={"id": "job-1", "status": "queued"})
+        if request.method == "GET" and request.url.path == "/v1/jobs/job-1":
+            return httpx.Response(200, json={"id": "job-1", "status": "running"})
+        if request.method == "DELETE" and request.url.path == "/v1/jobs/job-1":
+            deleted.append(request.url.path)
+            return httpx.Response(200, json={"id": "job-1", "status": "cancelled"})
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    cancelling = ParserWorkerClient(
+        "http://parser-worker",
+        timeout_seconds=2,
+        poll_seconds=0,
+        http_client=httpx.Client(transport=transport),
+    )
+    with pytest.raises(ParserJobCancelled, match="cancelled"):
+        cancelling.parse(source, "sample.pdf", "mineru", cancel_check=lambda: True)
+
+    timing_out = ParserWorkerClient(
+        "http://parser-worker",
+        timeout_seconds=0,
+        poll_seconds=0,
+        http_client=httpx.Client(transport=transport),
+    )
+    with pytest.raises(TimeoutError, match="timed out"):
+        timing_out.parse(source, "sample.pdf", "mineru")
+
+    assert deleted == ["/v1/jobs/job-1", "/v1/jobs/job-1"]
+
+
+def test_ingestion_worker_does_not_fallback_after_parser_cancellation(tmp_path: Path):
+    class CancelledParser:
+        def parse(self, *_args, **_kwargs):
+            raise ParserJobCancelled("Parser job cancelled")
+
+    class ForbiddenFallbackProcessor:
+        def parse_file(self, *_args, **_kwargs):
+            raise AssertionError("cancelled parser jobs must not run the builtin fallback")
+
+    registry = DocumentRegistry(str(tmp_path / "registry.sqlite3"))
+    store = LocalObjectStore(tmp_path / "objects")
+    stored = store.put_bytes(b"%PDF-1.4\n")
+    asset = registry.create_asset(
+        knowledge_base_id="default",
+        kind="source",
+        object_key=stored.object_key,
+        original_name="cancel.pdf",
+        media_type="application/pdf",
+        sha256=stored.sha256,
+        size_bytes=stored.size_bytes,
+    )
+    job = registry.create_index_job(
+        source_type="file",
+        source_name="cancel.pdf",
+        payload={"asset_id": asset["id"], "parser_profile": "mineru"},
+        knowledge_base_id="default",
+        idempotency_key="cancelled-parser-job",
+    )
+    worker = IngestionWorker(
+        registry,
+        ForbiddenFallbackProcessor(),
+        object(),
+        SimpleNamespace(
+            ingestion_lease_seconds=30,
+            ingestion_poll_seconds=0.01,
+            parser_provider="builtin",
+            parser_fallback_allowed=True,
+        ),
+        object_store=store,
+        parser_client=CancelledParser(),
+    )
+
+    assert worker.run_once() is True
+    assert registry.get_index_job(job["id"])["status"] == "cancelled"
+    assert registry.get_asset(asset["id"]) is None
+    assert not stored.path.exists()
 
 
 def test_pdf_embedded_image_is_materialized_as_controlled_asset(tmp_path: Path):

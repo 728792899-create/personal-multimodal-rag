@@ -766,18 +766,46 @@ class DocumentRegistry:
             )
         return self.get_index_job(job_id)
 
+    def complete_index_job_cancellation(self, job_id: str) -> dict | None:
+        """Persist the terminal half of a cooperative worker cancellation."""
+
+        completed_at = _utcnow()
+        with self._connection() as connection:
+            connection.execute(
+                """
+                UPDATE index_jobs
+                SET status = 'cancelled', stage = 'cancelled', cancel_requested = 1,
+                    worker_id = '', lease_expires_at = '', completed_at = ?, updated_at = ?
+                WHERE job_id = ? AND status IN ('queued', 'running', 'cancelling')
+                """,
+                (completed_at, completed_at, job_id),
+            )
+        return self.get_index_job(job_id)
+
     def recover_stale_index_jobs(self) -> int:
         now = _utcnow()
         with self._connection() as connection:
-            cursor = connection.execute(
+            cancelled = connection.execute(
                 """
-                UPDATE index_jobs SET status = 'queued', stage = 'receive', worker_id = '',
-                    lease_expires_at = '', next_attempt_at = ?, updated_at = ?
-                WHERE status IN ('running', 'cancelling') AND lease_expires_at != '' AND lease_expires_at <= ?
+                UPDATE index_jobs
+                SET status = 'cancelled', stage = 'cancelled', cancel_requested = 1,
+                    worker_id = '', lease_expires_at = '', completed_at = ?, updated_at = ?
+                WHERE status IN ('running', 'cancelling')
+                  AND (status = 'cancelling' OR cancel_requested = 1)
+                  AND lease_expires_at != '' AND lease_expires_at <= ?
                 """,
                 (now, now, now),
             )
-        return cursor.rowcount
+            queued = connection.execute(
+                """
+                UPDATE index_jobs SET status = 'queued', stage = 'receive', worker_id = '',
+                    lease_expires_at = '', next_attempt_at = ?, updated_at = ?
+                WHERE status = 'running' AND cancel_requested = 0
+                  AND lease_expires_at != '' AND lease_expires_at <= ?
+                """,
+                (now, now, now),
+            )
+        return cancelled.rowcount + queued.rowcount
 
     def make_index_job_available(self, job_id: str) -> None:
         with self._connection() as connection:

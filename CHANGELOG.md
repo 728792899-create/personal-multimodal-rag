@@ -20,6 +20,11 @@
 - 图片提问 SSE 事件、文档元素查看器、精确引用跳转、Graph SVG/键盘表格、十阶段 Trace 与多模态质量面板。
 - 100 条固定黄金集与 12 项阈值；新增 multimodal-eval、graph-eval、parser-contract 和 asset-security CI。
 
+### Fixed
+
+- 协作取消现在由 Worker 明确提交 `cancelled` 终态并清除租约；重启时遇到过期的 `cancelling` 任务也会收敛为终态，不再形成无法领取的 `queued` 任务。
+- 高级解析器的取消信号使用独立异常传播，不会被本地 parser fallback 捕获后额外执行内置解析；超时与取消都会尽力清理远端临时任务。
+
 ## 0.2.0-beta
 
 ### Added

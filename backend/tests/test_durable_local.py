@@ -148,6 +148,54 @@ def test_index_job_claim_retry_cancel_and_stale_recovery(tmp_path):
     assert cancelled["status"] == "cancelled"
 
 
+def test_running_index_job_cooperative_cancel_reaches_terminal_state(tmp_path):
+    registry = DocumentRegistry(str(tmp_path / "registry.sqlite3"))
+    job = registry.create_index_job(
+        source_type="url",
+        source_name="example.com/cancel",
+        payload={"url": "https://example.com/cancel"},
+        knowledge_base_id=DEFAULT_KNOWLEDGE_BASE_ID,
+        idempotency_key="cooperative-cancel",
+    )
+    claimed = registry.claim_next_index_job(worker_id="worker-1", lease_seconds=30)
+    assert claimed and claimed["id"] == job["id"]
+    assert registry.request_index_job_cancel(job["id"])["status"] == "cancelling"
+
+    cancelled = registry.complete_index_job_cancellation(job["id"])
+
+    assert cancelled["status"] == "cancelled"
+    assert cancelled["stage"] == "cancelled"
+    assert cancelled["completed_at"]
+    with registry.transaction() as connection:
+        row = connection.execute(
+            "SELECT worker_id, lease_expires_at FROM index_jobs WHERE job_id = ?",
+            (job["id"],),
+        ).fetchone()
+    assert row["worker_id"] == "" and row["lease_expires_at"] == ""
+    assert registry.claim_next_index_job(worker_id="worker-2") is None
+
+
+def test_stale_cancelling_job_recovers_as_cancelled_instead_of_stuck_queued(tmp_path):
+    registry = DocumentRegistry(str(tmp_path / "registry.sqlite3"))
+    job = registry.create_index_job(
+        source_type="url",
+        source_name="example.com/stale-cancel",
+        payload={"url": "https://example.com/stale-cancel"},
+        knowledge_base_id=DEFAULT_KNOWLEDGE_BASE_ID,
+        idempotency_key="stale-cancel",
+    )
+    claimed = registry.claim_next_index_job(worker_id="worker-1", lease_seconds=0)
+    assert claimed and claimed["id"] == job["id"]
+    assert registry.request_index_job_cancel(job["id"])["status"] == "cancelling"
+
+    assert registry.recover_stale_index_jobs() == 1
+
+    recovered = registry.get_index_job(job["id"])
+    assert recovered["status"] == "cancelled"
+    assert recovered["completed_at"]
+    assert registry.claim_next_index_job(worker_id="worker-2") is None
+
+
 def test_conversations_persist_ordered_messages_and_bounded_context(tmp_path):
     path = tmp_path / "registry.sqlite3"
     registry = DocumentRegistry(str(path))

@@ -8,7 +8,7 @@
 - 进程内限流在多副本之间不共享；生产应移到网关或 Redis。
 - 本地索引 worker 有 SQLite 事实源、租约与三次尝试，但仍是单进程执行器；多实例、优先级、DLQ 和跨主机故障转移需要外部队列。
 - URL 校验覆盖 DNS 解析、重定向与最终地址，但标准库连接没有做 IP pinning；高风险生产环境应使用隔离抓取服务防 DNS rebinding。
-- DOCX 已保留标题、段落和表格文本；PDF/OCR 仍未实现通用表格结构、版面理解、图片语义 embedding、音频或视频内容分析。
+- 内置 parser 已保留 PDF/DOCX 的有序元素、常见表格、公式、嵌入图片、bbox 与可选 OCR，但复杂跨页表格、手写内容和任意版面仍可能需要隔离的 MinerU/Docling/PaddleOCR profile；音频、视频与专用视觉 embedding 尚未实现。
 - Citation audit 是透明的规则评估，不等同于人工事实核查或 NLI judge。
 
 ## 外部服务未完成项
@@ -18,5 +18,6 @@
 - GitHub Actions 已在远端实际运行后端、前端/E2E、检索评测和 Docker Compose job；后续每次合并仍需以对应提交的检查结果为准。
 - 没有生产容量/故障注入数据；上线前必须补文档数量、chunk 数、并发、OCR 和 provider 延迟压测。
 - OpenAI、Ollama、pgvector 与 Sentry 只有 adapter/契约/配置边界；本轮没有凭据或外部服务，因此没有声称真实在线验收。
+- 高级 parser 镜像已有手动 workflow 和 mock contract，但真实模型、GPU/内存峰值及扫描件质量仍必须在带 `rag-parser` 标签的部署 runner 验收。
 
 对应人工步骤与目标架构见 [production-adapters.md](production-adapters.md)。

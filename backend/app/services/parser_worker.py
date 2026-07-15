@@ -16,6 +16,10 @@ from app.services.resilience import ResilientExecutor
 PARSER_PROFILES = ("builtin", "auto", "mineru", "docling", "paddleocr")
 
 
+class ParserJobCancelled(ValueError):
+    """The remote parser acknowledged cooperative cancellation."""
+
+
 class ParserWorkerClient:
     """Small HTTP adapter for the optional, isolated heavy-parser service."""
 
@@ -73,8 +77,8 @@ class ParserWorkerClient:
         deadline = time.monotonic() + self.timeout_seconds
         while time.monotonic() < deadline:
             if cancel_check and cancel_check():
-                self._client().delete(f"{self.base_url}/v1/jobs/{job_id}")
-                raise ValueError("Parser job cancelled")
+                self._cleanup(job_id)
+                raise ParserJobCancelled("Parser job cancelled")
             status = self.executor.run(
                 lambda: self._checked(self._client().get(f"{self.base_url}/v1/jobs/{job_id}"))
             )
@@ -89,9 +93,11 @@ class ParserWorkerClient:
             if state in {"failed", "cancelled"}:
                 error = str(payload.get("error") or f"Parser job {state}")
                 self._cleanup(job_id)
+                if state == "cancelled":
+                    raise ParserJobCancelled(error)
                 raise ValueError(error)
             time.sleep(self.poll_seconds)
-        self._client().delete(f"{self.base_url}/v1/jobs/{job_id}")
+        self._cleanup(job_id)
         raise TimeoutError("Parser worker timed out")
 
     def _cleanup(self, job_id: str) -> None:

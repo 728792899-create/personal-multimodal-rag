@@ -4,11 +4,13 @@
 
 ## 升级时发生什么
 
-`DocumentRegistry` 启动时按 `schema_migrations` 顺序执行幂等迁移，当前 schema version 为 3：
+`DocumentRegistry` 启动时按 `schema_migrations` 顺序执行幂等迁移，当前 schema version 为 5：
 
 1. 建立原有 documents/history/feedback/operation/cards/eval 数据结构。
 2. 建立 `knowledge_bases`、默认知识库并无损回填现有文档。
 3. 建立 `conversations`、`conversation_messages`、`index_jobs`，补齐文档的 content hash、chunker/embedding/index metadata。
+4. 建立 `assets`、`document_elements`、`parser_runs`、`enrichment_cache`，把原件、派生元素与解析版本纳入可重建数据模型。
+5. 建立 provenance-backed `graph_nodes`、`graph_edges`、`entity_mentions`，所有关系保留知识库、文档和证据元素边界。
 
 文件数据库升级前会在同目录生成时间戳备份；`:memory:` 测试数据库不备份。迁移失败时初始化失败，写服务不会在半迁移 schema 上继续运行。
 
@@ -36,13 +38,14 @@ npm run eval:retrieval
 
 ## 本地任务语义
 
-任务的正常路径是 `queued → running → succeeded`；失败/取消分支是 `failed`、`cancelling`、`cancelled`。阶段为校验、解析/OCR、分块、嵌入、写入、质量分析和完成。
+任务的正常路径是 `queued → running → succeeded`；失败/取消分支是 `failed`、`cancelling`、`cancelled`。阶段为 validate、parse、extract_elements、enrich_modalities、chunk、embed、graph_extract、graph_write、quality 和 complete。
 
 - SQLite 是任务事实来源，前端轮询只是视图。
 - worker claim 时写入租约；进程中断后，过期租约任务可重新领取。
 - 自动尝试最多三次；之后保留脱敏错误，用户可显式 retry。
 - 幂等键由知识库、内容/URL hash、chunker、embedding 和 index version 组成。
 - 取消是阶段间协作式取消；不可中断的 parser 返回后会丢弃结果并清理暂存文件。
+- Worker 确认取消后会原子写入 `cancelled`、清空租约并删除未接受的源对象；进程在 `cancelling` 中断时，过期租约恢复同样收敛为 `cancelled`，不会重新执行或卡在队列。
 - 同一 SQLite 文件只应由一个 0.2 worker 实例消费；多实例必须迁移到带原子 claim 的外部任务系统并重新验证。
 
 ## 会话检索语义
