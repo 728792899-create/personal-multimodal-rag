@@ -94,6 +94,10 @@ CHROMA_COLLECTION=personal_knowledge_openai_v1
 | `NO_ANSWER_THRESHOLD` | 0.05 | 全局拒答门槛 |
 | `GROUNDING_MIN_CONFIDENCE` | 0.15 | grounding 最低置信度 |
 | `CITATION_OVERLAP_THRESHOLD` | 0.34 | 引用文本重合阈值 |
+| `QUERY_ASSET_MAX_BYTES` | 10485760 | 单张查询图片字节上限 |
+| `QUERY_ASSET_MAX_COUNT` | 4 | 单次问题最大图片数 |
+| `QUERY_ASSET_TTL_HOURS` | 24 | 临时图片保留时间（上限 24） |
+| `QUERY_ASSET_MAX_PIXELS` | 40000000 | 解码后像素上限 |
 | `MMR_LAMBDA` | 0.78 | MMR 相关性权重 |
 | `GRAPH_WEIGHT` | 0.25 | `hybrid_graph` 加权 RRF 的图谱权重 |
 | `GRAPH_MAX_HOPS` | 2 | 图路径最大跳数，API 仍限制为 1–4 |
@@ -201,6 +205,10 @@ PARSER_PROVIDER=mineru docker compose --profile advanced-parser up --build --wai
 ```
 
 `parser-worker` 以非 root、只读根文件系统、丢弃 Linux capabilities、独立临时目录和资源上限运行。它只接收后端上传的本地文件，不处理 URL、浏览器凭据或 Provider Key。首次构建会下载大型依赖，耗时和磁盘占用必须在真实部署环境人工验收。
+
+GitHub Actions 的 `Advanced parser smoke` 仅支持手动触发：默认在 GitHub-hosted runner 构建镜像并检查 health/capability 契约；勾选 `run_local_model` 后，真实解析只会派发到带 `rag-parser` 标签、已准备本地模型缓存的 self-hosted runner。普通 PR 不下载大型模型，也不会把契约测试冒充为 MinerU、Docling 或 PaddleOCR 在线验收。
+
+高级镜像为 apt/pip 启用了缓存与下载重试，但首次构建仍需要获取 LibreOffice 和 RAG-Anything 依赖。若镜像站下载停滞，应保留默认栈运行，改在网络稳定或已有缓存的 runner 重试；不要把未完成构建记录为高级解析器通过。
 
 生产环境不要直接暴露示例端口和默认 DSN。应使用 TLS ingress、secret manager、受限网络、持久卷与备份策略。
 

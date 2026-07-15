@@ -19,7 +19,10 @@ describe('RetrievalTrace', () => {
     expect(wrapper.text()).toContain('Rerank')
     expect(wrapper.text()).toContain('允许回答')
     expect(wrapper.text()).toContain('引用覆盖率')
-    expect(wrapper.findAll('[data-trace-stage]')).toHaveLength(7)
+    expect(wrapper.text()).toContain('查询增强')
+    expect(wrapper.text()).toContain('Graph 导航')
+    expect(wrapper.text()).toContain('父级上下文')
+    expect(wrapper.findAll('[data-trace-stage]')).toHaveLength(10)
   })
 
   it('makes refusal explicit instead of presenting it as a generic error', () => {

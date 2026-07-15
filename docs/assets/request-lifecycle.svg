@@ -27,6 +27,6 @@
   <path d="M1270 422C1270 488 1040 502 894 502H252C170 502 136 472 136 424" class="line" stroke-dasharray="7 7"/>
   <text x="520" y="488" class="k">RESPONSE PATH</text>
   <rect x="54" y="528" width="1332" height="82" rx="18" fill="#0b2032" stroke="#285168"/>
-  <text x="82" y="562" class="t">Answer or refusal · citations · seven-stage trace · confidence · audit · gap report · history ID</text>
+  <text x="82" y="562" class="t">Answer or refusal · citations · ten-stage trace · graph provenance · confidence · audit · history ID</text>
   <text x="82" y="588" class="c">Errors keep the last successful answer; retry repeats the original action; request IDs link UI state to safe server logs.</text>
 </svg>

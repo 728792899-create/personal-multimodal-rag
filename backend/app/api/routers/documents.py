@@ -16,7 +16,7 @@ from app.api.common import (
     index_document,
 )
 from app.config import settings
-from app.core.store import enrichment_service, graph_store, object_store, processor, registry, retriever
+from app.core.store import enrichment_service, graph_store, object_store, processor, query_asset_service, registry, retriever
 from app.models.domain import Document
 from app.models.schemas import UrlImportRequest
 from app.services.document_quality import assess_document_quality, lifecycle_event, summarize_document
@@ -86,6 +86,14 @@ def get_asset(asset_id: str):
     asset = registry.get_asset(asset_id, include_private=True)
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
+    if asset["kind"] == "query":
+        try:
+            expired = datetime.fromisoformat(asset["expires_at"]) <= datetime.utcnow()
+        except ValueError:
+            expired = True
+        if expired:
+            query_asset_service.delete(asset_id)
+            raise HTTPException(status_code=410, detail="Query image expired; upload it again")
     return _asset_file_response(asset, attachment=asset["kind"] == "source")
 
 

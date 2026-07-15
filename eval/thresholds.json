@@ -3,5 +3,12 @@
   "mrr": 0.75,
   "citation_accuracy": 0.75,
   "refusal_accuracy": 0.8,
-  "answer_acceptance_accuracy": 0.85
+  "answer_acceptance_accuracy": 0.85,
+  "modality_recall_at_5": 0.85,
+  "table_cell_accuracy": 0.9,
+  "caption_alignment": 0.9,
+  "formula_accuracy": 0.9,
+  "graph_path_precision": 0.9,
+  "graph_evidence_coverage": 0.95,
+  "multihop_recall_at_5": 0.85
 }

@@ -10,6 +10,7 @@ import {
   type Conversation,
   type ConversationMessage,
   type ConversationStreamEvent,
+  type QueryAttachmentRef,
   type RetrievalOptions,
 } from '../api'
 
@@ -18,7 +19,7 @@ export function useConversations() {
   const conversations = ref<Conversation[]>([])
   const conversationMessages = ref<ConversationMessage[]>([])
   const activeConversationId = ref('')
-  const streamPhase = ref<'idle' | 'retrieving' | 'streaming' | 'auditing' | 'completed' | 'failed' | 'cancelled'>('idle')
+  const streamPhase = ref<'idle' | 'enriching' | 'retrieving' | 'streaming' | 'auditing' | 'completed' | 'failed' | 'cancelled'>('idle')
   const streamedText = ref('')
   let controller: AbortController | null = null
 
@@ -58,6 +59,7 @@ export function useConversations() {
     question: string,
     knowledgeBaseIds: string[],
     retrieval: RetrievalOptions,
+    attachments: QueryAttachmentRef[],
     onProgress: (event: ConversationStreamEvent, partialText: string) => void,
   ): Promise<AskResponse> {
     controller?.abort()
@@ -68,6 +70,8 @@ export function useConversations() {
     let finalResponse: AskResponse | null = null
     try {
       await streamConversationMessage(conversation.id, question, retrieval, (event) => {
+        if (event.type === 'query.enrichment.started') streamPhase.value = 'enriching'
+        if (event.type === 'query.enrichment.completed') streamPhase.value = 'retrieving'
         if (event.type === 'retrieval.completed') streamPhase.value = 'streaming'
         if (event.type === 'answer.delta') {
           streamedText.value += event.delta
@@ -79,7 +83,7 @@ export function useConversations() {
         }
         if (event.type === 'error') streamPhase.value = 'failed'
         onProgress(event, streamedText.value)
-      }, { signal: controller.signal })
+      }, { signal: controller.signal }, attachments)
       if (!finalResponse) throw new Error('流式回答结束但缺少最终审计结果')
       await Promise.all([refreshConversations(), selectConversation(conversation.id)])
       return finalResponse

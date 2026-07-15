@@ -79,6 +79,16 @@ URL 导入只允许公开 HTTP(S) 地址。回环、内网、链路本地、嵌�
 | PATCH | `/api/knowledge-bases/{id}` | 改名或更新描述 |
 | GET | `/api/knowledge-bases/{id}/graph?limit=500` | provenance-backed Graph-lite 快照；只返回所选 KB |
 | DELETE | `/api/knowledge-bases/{id}?force=false` | 有文档/终态任务时需 `force=true`；活动任务始终 `409`；默认库不可删除 |
+
+### 临时查询图片
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| POST | `/api/query-assets` | multipart `files` + `knowledge_base_id`；最多 4 张、单张 10 MB |
+| GET | `/api/assets/{id}` | 受控预览；过期返回 `410` |
+| DELETE | `/api/query-assets/{id}` | 提前删除临时图片 |
+
+只接受实际解码为 PNG、JPEG、WEBP 或非动画 GIF 的资产；扩展名和宣称 MIME 不作为信任依据。资产绑定知识库，24 小时后清理。
 | POST | `/api/ingestions/file` | multipart 文件入队，返回 `202` + `IndexJob` |
 | POST | `/api/ingestions/url` | URL 入队，返回 `202` + `IndexJob` |
 | GET | `/api/index-jobs`、`/api/index-jobs/{id}` | 任务中心与单任务状态 |
@@ -121,6 +131,7 @@ curl --fail-with-body \
     "document_ids":[],
     "query_rewrite":true,
     "rerank_enabled":true
+    ,"attachments":[{"id":"query-asset-id","detail":"auto"}]
   }' \
   http://127.0.0.1:8010/api/ask
 ```
@@ -150,6 +161,8 @@ curl --fail-with-body \
 | `parent_window` | 0–3 | 1 | 引用 parent-child 相邻 chunk 窗口 |
 
 `hybrid_graph` 不把图边直接当答案：图只返回 element ID，再映射到现有 chunk 参与 RRF。`auto` 只有在至少两个 entity seed 或明确多跳意图、且存在可验证路径时启用；图谱后仍运行 MMR、rerank、拒答与引用审计。
+
+`attachments` 为可选图片引用，`detail` 可为 `low/high/original/auto`。离线 profile 用 OCR/元数据扩展检索；视觉 enrichment Provider 按 detail 发送图片并返回结构化描述。
 
 ### 问答响应结构
 
@@ -184,6 +197,8 @@ curl --fail-with-body \
 每个 SSE data payload 都含 `type`、`request_id`、`conversation_id`、`message_id` 与严格递增 `sequence`。事件 union 固定为：
 
 ```text
+query.enrichment.started   # 仅带附件时
+query.enrichment.completed # 仅带附件时
 retrieval.started
 retrieval.completed
 answer.delta
@@ -193,7 +208,7 @@ error
 done
 ```
 
-无证据时不会调用生成 Provider，而是发送 `refusal` 后 `done`。有证据时 `answer.delta` 只代表待审计正文；引用、confidence 与 citation audit 以 `answer.completed.response` 为准。客户端应按 `sequence` 去重，收到 `done` 后结束；中断连接会把 assistant message 标记为 `cancelled`。
+纯文本请求的原有顺序不变。带图片时在 `retrieval.started` 前增加两个 query enrichment 事件；completed payload 只返回可见摘要，不暴露 object key。无证据时不会调用生成 Provider，而是发送 `refusal` 后 `done`。有证据时 `answer.delta` 只代表待审计正文；引用、confidence 与 citation audit 以 `answer.completed.response` 为准。客户端应按 `sequence` 去重，收到 `done` 后结束；中断连接会把 assistant message 标记为 `cancelled`。
 
 ## 质量、反馈与知识工具
 

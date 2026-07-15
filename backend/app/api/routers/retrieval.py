@@ -3,10 +3,11 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from app.api.common import retrieval_options
-from app.core.store import rag_engine, registry, retriever
+from app.core.store import query_asset_service, rag_engine, registry, retriever
 from app.config import settings
 from app.models.schemas import AskRequest, SearchCompareRequest, SearchRequest
 from app.services.knowledge_tools import analyze_knowledge_gaps, build_citation_context
+from app.services.query_assets import QueryAssetError
 
 
 router = APIRouter(tags=["retrieval"])
@@ -38,7 +39,20 @@ def compare_search(payload: SearchCompareRequest):
 @router.post("/ask")
 def ask(payload: AskRequest):
     try:
-        response = rag_engine.ask(payload.question, **retrieval_options(payload))
+        active_bases = payload.knowledge_base_ids or ["default"]
+        retrieval_query, query_attachments = query_asset_service.enrich_query(
+            payload.question,
+            payload.attachments,
+            active_bases,
+        )
+        response = rag_engine.ask(
+            payload.question,
+            retrieval_query=retrieval_query,
+            **retrieval_options(payload),
+        )
+        response["retrieval_trace"]["query_attachments"] = query_attachments
+    except QueryAssetError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     except Exception as exc:
         if not settings.provider_fallback_allowed and settings.answer_provider.lower() not in {"template", "local", "none"}:
             raise HTTPException(

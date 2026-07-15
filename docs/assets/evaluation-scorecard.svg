@@ -1,28 +1,38 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="760" viewBox="0 0 1440 760" role="img" aria-labelledby="title desc">
-  <title id="title">Offline retrieval evaluation scorecard</title>
-  <desc id="desc">Forty fixed cases include thirty-two answerable and eight refusal questions. Recall at 5 is 1.0, MRR is 0.9844, first citation accuracy is 0.9688, refusal accuracy and answer acceptance are 1.0; all exceed configured thresholds.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" role="img" aria-labelledby="title desc">
+  <title id="title">Multimodal Intelligence 100-case offline scorecard</title>
+  <desc id="desc">One hundred fixed cases include eighty-nine answerable and eleven refusal questions. Core retrieval, multimodal extraction, graph path, graph evidence and multi-hop metrics all exceed their continuous integration thresholds.</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#071629"/><stop offset="1" stop-color="#10373b"/></linearGradient>
     <linearGradient id="bar" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#14b8a6"/><stop offset="1" stop-color="#60a5fa"/></linearGradient>
-    <style>text{font-family:Arial,Helvetica,sans-serif}.h{font-size:30px;font-weight:700;fill:#f8fafc}.sub{font-size:16px;fill:#94a3b8}.k{font-size:13px;font-weight:700;letter-spacing:1.3px;fill:#5eead4}.t{font-size:17px;font-weight:700;fill:#e2e8f0}.v{font-size:30px;font-weight:700;fill:#f8fafc}.c{font-size:13px;fill:#94a3b8}.card{fill:#10283b;stroke:#2b5d70;stroke-width:1.5}.track{fill:#1e3a4a}.threshold{stroke:#fbbf24;stroke-width:3}</style>
+    <style>text{font-family:Arial,Helvetica,sans-serif}.h{font-size:30px;font-weight:700;fill:#f8fafc}.sub{font-size:16px;fill:#94a3b8}.k{font-size:13px;font-weight:700;letter-spacing:1.3px;fill:#5eead4}.t{font-size:16px;font-weight:700;fill:#e2e8f0}.v{font-size:27px;font-weight:700;fill:#f8fafc}.c{font-size:13px;fill:#94a3b8}.card{fill:#10283b;stroke:#2b5d70;stroke-width:1.5}.track{fill:#1e3a4a}.threshold{stroke:#fbbf24;stroke-width:3}</style>
   </defs>
-  <rect width="1440" height="760" rx="28" fill="url(#bg)"/>
-  <text x="54" y="62" class="h">Deterministic offline regression · 2026-07-14</text>
-  <text x="54" y="92" class="sub">Fixed sanitized fixtures measure code regression—not open-domain production quality.</text>
-  <rect x="54" y="126" width="408" height="112" rx="20" class="card"/><text x="80" y="162" class="k">GOLDEN SET</text><text x="80" y="205" class="v">40 cases</text><text x="246" y="178" class="t">32 answerable</text><text x="246" y="205" class="t">8 refusal</text>
-  <rect x="486" y="126" width="408" height="112" rx="20" class="card"/><text x="512" y="162" class="k">SOURCE COVERAGE</text><text x="512" y="205" class="v">6 documents</text><text x="720" y="178" class="c">system · technical · workflow</text><text x="720" y="203" class="c">deployment · evaluation · DOCX</text>
-  <rect x="918" y="126" width="468" height="112" rx="20" class="card"/><text x="944" y="162" class="k">DECISION BALANCE</text><text x="944" y="205" class="v">80 / 20</text><text x="1120" y="178" class="t">answer / refuse</text><text x="1120" y="205" class="c">prevents recall-only optimization</text>
-
-  <text x="54" y="286" class="k">METRICS · ACTUAL VS MINIMUM</text>
+  <rect width="1440" height="900" rx="28" fill="url(#bg)"/>
+  <text x="54" y="62" class="h">Multimodal Intelligence 0.3 · deterministic regression</text>
+  <text x="54" y="92" class="sub">Fixed sanitized fixtures measure repository regression—not open-domain production quality. Recorded 2026-07-15.</text>
+  <rect x="54" y="126" width="408" height="116" rx="20" class="card"/><text x="80" y="162" class="k">GOLDEN SET</text><text x="80" y="207" class="v">100 cases</text><text x="248" y="180" class="t">89 answerable</text><text x="248" y="208" class="t">11 refusal</text>
+  <rect x="486" y="126" width="408" height="116" rx="20" class="card"/><text x="512" y="162" class="k">MULTIMODAL ADDITIONS</text><text x="512" y="207" class="v">44 cases</text><text x="680" y="180" class="c">12 image · 12 table · 8 formula</text><text x="680" y="207" class="c">12 layout / OCR</text>
+  <rect x="918" y="126" width="468" height="116" rx="20" class="card"/><text x="944" y="162" class="k">RELATIONSHIP + CONFLICT</text><text x="944" y="207" class="v">16 cases</text><text x="1110" y="180" class="c">10 provenance multi-hop</text><text x="1110" y="207" class="c">6 conflict / refusal</text>
+  <text x="54" y="292" class="k">CORE RETRIEVAL · ACTUAL / CI MINIMUM</text>
   <g>
-    <text x="54" y="326" class="t">Recall@5</text><rect x="252" y="306" width="920" height="24" rx="12" class="track"/><rect x="252" y="306" width="920" height="24" rx="12" fill="url(#bar)"/><line x1="1080" y1="299" x2="1080" y2="337" class="threshold"/><text x="1200" y="327" class="v">1.000</text><text x="1320" y="327" class="c">.90</text>
-    <text x="54" y="381" class="t">MRR</text><rect x="252" y="361" width="920" height="24" rx="12" class="track"/><rect x="252" y="361" width="906" height="24" rx="12" fill="url(#bar)"/><line x1="942" y1="354" x2="942" y2="392" class="threshold"/><text x="1200" y="382" class="v">0.984</text><text x="1320" y="382" class="c">.75</text>
-    <text x="54" y="436" class="t">First citation</text><rect x="252" y="416" width="920" height="24" rx="12" class="track"/><rect x="252" y="416" width="891" height="24" rx="12" fill="url(#bar)"/><line x1="942" y1="409" x2="942" y2="447" class="threshold"/><text x="1200" y="437" class="v">0.969</text><text x="1320" y="437" class="c">.75</text>
-    <text x="54" y="491" class="t">Refusal accuracy</text><rect x="252" y="471" width="920" height="24" rx="12" class="track"/><rect x="252" y="471" width="920" height="24" rx="12" fill="url(#bar)"/><line x1="988" y1="464" x2="988" y2="502" class="threshold"/><text x="1200" y="492" class="v">1.000</text><text x="1320" y="492" class="c">.80</text>
-    <text x="54" y="546" class="t">Answer acceptance</text><rect x="252" y="526" width="920" height="24" rx="12" class="track"/><rect x="252" y="526" width="920" height="24" rx="12" fill="url(#bar)"/><line x1="1034" y1="519" x2="1034" y2="557" class="threshold"/><text x="1200" y="547" class="v">1.000</text><text x="1320" y="547" class="c">.85</text>
+    <text x="54" y="334" class="t">Recall@5</text><rect x="230" y="315" width="430" height="22" rx="11" class="track"/><rect x="230" y="315" width="430" height="22" rx="11" fill="url(#bar)"/><line x1="617" y1="308" x2="617" y2="344" class="threshold"/><text x="680" y="336" class="v">1.000</text><text x="790" y="334" class="c">min .90</text>
+    <text x="54" y="384" class="t">MRR</text><rect x="230" y="365" width="430" height="22" rx="11" class="track"/><rect x="230" y="365" width="425" height="22" rx="11" fill="url(#bar)"/><line x1="553" y1="358" x2="553" y2="394" class="threshold"/><text x="680" y="386" class="v">0.989</text><text x="790" y="384" class="c">min .75</text>
+    <text x="54" y="434" class="t">First citation</text><rect x="230" y="415" width="430" height="22" rx="11" class="track"/><rect x="230" y="415" width="420" height="22" rx="11" fill="url(#bar)"/><line x1="553" y1="408" x2="553" y2="444" class="threshold"/><text x="680" y="436" class="v">0.978</text><text x="790" y="434" class="c">min .75</text>
+    <text x="54" y="484" class="t">Refusal</text><rect x="230" y="465" width="430" height="22" rx="11" class="track"/><rect x="230" y="465" width="430" height="22" rx="11" fill="url(#bar)"/><line x1="574" y1="458" x2="574" y2="494" class="threshold"/><text x="680" y="486" class="v">1.000</text><text x="790" y="484" class="c">min .80</text>
+    <text x="54" y="534" class="t">Acceptance</text><rect x="230" y="515" width="430" height="22" rx="11" class="track"/><rect x="230" y="515" width="430" height="22" rx="11" fill="url(#bar)"/><line x1="596" y1="508" x2="596" y2="544" class="threshold"/><text x="680" y="536" class="v">1.000</text><text x="790" y="534" class="c">min .85</text>
   </g>
-  <rect x="54" y="586" width="1332" height="120" rx="20" class="card"/>
-  <text x="80" y="622" class="t">Case mix</text>
-  <text x="80" y="654" class="c">Original 30 + knowledge-base isolation · multi-turn follow-up · DOCX table parsing · provider/index-version regression</text>
-  <text x="80" y="680" class="c">Yellow markers are CI minimums. Exact category/source distributions and case rows are generated in eval/reports/latest.md.</text>
+  <text x="878" y="292" class="k">MULTIMODAL + GRAPH GATES</text>
+  <g>
+    <rect x="878" y="315" width="508" height="64" rx="14" class="card"/><text x="900" y="342" class="t">Modality Recall@5</text><text x="1255" y="353" class="v">1.000</text><text x="900" y="364" class="c">minimum .85 · 44 modality cases</text>
+    <rect x="878" y="391" width="508" height="64" rx="14" class="card"/><text x="900" y="418" class="t">Table · Caption · Formula</text><text x="1255" y="429" class="v">1.000</text><text x="900" y="440" class="c">each minimum .90</text>
+    <rect x="878" y="467" width="508" height="64" rx="14" class="card"/><text x="900" y="494" class="t">Graph path precision</text><text x="1255" y="505" class="v">1.000</text><text x="900" y="516" class="c">minimum .90 · provenance required</text>
+    <rect x="878" y="543" width="508" height="64" rx="14" class="card"/><text x="900" y="570" class="t">Graph evidence coverage</text><text x="1255" y="581" class="v">1.000</text><text x="900" y="592" class="c">minimum .95 · element-to-citation mapping</text>
+    <rect x="878" y="619" width="508" height="64" rx="14" class="card"/><text x="900" y="646" class="t">Multi-hop Recall@5</text><text x="1255" y="657" class="v">1.000</text><text x="900" y="668" class="c">minimum .85 · 10 two-hop cases</text>
+  </g>
+  <rect x="54" y="585" width="770" height="208" rx="20" class="card"/>
+  <text x="80" y="623" class="k">CASE MIX + ARTIFACTS</text>
+  <text x="80" y="660" class="t">12 repository sources · 12 real PNG fixtures · generated DOCX</text>
+  <text x="80" y="692" class="c">Baseline 40 + image 12 + table 12 + formula 8 + layout/OCR 12 + graph 10 + conflict/refusal 6</text>
+  <text x="80" y="724" class="c">Reports: eval/reports/latest.md · multimodal.md · graph.md</text>
+  <text x="80" y="756" class="c">Yellow markers show CI minimums. Every external provider remains mocked or disabled.</text>
+  <text x="54" y="854" class="sub">Recall and extraction results are deterministic fixture regressions; validate production OCR, VLM and embeddings on a separately versioned external set.</text>
 </svg>

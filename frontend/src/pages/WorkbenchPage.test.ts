@@ -40,6 +40,8 @@ describe('WorkbenchPage workflows', () => {
         return json({ knowledge_base: created }, 201)
       }
       if (path === '/api/knowledge-bases') return json({ knowledge_bases: knowledgeBases.map((item) => ({ ...item, document_count: item.id === 'default' ? documents.length : 0 })) })
+      if (path === '/api/query-assets' && init.method === 'POST') return json({ assets: [{ id: 'query-1', filename: 'diagram.png', media_type: 'image/png', size_bytes: 120, width: 32, height: 24, expires_at: '2099-01-01T00:00:00', preview_url: '/api/assets/query-1' }] }, 201)
+      if (path === '/api/query-assets/query-1' && init.method === 'DELETE') return json({ deleted: true })
       if (path === '/api/ingestions/file' && init.method === 'POST') {
         documents = [{ id: 'doc-1', filename: 'rag.md', source_type: 'markdown', chunk_count: 1, char_count: 30, metadata: { index_status: 'indexed' }, quality: { score: 90 } }]
         return json({ job: { id: 'job-file', source_type: 'file', source_name: 'rag.md', knowledge_base_id: 'default', status: 'succeeded', stage: 'complete', progress: 100, attempts: 1, max_attempts: 3, cancel_requested: false, deduped: false, error_code: '', error_message: '', document_id: 'doc-1', created_at: '', updated_at: '', started_at: '', completed_at: '' } }, 202)
@@ -120,6 +122,29 @@ describe('WorkbenchPage workflows', () => {
     await wrapper.get('[data-testid="feedback-down"]').trigger('click')
     await flushPromises()
     expect(wrapper.text()).toContain('已生成评测草稿')
+  })
+
+  it('uploads a temporary query image and sends typed attachment options', async () => {
+    const wrapper = mount(WorkbenchPage)
+    await flushPromises()
+
+    const file = new File(['image'], 'diagram.png', { type: 'image/png' })
+    const input = wrapper.get('[data-testid="query-image-input"]').element as HTMLInputElement
+    Object.defineProperty(input, 'files', { configurable: true, value: [file] })
+    await wrapper.get('[data-testid="query-image-input"]').trigger('change')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('diagram.png')
+    await wrapper.get('.attachment-detail select').setValue('high')
+    await wrapper.get('textarea[name="question"]').setValue('图中是什么？')
+    await wrapper.get('[data-testid="run-query"]').trigger('click')
+    await flushPromises()
+
+    const askCall = calls.find((call) => call.path.endsWith('/messages:stream'))!
+    expect(JSON.parse(String(askCall.init.body))).toMatchObject({
+      strategy: 'auto',
+      attachments: [{ id: 'query-1', detail: 'high' }],
+    })
   })
 
   it('disables execution and explains invalid expert parameters', async () => {

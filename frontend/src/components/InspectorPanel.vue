@@ -1,11 +1,15 @@
 <script setup lang="ts">
+import { nextTick, watch } from 'vue'
+
 import { useWorkbenchContext } from '../composables/workbenchContext'
 import RetrievalTrace from './RetrievalTrace.vue'
+import GraphExplorer from './GraphExplorer.vue'
 
 const workbench = useWorkbenchContext()
 
 const tabs = [
   { id: 'trace', label: 'Trace' },
+  { id: 'graph', label: '图谱' },
   { id: 'citation', label: '引用' },
   { id: 'document', label: '文档' },
   { id: 'quality', label: '质量' },
@@ -15,6 +19,16 @@ const tabs = [
 function percent(value?: number) {
   return `${Math.round((value || 0) * 100)}%`
 }
+
+function elementDomId(id: string) {
+  return `element-${id.replace(/[^A-Za-z0-9_-]/g, '-')}`
+}
+
+watch(() => workbench.focusedElementId.value, async (id) => {
+  if (!id) return
+  await nextTick()
+  document.getElementById(elementDomId(id))?.focus()
+})
 </script>
 
 <template>
@@ -49,8 +63,23 @@ function percent(value?: number) {
       <RetrievalTrace v-if="workbench.answer.value" :trace="workbench.answer.value.retrieval_trace" />
       <div v-else class="empty-state compact-empty">
         <strong>尚无检索过程</strong>
-        <p>完成一次问答后，这里会逐步解释 BM25、向量、MMR、Rerank 和拒答决策。</p>
+        <p>完成一次问答后，这里会解释查询增强、混合召回、Graph、父级上下文、排序、拒答与引用审计。</p>
       </div>
+    </section>
+
+    <section
+      v-else-if="workbench.inspectorTab.value === 'graph'"
+      id="panel-graph"
+      role="tabpanel"
+      aria-labelledby="tab-graph"
+      class="inspector-section"
+    >
+      <div v-if="workbench.graphLoading.value" class="loading-block" aria-live="polite"><span class="spinner" aria-hidden="true"></span>正在加载证据图谱…</div>
+      <div v-else-if="workbench.graphError.value" class="inline-notice warning" role="alert">
+        <strong>图谱未加载</strong><span>{{ workbench.graphError.value }}</span>
+        <button type="button" class="button text-button" @click="workbench.refreshGraph">重试</button>
+      </div>
+      <GraphExplorer v-else-if="workbench.knowledgeGraph.value" :graph="workbench.knowledgeGraph.value" />
     </section>
 
     <section
@@ -74,6 +103,12 @@ function percent(value?: number) {
           <span>Vector {{ workbench.selectedCitation.value.vector_score.toFixed(3) }}</span>
           <span>Base {{ workbench.selectedCitation.value.score.toFixed(3) }}</span>
         </div>
+        <button
+          v-if="workbench.selectedCitation.value.element_ids?.length"
+          type="button"
+          class="button secondary-button full-width"
+          @click="workbench.openCitationElement"
+        >定位到精确文档元素</button>
         <div v-if="workbench.loadingContext.value" class="loading-block" aria-live="polite">
           <span class="spinner" aria-hidden="true"></span>正在加载相邻上下文…
         </div>
@@ -126,6 +161,29 @@ function percent(value?: number) {
             <span v-for="item in workbench.selectedDocument.value.document.summary.key_concepts.slice(0, 8)" :key="item">{{ item }}</span>
           </div>
         </section>
+        <details class="document-source" open>
+          <summary>查看结构化元素</summary>
+          <div v-if="workbench.documentElements.value.length" class="element-stack">
+            <article
+              v-for="element in workbench.documentElements.value"
+              :id="elementDomId(element.id)"
+              :key="element.id"
+              :class="['document-element', `element-${element.type}`, { focused: element.id === workbench.focusedElementId.value }]"
+              :tabindex="element.id === workbench.focusedElementId.value ? 0 : -1"
+            >
+              <header><span class="status-badge neutral">{{ element.type }}</span><small>顺序 {{ element.order + 1 }}{{ element.page_number ? ` · 第 ${element.page_number} 页` : '' }}</small></header>
+              <img v-if="element.type === 'image' && element.asset_id" :src="`/api/assets/${element.asset_id}`" :alt="element.caption || element.text || '文档图像元素'" />
+              <div v-else-if="element.type === 'table' && element.table.length" class="element-table-wrap" tabindex="0">
+                <table><tbody><tr v-for="(row, rowIndex) in element.table" :key="rowIndex"><component :is="rowIndex === 0 ? 'th' : 'td'" v-for="(cell, cellIndex) in row" :key="cellIndex">{{ cell }}</component></tr></tbody></table>
+              </div>
+              <pre v-else-if="element.type === 'equation'" class="equation-block">{{ element.latex || element.text }}</pre>
+              <pre v-else-if="element.type === 'code'" class="code-block"><code>{{ element.text }}</code></pre>
+              <p v-else class="long-copy">{{ element.text || element.caption || '无可显示内容' }}</p>
+              <footer v-if="element.confidence !== null"><small>解析置信度 {{ percent(element.confidence) }}</small></footer>
+            </article>
+          </div>
+          <p v-else class="muted-copy">当前文档尚无元素 IR，可重建索引生成。</p>
+        </details>
         <details class="document-source">
           <summary>查看原文与切片</summary>
           <p class="long-copy">{{ workbench.selectedDocument.value.document.pages[0]?.text || '没有可显示文本。' }}</p>
@@ -176,6 +234,17 @@ function percent(value?: number) {
             <div><dt>贴合度</dt><dd>{{ percent(workbench.citationAudit.value?.grounding) }}</dd></div>
             <div><dt>支持句</dt><dd>{{ workbench.citationAudit.value?.supported_sentence_count ?? 0 }}</dd></div>
             <div><dt>未支持句</dt><dd>{{ workbench.citationAudit.value?.unsupported_sentence_count ?? 0 }}</dd></div>
+          </dl>
+        </section>
+        <section v-if="workbench.selectedDocument.value?.document.quality?.multimodal" class="inspector-subsection">
+          <h3>多模态解析质量</h3>
+          <dl class="definition-grid">
+            <div><dt>OCR</dt><dd>{{ percent(workbench.selectedDocument.value.document.quality.multimodal.ocr_confidence ?? 0) }}</dd></div>
+            <div><dt>Caption 对齐</dt><dd>{{ percent(workbench.selectedDocument.value.document.quality.multimodal.caption_alignment) }}</dd></div>
+            <div><dt>表格结构</dt><dd>{{ percent(workbench.selectedDocument.value.document.quality.multimodal.table_structure_accuracy) }}</dd></div>
+            <div><dt>公式提取</dt><dd>{{ percent(workbench.selectedDocument.value.document.quality.multimodal.formula_extraction_accuracy) }}</dd></div>
+            <div><dt>Graph 证据</dt><dd>{{ percent(workbench.selectedDocument.value.document.quality.multimodal.graph_evidence_coverage) }}</dd></div>
+            <div><dt>孤立资产</dt><dd>{{ workbench.selectedDocument.value.document.quality.multimodal.orphan_asset_count }}</dd></div>
           </dl>
         </section>
         <section v-if="workbench.operations.value.length" class="inspector-subsection">

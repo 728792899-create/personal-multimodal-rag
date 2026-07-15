@@ -41,6 +41,7 @@ from app.services.multimodal_enrichment import (
     StructuredVisionEnricher,
     TemplateMultimodalEnricher,
 )
+from app.services.query_assets import QueryAssetService
 
 
 def create_embedding_provider():
@@ -245,6 +246,15 @@ enrichment_service = MultimodalEnrichmentService(
     ContextWindowBuilder(max_context_chars=settings.enrichment_context_chars),
     prompt_version=settings.enrichment_prompt_version,
     asset_loader=_load_asset,
+)
+query_asset_service = QueryAssetService(
+    registry,
+    object_store,
+    enrichment_service.enricher,
+    max_bytes=settings.query_asset_max_bytes,
+    max_count=settings.query_asset_max_count,
+    ttl_hours=settings.query_asset_ttl_hours,
+    max_pixels=settings.query_asset_max_pixels,
 )
 retriever = HybridRetriever(
     embedding_provider=create_embedding_provider(),

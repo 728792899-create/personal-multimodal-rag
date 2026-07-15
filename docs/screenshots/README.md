@@ -5,7 +5,7 @@
 | 文件 | 视口 | 验证内容 |
 | --- | --- | --- |
 | `01-workbench-beta.png` | 1280×720 | 普通模式三栏信息架构、知识库与提问入口 |
-| `02-grounded-trace.png` | 1440×900 | 带引用回答、七阶段 Trace 与质量检查 |
+| `02-grounded-trace.png` | 1440×900 | 早期带引用回答、七阶段 Trace 与质量检查，保留作对照 |
 | `03-mobile-expert-refusal.png` | 390×844 | 专家模式、无证据拒答和窄屏无横向溢出 |
 | `01-workbench.jpg` | 1280×720 | 早期工作台基线截图，保留用于前后对照 |
 | `02-grounded-answer.jpg` | 1280×720 | 早期带引用回答截图，保留用于前后对照 |
@@ -14,6 +14,10 @@
 | `06-quality-dashboard.png` | 1440×900 | 检索 Trace、引用审计与系统质量指标 |
 | `07-feedback-eval-draft.png` | 1440×900 | 负反馈与自动生成的 eval draft |
 | `08-error-retry.png` | 1440×900 | API 504、请求 ID、保留成功状态与 retry |
+| `09-multimodal-query-trace.jpg` | 1280×720 | 图片证据入口、持久多模态会话与回答状态 |
+| `10-graph-evidence-workbench.jpg` | 1440×900 | 43 节点/72 边的 SVG 图谱与等价键盘表格 |
+| `11-precise-element-citation.jpg` | 1440×900 | citation 跳转到高亮 heading 元素与相邻证据 |
+| `12-mobile-multimodal-expert.jpg` | 390×844 | 图片入口、专家参数和无横向溢出的移动布局 |
 
 ## 更新截图
 

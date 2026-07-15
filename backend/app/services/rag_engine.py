@@ -33,9 +33,17 @@ class RagEngine:
         self.citation_overlap_threshold = citation_overlap_threshold
         self.allow_generation_fallback = allow_generation_fallback
 
-    def ask(self, question: str, top_k: int = 5, **retrieval_options) -> dict:
+    def ask(
+        self,
+        question: str,
+        top_k: int = 5,
+        retrieval_query: str | None = None,
+        **retrieval_options,
+    ) -> dict:
         started = time.perf_counter()
-        ranked, trace = self.retriever.search(question, top_k=top_k, **retrieval_options)
+        active_query = retrieval_query or question
+        ranked, trace = self.retriever.search(active_query, top_k=top_k, **retrieval_options)
+        trace["query_enrichment_used"] = active_query != question
         retrieval_ended = time.perf_counter()
         threshold = retrieval_options.get("min_score")
         threshold = self.no_answer_threshold if threshold is None else float(threshold)
@@ -43,7 +51,7 @@ class RagEngine:
         trace.setdefault("performance", {})
         trace["performance"]["retrieval_ms"] = round((retrieval_ended - started) * 1000, 2)
         confidence = self._confidence(ranked)
-        diagnostics = self._diagnostics(question, ranked, trace, threshold)
+        diagnostics = self._diagnostics(active_query, ranked, trace, threshold)
         refuse, refuse_reason = self._should_refuse(ranked, confidence, threshold)
         trace["refuse_reason"] = refuse_reason
         trace["refusal_reason"] = refuse_reason or None

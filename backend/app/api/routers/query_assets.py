@@ -1,0 +1,38 @@
+from __future__ import annotations
+
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+
+from app.core.store import query_asset_service
+from app.services.query_assets import QueryAssetError
+
+
+router = APIRouter(prefix="/query-assets", tags=["query-assets"])
+
+
+@router.post("", status_code=201)
+async def create_query_assets(
+    files: list[UploadFile] = File(...),
+    knowledge_base_id: str = Form("default"),
+):
+    if not files or len(files) > query_asset_service.max_count:
+        raise HTTPException(status_code=400, detail=f"Upload between 1 and {query_asset_service.max_count} query images")
+    assets = []
+    try:
+        for file in files:
+            payload = await file.read(query_asset_service.max_bytes + 1)
+            assets.append(query_asset_service.create(payload, file.filename or "query-image", knowledge_base_id))
+    except QueryAssetError as exc:
+        for asset in assets:
+            query_asset_service.delete(asset["id"])
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    finally:
+        for file in files:
+            await file.close()
+    return {"assets": assets}
+
+
+@router.delete("/{asset_id}")
+def delete_query_asset(asset_id: str):
+    if not query_asset_service.delete(asset_id):
+        raise HTTPException(status_code=404, detail="Query image not found")
+    return {"deleted": True, "id": asset_id}

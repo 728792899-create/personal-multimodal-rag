@@ -12,6 +12,7 @@ async function installOfflineApi(page: Page) {
     { id: 'default', name: '默认知识库', description: '', is_default: true, document_count: 0, created_at: '', updated_at: '' },
   ]
   let jobs: Array<Record<string, unknown>> = []
+  let queryAssets: Array<Record<string, unknown>> = []
 
   await page.route('http://127.0.0.1:4173/api/**', async (route) => {
     const request = route.request()
@@ -24,6 +25,19 @@ async function installOfflineApi(page: Page) {
       body: JSON.stringify(body),
     })
 
+    if (path === '/api/query-assets' && method === 'POST') {
+      const asset = { id: 'query-1', filename: 'diagram.png', media_type: 'image/png', size_bytes: 96, width: 32, height: 24, expires_at: '2099-01-01T00:00:00', preview_url: '/api/assets/query-1' }
+      queryAssets = [asset]
+      return json({ assets: queryAssets }, 201)
+    }
+    if (path === '/api/query-assets/query-1' && method === 'DELETE') {
+      queryAssets = []
+      return json({ deleted: true, id: 'query-1' })
+    }
+    if (path === '/api/assets/query-1') {
+      return route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from('89504e470d0a1a0a', 'hex') })
+    }
+
     if (path === '/api/knowledge-bases' && method === 'POST') {
       const body = request.postDataJSON() as Record<string, unknown>
       const created = { id: 'kb-research', name: body.name, description: '', is_default: false, document_count: 0, created_at: '', updated_at: '' }
@@ -31,6 +45,15 @@ async function installOfflineApi(page: Page) {
       return json({ knowledge_base: created }, 201)
     }
     if (path === '/api/knowledge-bases') return json({ knowledge_bases: knowledgeBases })
+    if (path.endsWith('/graph')) return json({
+      knowledge_base_id: 'default',
+      nodes: [
+        { node_id: 'entity:a', knowledge_base_id: 'default', type: 'entity', label: 'Alpha', normalized_label: 'alpha', document_id: null, element_id: null, properties: {} },
+        { node_id: 'entity:b', knowledge_base_id: 'default', type: 'entity', label: 'Beta', normalized_label: 'beta', document_id: null, element_id: null, properties: {} },
+      ],
+      edges: [{ edge_id: 'edge:1', knowledge_base_id: 'default', source_node_id: 'entity:a', target_node_id: 'entity:b', relation: 'uses', document_id: 'doc-1', evidence_element_ids: ['element-1'], evidence_span: 'Alpha uses Beta', confidence: 1, extraction_version: 'native-graph-v1', properties: {} }],
+      summary: { node_count: 2, edge_count: 1, evidence_element_count: 1, extraction_version: 'native-graph-v1' },
+    })
     if (path === '/api/ingestions/file' && method === 'POST') {
       const doc = {
         id: 'doc-upload', filename: 'quality-guide.md', source_type: 'markdown', chunk_count: 2,
@@ -101,6 +124,11 @@ async function installOfflineApi(page: Page) {
         })
       }
       const events = [
+        ...(Array.isArray(body.attachments) && body.attachments.length
+          ? [
+            { type: 'query.enrichment.started', attachment_count: body.attachments.length },
+            { type: 'query.enrichment.completed', attachments: queryAssets.map((item) => ({ ...item, detail: 'high', description: 'Alpha uses Beta', keywords: ['Alpha', 'Beta'], ocr_status: 'ok', provider: 'template' })), provider: 'template' },
+          ] : []),
         { type: 'retrieval.started', context_message_count: 0 },
         { type: 'retrieval.completed', citations: response.citations, retrieval_trace: response.retrieval_trace, confidence: response.confidence, diagnostics: response.diagnostics },
         ...(response.retrieval_trace.refusal_reason
@@ -194,4 +222,26 @@ test('knowledge-base creation, narrow layout and failed job retry stay usable', 
   await taskSection.getByRole('button', { name: '重试' }).click()
   await expect(taskSection.getByText('succeeded')).toBeVisible()
   await expect(page.locator('#main-workspace')).toBeVisible()
+})
+
+test('image question, graph controls and accessible graph evidence stay connected', async ({ page }) => {
+  const api = await installOfflineApi(page)
+  await page.goto('/')
+
+  await page.getByTestId('query-image-input').setInputFiles({
+    name: 'diagram.png', mimeType: 'image/png', buffer: Buffer.from('fixture-image'),
+  })
+  await expect(page.getByText('diagram.png')).toBeVisible()
+  await page.locator('.attachment-detail select').selectOption('high')
+  await page.getByRole('textbox', { name: '问题' }).fill('图中 Alpha 如何连到 Beta？')
+  await page.getByTestId('run-query').click()
+  await expect(page.getByRole('status')).toContainText('回答已生成')
+  expect(api.askBodies[0]).toMatchObject({ attachments: [{ id: 'query-1', detail: 'high' }], strategy: 'auto' })
+
+  await page.getByTestId('mode-expert').click()
+  await page.locator('select[name="retrieval-strategy"]').selectOption('hybrid_graph')
+  await page.locator('input[name="graph-hops"]').fill('2')
+  await page.getByRole('tab', { name: '图谱' }).click()
+  await expect(page.getByRole('heading', { name: '证据图谱' })).toBeVisible()
+  await expect(page.getByRole('table')).toContainText('Alpha uses Beta')
 })

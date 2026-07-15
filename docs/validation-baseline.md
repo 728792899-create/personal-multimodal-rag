@@ -53,7 +53,7 @@
 | 项目 | 真实结果 |
 | --- | --- |
 | 文档/图片 | 33 Markdown、10 SVG、12 raster 通过；secret scan 检查 210 个候选 |
-| 后端 pytest | 97 passed；新增 v4→v5 迁移、Graph provenance/KB 隔离、视觉契约、重试/熔断与 LightRAG 白名单 |
+| 后端 pytest | 98 passed；新增 v4→v5 迁移、Graph provenance/KB 隔离、视觉契约、重试/熔断、fallback 观测与 LightRAG 白名单 |
 | 前端 Vitest | 4 files / 13 tests passed |
 | `npm run build` | 通过；JS 128.65 kB（gzip 45.09），CSS 25.66 kB（gzip 5.35） |
 | Demo smoke | 1 passed |
@@ -61,6 +61,26 @@
 | 黄金集 | 40（32 answerable / 8 refusal），五项原有阈值全部通过 |
 
 黄金集保持 Recall@5 1.0000、MRR 0.9844、首条引用准确率 0.9688、拒答准确率 1.0000、回答接受准确率 1.0000。Graph 专项当前由 13 个确定性后端契约覆盖；100 条多模态/graph 固定集和 Browser 图谱 UI 验收属于第三阶段，尚未提前声称完成。
+
+## 0.3 Multimodal Query & Evaluation 第三阶段验收
+
+2026-07-15 在 `codex/multimodal-query-ui-eval` 执行专项与全链路验证。测试配置继续强制 `mock + memory + template`，没有付费 API 请求。
+
+| 项目 | 真实结果 |
+| --- | --- |
+| 文档/图片 | 33 Markdown、10 SVG、16 raster 通过；secret scan 检查 244 个候选 |
+| 后端 pytest | 103 passed；Query Asset 格式/大小/动画/过期/KB 边界、失败对象清理与附件 SSE 均有契约测试 |
+| 前端 Vitest | 5 files / 15 tests passed；新增图片附件与 Graph SVG/等价表格 |
+| `npm run build` | 通过；JS 145.54 kB（gzip 50.26），CSS 29.78 kB（gzip 5.99） |
+| Playwright | 8 passed；desktop + 390px mobile，含图片提问、Graph 控件与键盘表格 |
+| Query Asset fixture | 12 个真实 PNG，全部 640×360、非动画、小于 1 MB |
+| 黄金集 | 100（89 answerable / 11 refusal），12 项阈值全部通过 |
+| 多模态专项 | 44 cases；Modality Recall@5、表格单元、Caption、公式均为 1.0000 |
+| Graph 专项 | 10 cases；path precision、evidence coverage、multi-hop Recall@5 均为 1.0000 |
+
+全集实测：Recall@5 1.0000、MRR 0.9888、首条引用 0.9775、拒答 1.0000、可回答接受 1.0000。详细 case 行位于 `eval/reports/latest.md`；上述数据只是固定仓库 fixture 回归信号。
+
+Docker 实栈重新构建后，`/ready` 返回 schema version 5 与 `mock / memory / template`。真实 API 创建临时知识库，异步导入 Graph fixture 到 `succeeded`，上传 640×360 PNG 后按序收到 `query.enrichment.started → query.enrichment.completed → retrieval.started → retrieval.completed → answer.delta → answer.completed → done`；`hybrid_graph` 返回 4 个 seed、3 条路径和 1 个 evidence element。
 
 ## Docker Compose
 
@@ -80,7 +100,7 @@
 
 0.1 加固阶段在应用内 Browser 打开 Docker 实栈并验证：
 
-- 普通模式：提交问题、生成证据回答与七阶段 Trace。
+- 普通模式：提交问题、生成证据回答与当时版本的七阶段 Trace；0.3 已扩展为十阶段。
 - 引用：点击首条引用后加载相邻上下文。
 - 专家模式：候选池修改为 40 并进入请求 payload。
 - 无证据：支付对账问题显示“已安全拒答”、0 条证据、回答决策“拒绝回答”。
@@ -94,6 +114,10 @@
 新增的五张技术 SVG 与一张 social preview 均通过 XML/标题/描述/字体/裁切目视检查。`social-preview.png` 实测 1280 × 640、PNG 真格式且小于 1 MB；文档脚本会阻止伪扩展名、漏记清单和错误预览规格进入 CI。
 
 0.2 终验时内置 Browser 连接层仍报 `Cannot redefine property: process`，因此按用户要求转接 Computer Use 操作系统 Chrome。Mac 解锁后，系统 Chrome 实测普通模式流式回答、4 条引用与 Trace；专家参数及无效候选池的即时提示/禁用；跨主题支付问题的“已安全拒答”、0 引用和“拒绝回答”；DevTools Responsive 宽 390、高 844 时知识库、问答和质量区域均保留语义可访问；停止后端后显示 502/504 与 Retry，恢复后点击 Retry 生成回答和 4 条引用。测试只使用离线 provider 和仓库样例。现有 `docs/screenshots/` 仍是此前真实取证，没有用空白的设备画布截图覆盖它们。
+
+0.3 重新使用内置 Browser 验证 Docker 实栈：普通模式恢复含 1 张 Query Asset 的持久会话，十阶段 Trace 显示 3 条 provenance-backed 路径；Graph 页显示 43 nodes / 72 edges 的可缩放 SVG 和等价键盘表格；首条 citation 可跳到聚焦的 heading 元素；专家模式实际切换到 `hybrid_graph`、3 hops 与 table filter；390×844 下 `scrollWidth === clientWidth === 390`。停止后端后页面显示 504、唯一 Retry；恢复后重试使 alert 归零并返回受控拒答。桌面与移动页 console error/warning 均为 0。四张新截图使用 Browser 实际输出的 JPEG 格式保存，未使用伪 `.png` 扩展名。
+
+高级 `parser-worker` 本地真实构建已启动，但 Debian 镜像站在下载 28.3 MB `libreoffice-core` 时长时间无进度，限定窗口后主动终止，因此未声称高级 profile 或本地模型解析通过。Dockerfile 随后增加 apt cache、5 次 retry、60 秒下载 timeout，并从完整 `libreoffice` meta package 收窄到 writer/calc/impress；手动 `Advanced parser smoke` workflow 会在 GitHub-hosted runner 检查真实镜像/能力，在带 `rag-parser` 标签的 self-hosted runner 执行可选本地模型解析。默认 Compose 和内置 parser 的结果不受这项外部下载阻塞影响。
 
 ## 远端 CI
 

@@ -100,10 +100,84 @@ jobs:
           path: eval/reports
           if-no-files-found: error
 
+  multimodal-eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: python -m pip install -r backend/requirements.txt
+      - name: Validate deterministic image fixtures
+        run: python scripts/generate_multimodal_eval_fixtures.py --check
+      - name: Enforce multimodal retrieval and extraction thresholds
+        run: python scripts/run_eval_group.py multimodal
+      - name: Upload multimodal report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: multimodal-eval-report
+          path: eval/reports/multimodal.*
+          if-no-files-found: error
+
+  graph-eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: python -m pip install -r backend/requirements.txt
+      - name: Enforce provenance graph and multi-hop thresholds
+        run: python scripts/run_eval_group.py graph
+      - name: Upload graph report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: graph-eval-report
+          path: eval/reports/graph.*
+          if-no-files-found: error
+
+  parser-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: python -m pip install -r backend/requirements.txt
+      - name: Validate built-in and isolated parser contracts
+        run: python -m pytest -q backend/tests/test_multimodal_elements.py
+
+  asset-security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: python -m pip install -r backend/requirements.txt
+      - name: Validate temporary assets, signatures, limits, expiry and KB isolation
+        run: |
+          python scripts/generate_multimodal_eval_fixtures.py --check
+          python -m pytest -q backend/tests/test_query_assets.py backend/tests/test_upload_security.py
+
   docker-compose:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    needs: [docs, backend, frontend, retrieval-eval]
+    needs: [docs, backend, frontend, retrieval-eval, multimodal-eval, graph-eval, parser-contract, asset-security]
     steps:
       - uses: actions/checkout@v4
       - name: Build and start offline stack

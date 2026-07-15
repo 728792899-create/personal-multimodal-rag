@@ -6,14 +6,14 @@
 | --- | --- | --- | --- |
 | `multimodal-rag-hero.png` | 1806×871 PNG | README 宽幅主视觉 | Codex 内置 image generation |
 | `system-overview.svg` | SVG | 输入、入库、检索、回答和改进全景 | 仓库内代码原生绘制 |
-| `retrieval-pipeline.svg` | SVG | 七阶段检索 Trace | 仓库内代码原生绘制 |
+| `retrieval-pipeline.svg` | 1440×720 SVG | 十阶段多模态与 Graph 检索 Trace | 仓库内代码原生绘制 |
 | `evaluation-loop.svg` | SVG | 反馈到 CI 的质量闭环 | 仓库内代码原生绘制 |
 | `deployment-modes.svg` | SVG | 三种部署成熟度 | 仓库内代码原生绘制 |
 | `request-lifecycle.svg` | 1440×660 SVG | Browser 到 response 的请求生命周期 | 仓库内代码原生绘制 |
 | `data-model.svg` | 1440×780 SVG | 当前 SQLite/vector 数据与生产迁移边界 | 仓库内代码原生绘制 |
 | `security-boundaries.svg` | 1440×760 SVG | 不可信输入和外部服务的信任边界 | 仓库内代码原生绘制 |
 | `frontend-state-machine.svg` | 1440×560 SVG | 前端异步动作的可恢复状态 | 仓库内代码原生绘制 |
-| `evaluation-scorecard.svg` | 1440×760 SVG | 40 条固定黄金集五项成绩卡 | 仓库内代码原生绘制 |
+| `evaluation-scorecard.svg` | 1440×900 SVG | 100 条基础/多模态/Graph 十二项成绩卡 | 仓库内代码原生绘制 |
 | `social-preview.svg` | 1280×640 SVG | GitHub social preview 的确定性源文件 | 仓库内代码原生绘制 |
 | `social-preview.png` | 1280×640 PNG | GitHub Settings 上传与英文 README 预览 | 从同名 SVG 确定性导出 |
 

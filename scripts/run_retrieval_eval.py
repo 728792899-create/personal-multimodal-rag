@@ -12,6 +12,8 @@ BACKEND = ROOT / "backend"
 sys.path.insert(0, str(BACKEND))
 
 from app.services.document_processor import DocumentProcessor  # noqa: E402
+from app.services.document_registry import DocumentRegistry  # noqa: E402
+from app.services.graph_store import NativeGraphStore  # noqa: E402
 from app.services.rag_engine import RagEngine  # noqa: E402
 from app.services.retriever import HybridRetriever  # noqa: E402
 
@@ -22,6 +24,13 @@ METRIC_LABELS = {
     "citation_accuracy": "引用准确率",
     "refusal_accuracy": "拒答准确率",
     "answer_acceptance_accuracy": "可回答接受率",
+    "modality_recall_at_5": "多模态 Recall@5",
+    "table_cell_accuracy": "表格单元准确率",
+    "caption_alignment": "Caption 对齐率",
+    "formula_accuracy": "公式准确率",
+    "graph_path_precision": "Graph 路径精度",
+    "graph_evidence_coverage": "Graph 证据覆盖率",
+    "multihop_recall_at_5": "多跳 Recall@5",
 }
 
 
@@ -47,7 +56,9 @@ def load_jsonl(path: Path) -> list[dict]:
 
 def build_offline_engine(documents_dir: Path) -> RagEngine:
     processor = DocumentProcessor()
-    retriever = HybridRetriever()
+    registry = DocumentRegistry(":memory:")
+    graph_store = NativeGraphStore(registry)
+    retriever = HybridRetriever(graph_store=graph_store)
     paths = sorted(documents_dir.glob("*.md"))
     if not paths:
         raise ValueError(f"No Markdown fixtures found in {documents_dir}")
@@ -55,6 +66,9 @@ def build_offline_engine(documents_dir: Path) -> RagEngine:
         document = processor.parse_file(path)
         document.metadata["knowledge_base_id"] = "operations" if path.name.startswith(("04-", "05-")) else "default"
         retriever.add_document(document, processor.split(document))
+        if document.metadata["knowledge_base_id"] == "default":
+            registry.save_document(document)
+            graph_store.build_document(document)
     for spec_path in sorted(documents_dir.glob("*.docx.json")):
         spec = json.loads(spec_path.read_text(encoding="utf-8"))
         try:
@@ -114,8 +128,12 @@ def evaluate_cases(cases: list[dict], engine: RagEngine, top_k: int = 5) -> list
             query_rewrite=False,
             knowledge_base_ids=case.get("knowledge_base_ids") or [],
             min_score=case.get("min_score"),
+            strategy=case.get("strategy", "hybrid"),
+            graph_weight=case.get("graph_weight", 0.25),
+            graph_max_hops=case.get("graph_max_hops", 2),
         )
         citations = result.get("citations", [])
+        trace = result.get("retrieval_trace", {})
         relevant_ranks = [
             index
             for index, citation in enumerate(citations, start=1)
@@ -123,6 +141,25 @@ def evaluate_cases(cases: list[dict], engine: RagEngine, top_k: int = 5) -> list
         ]
         refusal_reason = result.get("retrieval_trace", {}).get("refusal_reason")
         refused = bool(refusal_reason) or not citations
+        citation_texts = [f"{item.get('text', '')}\n{item.get('snippet', '')}".lower() for item in citations]
+        expected_cells = [str(item).lower() for item in case.get("expected_cells", [])]
+        expected_caption = [str(item).lower() for item in case.get("expected_caption_terms", [])]
+        expected_formula = "".join(str(case.get("expected_formula") or "").lower().split())
+        graph_payload = trace.get("pipeline", {}).get("graph", {})
+        paths = graph_payload.get("paths") or []
+        expected_path = [str(item).lower() for item in case.get("expected_path", [])]
+        expected_relations = [str(item).lower() for item in case.get("expected_relations", [])]
+        graph_path_correct = None
+        graph_evidence_coverage = None
+        if case.get("strategy") == "hybrid_graph":
+            graph_path_correct = any(
+                all(any(expected in str(label).lower() for label in path.get("labels", [])) for expected in expected_path)
+                and all(expected in [str(item).lower() for item in path.get("relations", [])] for expected in expected_relations)
+                for path in paths
+            )
+            graph_evidence = set(graph_payload.get("evidence_element_ids") or [])
+            cited_evidence = {element_id for citation in citations for element_id in citation.get("element_ids", [])}
+            graph_evidence_coverage = len(graph_evidence & cited_evidence) / max(len(graph_evidence), 1)
         rows.append(
             {
                 "id": case["id"],
@@ -140,6 +177,21 @@ def evaluate_cases(cases: list[dict], engine: RagEngine, top_k: int = 5) -> list
                 "knowledge_base_ids": case.get("knowledge_base_ids") or [],
                 "min_score": case.get("min_score"),
                 "top_score": citations[0].get("rerank_score", 0) if citations else 0,
+                "modality": case.get("modality"),
+                "table_cell_correct": (
+                    any(all(cell in text for cell in expected_cells) for text in citation_texts)
+                    if expected_cells else None
+                ),
+                "caption_aligned": (
+                    any(all(term in text for term in expected_caption) for text in citation_texts)
+                    if expected_caption else None
+                ),
+                "formula_correct": (
+                    any(expected_formula in "".join(text.split()) for text in citation_texts)
+                    if expected_formula else None
+                ),
+                "graph_path_correct": graph_path_correct,
+                "graph_evidence_coverage": graph_evidence_coverage,
             }
         )
     return rows
@@ -153,6 +205,13 @@ def summarize_rows(rows: list[dict], top_k: int = 5) -> dict:
     citation_accuracy = sum(bool(row["citation_correct"]) for row in answerable) / max(len(answerable), 1)
     refusal_accuracy = sum(bool(row["decision_correct"]) for row in refusal) / max(len(refusal), 1)
     answer_acceptance = sum(bool(row["decision_correct"]) for row in answerable) / max(len(answerable), 1)
+    modality = [row for row in answerable if row.get("modality")]
+    table = [row for row in rows if row.get("table_cell_correct") is not None]
+    captions = [row for row in rows if row.get("caption_aligned") is not None]
+    formulas = [row for row in rows if row.get("formula_correct") is not None]
+    graph = [row for row in rows if row.get("graph_path_correct") is not None]
+    graph_coverage = [row for row in rows if row.get("graph_evidence_coverage") is not None]
+    multihop = [row for row in answerable if row.get("category") == "multihop-graph"]
     category_distribution = {
         category: sum(1 for row in rows if row.get("category", "general") == category)
         for category in sorted({row.get("category", "general") for row in rows})
@@ -170,6 +229,13 @@ def summarize_rows(rows: list[dict], top_k: int = 5) -> dict:
         "citation_accuracy": round(citation_accuracy, 4),
         "refusal_accuracy": round(refusal_accuracy, 4),
         "answer_acceptance_accuracy": round(answer_acceptance, 4),
+        "modality_recall_at_5": round(sum(bool(row["recall_hit"]) for row in modality) / max(len(modality), 1), 4),
+        "table_cell_accuracy": round(sum(bool(row["table_cell_correct"]) for row in table) / max(len(table), 1), 4),
+        "caption_alignment": round(sum(bool(row["caption_aligned"]) for row in captions) / max(len(captions), 1), 4),
+        "formula_accuracy": round(sum(bool(row["formula_correct"]) for row in formulas) / max(len(formulas), 1), 4),
+        "graph_path_precision": round(sum(bool(row["graph_path_correct"]) for row in graph) / max(len(graph), 1), 4),
+        "graph_evidence_coverage": round(sum(float(row["graph_evidence_coverage"]) for row in graph_coverage) / max(len(graph_coverage), 1), 4),
+        "multihop_recall_at_5": round(sum(bool(row["recall_hit"]) for row in multihop) / max(len(multihop), 1), 4),
         "category_distribution": category_distribution,
         "source_distribution": source_distribution,
     }

@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
 from app.api.common import retrieval_options
-from app.core.store import rag_engine, registry
+from app.core.store import query_asset_service, rag_engine, registry
 from app.models.schemas import ConversationCreate, ConversationMessageRequest, ConversationUpdate
 from app.services.safe_logging import redact_sensitive_text
 
@@ -118,7 +118,12 @@ def stream_conversation_message(conversation_id: str, payload: ConversationMessa
             }
             return f"event: {event_type}\ndata: {json.dumps(event_payload, ensure_ascii=False)}\n\n"
 
-        registry.save_conversation_message(conversation_id, "user", payload.question)
+        registry.save_conversation_message(
+            conversation_id,
+            "user",
+            payload.question,
+            metadata={"attachments": [item.model_dump() for item in payload.attachments]},
+        )
         registry.save_conversation_message(
             conversation_id,
             "assistant",
@@ -129,17 +134,31 @@ def stream_conversation_message(conversation_id: str, payload: ConversationMessa
         try:
             context = registry.conversation_context(conversation_id, max_turns=6, max_chars=12_000)
             retrieval_query, context_question_count = _conversation_retrieval_query(payload.question, context)
+            query_attachments = []
+            if payload.attachments:
+                yield encode("query.enrichment.started", {"attachment_count": len(payload.attachments)})
+                retrieval_query, query_attachments = query_asset_service.enrich_query(
+                    retrieval_query,
+                    payload.attachments,
+                    conversation["knowledge_base_ids"],
+                )
+                yield encode(
+                    "query.enrichment.completed",
+                    {"attachments": query_attachments, "provider": query_attachments[0]["provider"] if query_attachments else "template"},
+                )
             yield encode("retrieval.started", {"context_message_count": context_question_count})
             options = retrieval_options(payload)
             options["knowledge_base_ids"] = conversation["knowledge_base_ids"]
             for item in rag_engine.stream(payload.question, retrieval_query=retrieval_query, **options):
                 event_type = item["type"]
                 if event_type == "retrieval.completed":
+                    item["response"].setdefault("retrieval_trace", {})["query_attachments"] = query_attachments
                     yield encode(event_type, item["response"])
                 elif event_type == "answer.delta":
                     yield encode(event_type, {"delta": item["delta"]})
                 elif event_type == "refusal":
                     response = item["response"]
+                    response.setdefault("retrieval_trace", {})["query_attachments"] = query_attachments
                     registry.save_conversation_message(
                         conversation_id,
                         "assistant",
@@ -151,6 +170,7 @@ def stream_conversation_message(conversation_id: str, payload: ConversationMessa
                     yield encode(event_type, {"response": response})
                 elif event_type == "answer.completed":
                     response = item["response"]
+                    response.setdefault("retrieval_trace", {})["query_attachments"] = query_attachments
                     registry.save_conversation_message(
                         conversation_id,
                         "assistant",

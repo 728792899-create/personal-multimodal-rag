@@ -18,7 +18,7 @@
 
 默认使用 deterministic hash embedding、内存向量库和模板回答：**无需真实 API Key、不会调用付费 API**。PDF、DOCX、Markdown、文本、图片 OCR、URL 导入、持久会话、引用上下文、质量审计、反馈评测和专家参数均保留。
 
-正在交付的 **0.3 Multimodal Intelligence** 将文档拆成可审查的 text、heading、image、table、equation、code 元素；原件与内嵌资源进入内容寻址对象存储，chunk 保留元素 provenance。schema v5 已加入上下文感知 enrichment 和 Graph-lite：图谱只导航到本地 evidence，再与 BM25/vector 通过 RRF 融合，不能绕过拒答或引用门。默认内置解析与 template enrichment 仍然零下载；MinerU、Docling、PaddleOCR 和视觉 Provider 均为可选。设计取舍见 [RAG-Anything 固定提交对比审查](docs/comparative-review-rag-anything.md)。
+**0.3 Multimodal Intelligence** 将文档拆成可审查的 text、heading、image、table、equation、code 元素；原件与内嵌资源进入内容寻址对象存储，chunk 保留元素 provenance。上下文感知 enrichment 和 Graph-lite 只导航到本地 evidence，再与 BM25/vector 通过 RRF 融合，不能绕过拒答或引用门。工作台已支持 24 小时临时图片提问、精确元素定位、Graph SVG/表格 Trace 和多模态质量面板。默认内置解析与 template enrichment 仍然零下载；MinerU、Docling、PaddleOCR 和视觉 Provider 均为可选。设计取舍见 [RAG-Anything 固定提交对比审查](docs/comparative-review-rag-anything.md)。
 
 ## 一分钟看懂
 
@@ -26,10 +26,10 @@
 
 | 默认体验 | 可信度机制 | 工程证据 | 生产边界 |
 | --- | --- | --- | --- |
-| 零 Key、离线可运行 | 无证据拒答 | 97 个后端测试 | 可选认证与 Sentry |
-| 多知识库、DOCX 与 URL | 七阶段检索 Trace | 11 个前端测试 | Chroma / pgvector adapter |
-| 持久会话与流式回答 | 引用上下文与覆盖审计 | 6 个 Browser E2E | 外部任务队列/对象存储方案 |
-| 可恢复索引任务 | 反馈 → eval draft | 40 条黄金回归 case | 本地 Demo 永不依赖外部服务 |
+| 零 Key、离线可运行 | 无证据拒答 | 103 个后端测试 | 可选认证与 Sentry |
+| 多知识库、DOCX 与图片提问 | 十阶段检索 Trace | 15 个前端测试 | Chroma / pgvector adapter |
+| 持久会话与流式回答 | 精确元素引用与 Graph provenance | 8 个 Browser E2E | 外部任务队列/对象存储方案 |
+| 可恢复索引任务 | 反馈 → eval draft | 100 条黄金回归 case | 本地 Demo 永不依赖外部服务 |
 
 这个仓库刻意同时展示三件事：**RAG 能力、工程可靠性、产品可信度**。如果只想快速体验，从[产品巡游](docs/product-tour.md)开始；如果要审查实现，阅读[架构](docs/architecture.md)和[检索原理](docs/retrieval-explained.md)；如果准备部署，直接查看[配置](docs/configuration.md)、[运维手册](docs/operations-runbook.md)与[生产适配](docs/production-adapters.md)。
 
@@ -46,7 +46,7 @@
 
 | 领域 | 已实现 | 默认离线 | 可选增强 |
 | --- | --- | :---: | --- |
-| 输入 | PDF、DOCX、Markdown、TXT、PNG/JPEG、公开 URL | ✓ | Tesseract OCR |
+| 输入 | PDF、DOCX、Markdown、TXT、图片，以及 PNG/JPEG/WEBP/GIF 图片提问 | ✓ | Tesseract OCR / 视觉 Provider |
 | 处理 | SQLite 任务、租约恢复、去重、重试/取消、版本兼容 | ✓ | 分布式队列待接入 |
 | 检索 | 知识库隔离、BM25、vector、Graph-lite、RRF、MMR、rerank | ✓ | LightRAG 导航、local/OpenAI/Ollama embedding、Chroma、pgvector |
 | 回答 | 持久会话、SSE、模板/Responses/chat/Ollama adapter | ✓ | 外部 Provider 人工验证 |
@@ -123,7 +123,9 @@ npm test                 # 后端 pytest + 前端 Vitest
 npm run lint:docs        # 相对链接、图片 alt 与 SVG 可访问性
 npm run build            # vue-tsc + Vite production build
 npm run test:demo        # 端到端 API smoke
-npm run eval:retrieval   # 40 条固定黄金集 + 五项阈值
+npm run eval:retrieval   # 100 条固定黄金集 + 12 项阈值
+npm run eval:multimodal  # 44 条图像/表格/公式/版面专项
+npm run eval:graph       # 10 条 provenance-backed 多跳专项
 npm run test:e2e         # Chromium 桌面 + 390px 级移动视图
 ```
 
@@ -135,18 +137,20 @@ npm run verify
 
 当前本地验收证据见 [验证基线](docs/validation-baseline.md)。评测失败会生成可读报告到 `eval/reports/latest.md`；CI 会始终上传报告 artifact。
 
-![40 条固定黄金集的指标实际值、门槛与 case 分布](docs/assets/evaluation-scorecard.svg)
+![100 条固定黄金集的基础、多模态与 Graph 指标](docs/assets/evaluation-scorecard.svg)
 
 | 检查 | 当前本地结果 | CI 门槛 |
 | --- | ---: | ---: |
-| 后端测试 | 97 passed | 全部通过 |
-| 前端单元/组件 | 13 passed | 全部通过 |
-| Browser E2E | 6 passed | 桌面与移动全部通过 |
+| 后端测试 | 103 passed | 全部通过 |
+| 前端单元/组件 | 15 passed | 全部通过 |
+| Browser E2E | 8 passed | 桌面与移动全部通过 |
 | Recall@5 | 1.0000 | ≥ 0.90 |
-| MRR | 0.9844 | ≥ 0.75 |
-| 首条引用准确率 | 0.9688 | ≥ 0.75 |
+| MRR | 0.9888 | ≥ 0.75 |
+| 首条引用准确率 | 0.9775 | ≥ 0.75 |
 | 拒答准确率 | 1.0000 | ≥ 0.80 |
 | 回答接受准确率 | 1.0000 | ≥ 0.85 |
+| Modality Recall@5 / 表格 / Caption / 公式 | 全部 1.0000 | ≥ 0.85 / 0.90 |
+| Graph path precision / evidence coverage / 多跳 Recall@5 | 全部 1.0000 | ≥ 0.90 / 0.95 / 0.85 |
 
 > 上表是仓库内固定、脱敏、小规模黄金集的回归结果，用于发现代码退化，不代表开放域或真实业务语料上的绝对质量。
 
@@ -158,7 +162,7 @@ npm run verify
 
 | 工作台 | 可解释回答 | 窄屏拒答 |
 | --- | --- | --- |
-| ![普通模式三栏工作台](docs/screenshots/01-workbench-beta.png) | ![回答、引用与七阶段 Trace](docs/screenshots/02-grounded-trace.png) | ![390px 专家模式与无证据拒答](docs/screenshots/03-mobile-expert-refusal.png) |
+| ![普通模式三栏工作台](docs/screenshots/01-workbench-beta.png) | ![回答、引用与检索 Trace](docs/screenshots/02-grounded-trace.png) | ![390px 专家模式与无证据拒答](docs/screenshots/03-mobile-expert-refusal.png) |
 | 管理资料、提问与系统概览 | 检查 BM25、向量、排序和引用 | 无横向溢出，保留完整状态 |
 
 | 上传与 URL 导入 | 引用相邻上下文 | 质量与引用审计 |
@@ -171,6 +175,16 @@ npm run verify
 | ![负反馈和自动生成的评测草稿](docs/screenshots/07-feedback-eval-draft.png) | ![保留最后成功结果的 504 错误与重试入口](docs/screenshots/08-error-retry.png) |
 | 失败进入人工审查闭环 | 请求 ID、错误说明和恢复动作 |
 
+| 图片提问与持久会话 | Graph 证据工作台 |
+| --- | --- |
+| ![图片证据入口、持久多模态会话和回答状态](docs/screenshots/09-multimodal-query-trace.jpg) | ![Graph SVG 与带原文证据的键盘表格](docs/screenshots/10-graph-evidence-workbench.jpg) |
+| 临时 Query Asset 进入类型化 SSE | 43 节点、72 条带 provenance 的边 |
+
+| 精确元素引用 | 390px 多模态专家模式 |
+| --- | --- |
+| ![引用跳转到高亮的 heading 元素](docs/screenshots/11-precise-element-citation.jpg) | ![390px 下图片提问与专家检索参数](docs/screenshots/12-mobile-multimodal-expert.jpg) |
+| 从 citation 回到 IR 元素与相邻上下文 | 无横向溢出并保留完整控制层级 |
+
 完整的逐步说明见[端到端案例](docs/case-study.md)与[产品巡游](docs/product-tour.md)。
 
 ### 普通模式
@@ -181,12 +195,13 @@ npm run verify
 - 查看引用片段、相邻上下文、置信度和引用覆盖率。
 - 对无证据问题明确拒答，不把向量噪声包装成结论。
 - 负反馈一键生成 eval draft。
+- 可添加最多 4 张临时图片，离线 OCR/元数据或视觉 Provider 会在检索前扩展查询。
 
 ### 专家模式
 
 - 调整 `search_mode`、profile、Top K、candidate K、向量权重、MMR λ 与最低分。
 - 比较 BM25-only、Vector-only、Hybrid、Hybrid + Rerank。
-- 查看七阶段 Trace：BM25 → 向量 → 融合去重 → MMR → Rerank → 回答/拒答 → 引用审计。
+- 查看十阶段 Trace：查询增强 → BM25 → 向量 → 融合 → Graph → 父级上下文 → MMR → Rerank → 回答/拒答 → 引用审计。
 - 查看 fallback、query rewrite、耗时、文档质量、操作日志和评测草稿。
 
 设计评审工作文件：[Figma · Personal Multimodal RAG Beta](https://www.figma.com/design/r2oFc38SGqh8QPvFykEEfq)。前端实现以同一组语义 token、间距、圆角、焦点和状态规范为准。
@@ -221,15 +236,16 @@ flowchart LR
 
 前端已经从单体 `App.vue` 拆成页面、领域组件、`useWorkbench` composable 与 `api/{client,documents,retrieval,quality}`；后端原 `routes.py` 现在只做路由组合，文档、检索、质量路由分别维护。详见[代码导览](docs/code-tour.md)、[架构说明](docs/architecture.md)与[SQLite 数据模型](docs/data-model.md)。
 
-### 七阶段检索
+### 十阶段检索
 
 ![BM25、向量、融合、MMR、重排、拒答和引用审计](docs/assets/retrieval-pipeline.svg)
 
-阶段视图同时显示候选数量、分数、耗时、fallback、拒答理由和引用覆盖，让“答案不对”可以继续拆解成召回、融合、多样性、排序、决策或引用问题。计算与诊断方法见[检索与可信回答](docs/retrieval-explained.md)。
+十阶段视图依次显示查询增强、BM25、向量、融合、Graph、父级上下文、MMR、Rerank、拒答决策和引用审计；Graph 路径另有可缩放 SVG 与等价键盘表格。计算与诊断方法见[检索与可信回答](docs/retrieval-explained.md)。
 
 ## 安全与稳定性
 
 - 上传扩展名白名单、20 MB 上限、空文件拒绝、路径清理、唯一落盘名、PDF/图片 magic-byte 和 DOCX ZIP-bomb 校验。
+- 查询图片最多 4 张/单张 10 MB，实际解码校验 PNG/JPEG/WEBP/非动画 GIF、像素上限、知识库边界和 24 小时过期级联删除。
 - URL 仅允许 HTTP(S)，禁止嵌入凭据，初始/重定向/最终地址都执行 SSRF 校验，并限制内容类型、字节数和超时。
 - API 支持可选 Bearer Token、进程内限流、`Retry-After` 和请求 ID。
 - 前端请求有超时、取消、Abort 语义、可读错误、请求 ID 与重试入口。

@@ -4,6 +4,9 @@ export interface DocumentMeta {
   source_type: string
   chunk_count: number
   char_count: number
+  element_count?: number
+  modality_counts?: Record<string, number>
+  source_available?: boolean
   metadata: Record<string, unknown>
   quality?: DocumentQuality
   summary?: DocumentSummary
@@ -64,6 +67,9 @@ export interface ChunkResult {
   text: string
   page_number: number | null
   heading_path: string[]
+  element_ids: string[]
+  modality: DocumentElementType
+  parent_element_id: string | null
   metadata: Record<string, unknown>
   score: number
   bm25_score: number
@@ -111,6 +117,24 @@ export interface DocumentDetail {
     pages: DocumentPage[]
   }
   chunks: Array<Omit<ChunkResult, 'score' | 'bm25_score' | 'vector_score' | 'rerank_score'>>
+}
+
+export interface DocumentElement {
+  id: string
+  document_id: string
+  type: DocumentElementType
+  order: number
+  text: string
+  page_number: number | null
+  bbox: number[]
+  heading_path: string[]
+  asset_id: string | null
+  caption: string
+  footnotes: string[]
+  table: string[][]
+  latex: string
+  confidence: number | null
+  metadata: Record<string, unknown>
 }
 
 export interface QueryAnalysis {
@@ -188,6 +212,8 @@ export interface RetrievalTrace {
   query_analysis?: QueryAnalysis
   performance?: { retrieval_ms?: number; generation_ms?: number; total_ms?: number }
   pipeline?: PipelineTrace
+  query_enrichment_used?: boolean
+  query_attachments?: QueryAttachmentSummary[]
 }
 
 export interface AskResponse {
@@ -281,6 +307,30 @@ export interface RetrievalOptions {
   graph_max_hops?: number
   modality_filters?: DocumentElementType[]
   parent_window?: number
+}
+
+export interface QueryAttachmentRef {
+  id: string
+  detail: 'low' | 'high' | 'original' | 'auto'
+}
+
+export interface QueryAsset {
+  id: string
+  filename: string
+  media_type: string
+  size_bytes: number
+  width: number
+  height: number
+  expires_at: string
+  preview_url: string
+}
+
+export interface QueryAttachmentSummary extends QueryAsset {
+  detail: QueryAttachmentRef['detail']
+  description: string
+  keywords: string[]
+  ocr_status: string
+  provider: string
 }
 
 export interface GraphNode {
@@ -571,6 +621,8 @@ export interface IngestionRequestOptions extends RequestOptions {
 }
 
 export type ConversationStreamEvent =
+  | { type: 'query.enrichment.started'; request_id: string; conversation_id: string; message_id: string; sequence: number; attachment_count: number }
+  | { type: 'query.enrichment.completed'; request_id: string; conversation_id: string; message_id: string; sequence: number; attachments: QueryAttachmentSummary[]; provider: string }
   | { type: 'retrieval.started'; request_id: string; conversation_id: string; message_id: string; sequence: number; context_message_count: number }
   | ({ type: 'retrieval.completed'; request_id: string; conversation_id: string; message_id: string; sequence: number } & Partial<AskResponse>)
   | { type: 'answer.delta'; request_id: string; conversation_id: string; message_id: string; sequence: number; delta: string }

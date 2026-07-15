@@ -9,11 +9,11 @@
 | 层级 | 工具 | 当前覆盖 | 主要失败信号 |
 | --- | --- | --- | --- |
 | 文档质量 | Python stdlib checker | Markdown + SVG + PNG/JPEG 清单 | 失效链接、空 alt、无障碍元数据、伪格式或预览规格 |
-| 后端单元/接口 | pytest | 73 tests | legacy migration、KB、jobs、DOCX、SSE、多轮、provider、拒答与恢复 |
-| 前端单元/组件 | Vitest + Testing Library | 13 tests | SSE、KB/jobs、API 超时、参数校验、Trace 和工作台交互 |
+| 后端单元/接口 | pytest | 103 tests | migration、KB/jobs、元素、资产、Graph、SSE、provider、拒答与恢复 |
+| 前端单元/组件 | Vitest + Testing Library | 15 tests | SSE、图片提问、Graph 无障碍视图、参数校验、Trace 和工作台交互 |
 | Demo smoke | pytest | 1 workflow | 导入 → 提问 → 引用的真实内存链路 |
-| 浏览器关键路径 | Playwright Chromium | 6 tests | 上传、URL、问答、引用、拒答、KB、任务重试、移动端 |
-| 检索回归 | 固定 JSONL + Python runner | 40 cases | Recall@5、MRR、引用、拒答、回答接受阈值 |
+| 浏览器关键路径 | Playwright Chromium | 8 tests | 上传、URL、图片提问、Graph、引用、拒答、任务重试、移动端 |
+| 检索回归 | 固定 JSONL + Python runner | 100 cases / 12 metrics | 基础检索、图像/表格/公式/版面、Graph 路径/证据、多跳与拒答 |
 | 容器集成 | Docker Compose + curl | 2 services | 构建、健康等待和前端代理 |
 
 统计数字是当前基线，不是永久承诺；新增行为时应优先增加覆盖，而不是维持某个测试数量。
@@ -27,6 +27,9 @@ npm run lint:secrets     # 跟踪/待提交文本中的高置信度凭据模式
 npm run build            # TypeScript check + Vite production build
 npm run test:demo        # 离线 API smoke
 npm run eval:retrieval   # 固定黄金集与阈值
+npm run eval:multimodal  # 44 条多模态专项
+npm run eval:graph       # 10 条多跳 Graph 专项
+npm run test:asset-security # 图片 fixture 与 Query Asset 安全
 npm run test:e2e         # Playwright 桌面与移动项目
 npm run verify           # 以上全部
 ```
@@ -105,6 +108,10 @@ MRR = mean(1 / first relevant rank)
 
 可回答 case 是否没有被错误拒绝，便于区分“召回到了错误来源”和“门槛过高”；0.2 将它设为独立 CI 门。
 
+### 多模态与 Graph
+
+Modality Recall@5 只在图像、表格、公式和版面/OCR case 中统计。表格、caption 和公式指标要求召回 citation 包含指定结构化值。Graph path precision 验证 entity/relation，evidence coverage 验证 path element 是否进入最终 citation；多跳 Recall@5 单独防止简单 case 掩盖关系检索退化。
+
 ## 当前门槛
 
 `eval/thresholds.json`：
@@ -116,6 +123,11 @@ MRR = mean(1 / first relevant rank)
 | 首条引用准确率 | 0.75 |
 | 拒答准确率 | 0.80 |
 | 回答接受准确率 | 0.85 |
+| Modality Recall@5 | 0.85 |
+| 表格单元 / Caption / 公式 | 0.90 |
+| Graph path precision | 0.90 |
+| Graph evidence coverage | 0.95 |
+| 多跳 Recall@5 | 0.85 |
 
 门槛不是漂亮数字展示。修改门槛必须在 PR 中解释：数据集如何变化、失败属于预期产品变化还是回归、为什么新阈值仍能阻止已知故障。
 
@@ -181,3 +193,5 @@ flowchart LR
 ```
 
 所有 job 都使用离线 provider；远端 CI 与本地 `npm run verify` 共同构成发布前证据，但仍不能替代真实部署环境的备份、容量和故障注入测试。
+
+重型 parser 的镜像构建与本地模型 smoke 位于手动 `Advanced parser smoke` workflow。默认任务只验证隔离容器和 capability；真实解析需要显式勾选，并由带 `rag-parser` 标签的 self-hosted runner 提供模型与容量，因此不属于普通 PR 的绿色前置条件。

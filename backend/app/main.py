@@ -7,7 +7,7 @@ from app.api.routes import router
 from app.config import settings
 from app.middleware.request_guards import RequestGuardMiddleware
 from app.services.observability import configure_sentry
-from app.core.store import ingestion_worker, registry
+from app.core.store import ingestion_worker, query_asset_service, registry
 from app.api.routers.providers import provider_status
 
 configure_sentry(
@@ -18,6 +18,7 @@ configure_sentry(
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    query_asset_service.cleanup_expired()
     ingestion_worker.start()
     try:
         yield

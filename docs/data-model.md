@@ -33,7 +33,7 @@
 
 ## 元素、对象与精确引用
 
-上传原件先写入 `OBJECT_STORE_PATH/{sha256[:2]}/{sha256}`，扩展名和用户文件名不参与磁盘路径。相同内容复用同一对象，`assets` 维护引用；只有最后一个引用删除后才删除对象。PDF/DOCX 内嵌图片同样物化为 `derived` asset。受控下载 API 根据 registry 定位对象并返回 `nosniff`，不会把 object key 或本地绝对路径发送到浏览器。
+上传原件先写入 `OBJECT_STORE_PATH/{sha256[:2]}/{sha256}`，扩展名和用户文件名不参与磁盘路径。相同内容复用同一对象，`assets` 维护引用；只有最后一个引用删除后才删除对象。PDF/DOCX 内嵌图片物化为 `derived`，图片提问使用 `query` 并在 24 小时后清理；两者都继承 KB 边界。受控资产 API 根据 registry 定位对象并返回 `nosniff`，不会把 object key 或本地绝对路径发送到浏览器。
 
 chunk 从元素派生并保存 `element_ids`、`modality` 和 `parent_element_id`。因此引用可以先定位 chunk，再跳到精确页/元素；后续 parent-child 与 graph 检索仍以原始元素为 provenance，不允许图谱关系替代证据。
 

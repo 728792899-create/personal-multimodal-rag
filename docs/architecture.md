@@ -13,6 +13,7 @@ flowchart TB
   subgraph UI["交互层"]
     WORKBENCH["Vue 3 / TypeScript 工作台"]
     MODES["普通模式 / 专家模式"]
+    QUERYIMG["临时图片提问"]
   end
 
   subgraph API["接口与编排层"]
@@ -21,6 +22,7 @@ flowchart TB
     PROCESSOR["Document Processor"]
     ENGINE["RAG Engine"]
     TOOLS["Knowledge Tools / Metrics / Eval"]
+    QAS["Query Asset Service"]
   end
 
   subgraph RETRIEVAL["检索与可信度层"]
@@ -46,6 +48,7 @@ flowchart TB
   end
 
   WORKBENCH --> FASTAPI
+  QUERYIMG --> QAS --> FASTAPI
   MODES --> WORKBENCH
   FASTAPI --> PROCESSOR
   FASTAPI --> WORKER
@@ -74,6 +77,7 @@ flowchart TB
 | --- | --- | --- |
 | 文档解析 | `backend/app/services/document_processor.py` | PDF/DOCX/文本/OCR、chunk 切分、metadata |
 | 多模态 enrichment | `backend/app/services/{context_window,multimodal_enrichment}.py` | 有界相邻上下文、确定性/视觉结构化描述与缓存 |
+| 查询图片 | `backend/app/services/query_assets.py` | 签名/像素/大小校验、OCR/视觉增强、KB 边界与 TTL 清理 |
 | Graph-lite | `backend/app/services/{graph_store,graph_adapters}.py` | provenance 节点/边、路径、KB 隔离和 LightRAG 导航白名单 |
 | 韧性执行 | `backend/app/services/resilience.py` | 超时类错误重试、指数退避、抖动与熔断 |
 | 入库任务 | `backend/app/services/ingestion_jobs.py` | SQLite claim、租约、重试、取消、阶段进度 |
@@ -85,7 +89,7 @@ flowchart TB
 | 系统指标 | `backend/app/services/system_metrics.py` | 文档质量、置信度、反馈和日志统计 |
 | 前端页面 | `frontend/src/pages/WorkbenchPage.vue` | 普通/专家模式与三栏信息架构 |
 | 前端状态 | `frontend/src/composables/useWorkbench.ts` | 请求取消、重试、状态与领域动作 |
-| 领域状态 | `frontend/src/composables/use{KnowledgeBases,IngestionJobs,Conversations,ProviderStatus}.ts` | KB、任务、SSE 与诊断 |
+| 领域状态 | `frontend/src/composables/use{KnowledgeBases,IngestionJobs,Conversations,ProviderStatus,MultimodalQuery,DocumentViewer,GraphTrace,QualityAudit}.ts` | KB、任务、SSE、图片、元素、Graph 与审计 |
 | 前端 API | `frontend/src/api/` | 超时/错误 client 与 documents/retrieval/quality API |
 | 后端路由 | `backend/app/api/routers/` | documents/retrieval/quality 领域路由 |
 
@@ -121,7 +125,7 @@ URL 导入默认拒绝回环、内网、链路本地和特殊地址。校验不�
 
 ## 3. 问答检索时序
 
-![七阶段检索管线](assets/retrieval-pipeline.svg)
+![十阶段多模态与 Graph 检索管线](assets/retrieval-pipeline.svg)
 
 ```mermaid
 sequenceDiagram

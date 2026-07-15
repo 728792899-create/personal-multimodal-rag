@@ -6,7 +6,6 @@ import {
   createEvalCase,
   deleteDocument,
   getChunkContext,
-  getDocumentDetail,
   getKnowledgeOverview,
   getSystemMetrics,
   listDocuments,
@@ -27,7 +26,7 @@ import {
   type ChunkContext,
   type ChunkResult,
   type DiagnosticAction,
-  type DocumentDetail,
+  type DocumentElementType,
   type DocumentMeta,
   type EvalDraft,
   type EvaluationResult,
@@ -42,6 +41,7 @@ import {
   type SearchCompareResponse,
   type SearchMode,
   type SearchProfile,
+  type RetrievalStrategy,
   type SystemMetrics,
   type WorkMode,
   type ConversationStreamEvent,
@@ -50,6 +50,10 @@ import { useConversations } from './useConversations'
 import { useIngestionJobs } from './useIngestionJobs'
 import { useKnowledgeBases } from './useKnowledgeBases'
 import { useProviderStatus } from './useProviderStatus'
+import { useDocumentViewer } from './useDocumentViewer'
+import { useGraphTrace } from './useGraphTrace'
+import { useMultimodalQuery } from './useMultimodalQuery'
+import { useQualityAudit } from './useQualityAudit'
 
 
 export function useWorkbench() {
@@ -57,6 +61,9 @@ export function useWorkbench() {
   const ingestionState = useIngestionJobs()
   const conversationState = useConversations()
   const providerState = useProviderStatus()
+  const documentViewer = useDocumentViewer()
+  const graphState = useGraphTrace()
+  const multimodalQuery = useMultimodalQuery()
   const documents = ref<DocumentMeta[]>([])
   const history = ref<HistoryItem[]>([])
   const overview = ref<KnowledgeOverview | null>(null)
@@ -64,11 +71,12 @@ export function useWorkbench() {
   const cards = ref<KnowledgeCard[]>([])
   const evalDrafts = ref<EvalDraft[]>([])
   const metrics = ref<SystemMetrics | null>(null)
-  const selectedDocument = ref<DocumentDetail | null>(null)
+  const selectedDocument = documentViewer.document
   const selectedFile = ref<File | null>(null)
   const urlToImport = ref('')
   const question = ref('如何优化 RAG 的召回质量？')
   const answer = ref<AskResponse | null>(null)
+  const qualityAudit = useQualityAudit(answer)
   const selectedCitation = ref<ChunkResult | null>(null)
   const citationContext = ref<ChunkContext | null>(null)
   const compareResult = ref<SearchCompareResponse | null>(null)
@@ -85,6 +93,11 @@ export function useWorkbench() {
   const workMode = ref<WorkMode>('answer')
   const searchMode = ref<SearchMode>('hybrid')
   const searchProfile = ref<SearchProfile>('balanced')
+  const retrievalStrategy = ref<RetrievalStrategy>('auto')
+  const graphWeight = ref(0.25)
+  const graphMaxHops = ref(2)
+  const parentWindow = ref(1)
+  const modalityFilters = ref<DocumentElementType[]>([])
   const topK = ref(5)
   const candidateK = ref(24)
   const vectorBalance = ref(0.38)
@@ -100,14 +113,14 @@ export function useWorkbench() {
   const importingUrl = ref(false)
   const comparing = ref(false)
   const rebuildingId = ref('')
-  const loadingDocument = ref(false)
+  const loadingDocument = documentViewer.loading
   const loadingContext = ref(false)
   const feedbackSubmitting = ref(false)
   const rewriting = ref(false)
   const evalRunning = ref(false)
   const error = ref('')
   const errorRequestId = ref('')
-  const inspectorTab = ref<'trace' | 'citation' | 'document' | 'quality' | 'eval'>('trace')
+  const inspectorTab = ref<'trace' | 'graph' | 'citation' | 'document' | 'quality' | 'eval'>('trace')
   const lastRetry = shallowRef<null | (() => Promise<void>)>(null)
 
   let runController: AbortController | null = null
@@ -130,11 +143,11 @@ export function useWorkbench() {
       ? documents.value.filter((doc) => doc.filename.toLowerCase().includes(keyword) || doc.source_type.toLowerCase().includes(keyword))
       : documents.value
   })
-  const isRefusal = computed(() => Boolean(answer.value?.retrieval_trace.refusal_reason))
-  const diagnostics = computed(() => answer.value?.diagnostics ?? [])
-  const citationAudit = computed(() => answer.value?.citation_audit)
-  const trust = computed(() => answer.value?.trust)
-  const streamAuditPending = computed(() => ['retrieving', 'streaming', 'auditing'].includes(conversationState.streamPhase.value))
+  const isRefusal = qualityAudit.isRefusal
+  const diagnostics = qualityAudit.diagnostics
+  const citationAudit = qualityAudit.citationAudit
+  const trust = qualityAudit.trust
+  const streamAuditPending = computed(() => ['enriching', 'retrieving', 'streaming', 'auditing'].includes(conversationState.streamPhase.value))
   const expertParametersValid = computed(() => {
     if (appMode.value !== 'expert') return true
     return Number.isInteger(Number(topK.value))
@@ -146,6 +159,11 @@ export function useWorkbench() {
       && Number.isFinite(Number(minScore.value))
       && Number(minScore.value) >= 0
       && Number(minScore.value) <= 1
+      && Number(graphWeight.value) >= 0
+      && Number(graphWeight.value) <= 1
+      && Number.isInteger(Number(graphMaxHops.value))
+      && Number(graphMaxHops.value) >= 1
+      && Number(graphMaxHops.value) <= 4
   })
 
   function clearError() {
@@ -198,6 +216,7 @@ export function useWorkbench() {
       ingestionState.refreshIndexJobs(),
       conversationState.refreshConversations(),
       providerState.refreshProviderStatus(),
+      graphState.load(knowledgeBaseState.selectedKnowledgeBaseId.value),
     ])
     results.push(...knowledgeResult)
     const failure = results.find((item) => item.status === 'rejected')
@@ -212,6 +231,7 @@ export function useWorkbench() {
         candidate_k: 24,
         search_mode: 'hybrid',
         search_profile: 'balanced',
+        strategy: 'auto',
         document_ids: scopedDocumentIds.value,
         knowledge_base_ids: [knowledgeBaseState.selectedKnowledgeBaseId.value],
         bm25_weight: 0.62,
@@ -220,6 +240,9 @@ export function useWorkbench() {
         min_score: 0.05,
         query_rewrite: true,
         rerank_enabled: true,
+        graph_weight: 0.25,
+        graph_max_hops: 2,
+        parent_window: 1,
       }
     }
     return {
@@ -227,6 +250,7 @@ export function useWorkbench() {
       candidate_k: candidateK.value,
       search_mode: searchMode.value,
       search_profile: searchProfile.value,
+      strategy: retrievalStrategy.value,
       document_ids: scopedDocumentIds.value,
       knowledge_base_ids: [knowledgeBaseState.selectedKnowledgeBaseId.value],
       bm25_weight: bm25Weight.value,
@@ -235,6 +259,10 @@ export function useWorkbench() {
       min_score: minScore.value,
       query_rewrite: queryRewrite.value,
       rerank_enabled: true,
+      graph_weight: graphWeight.value,
+      graph_max_hops: graphMaxHops.value,
+      modality_filters: modalityFilters.value,
+      parent_window: parentWindow.value,
     }
   }
 
@@ -267,6 +295,10 @@ export function useWorkbench() {
 
   async function handleRun() {
     if (!question.value.trim()) return
+    if (workMode.value === 'search' && multimodalQuery.attachments.value.length) {
+      reportError(new ApiError('图片提问需使用“问答”模式以完成查询增强与最终审计。'), '当前模式不支持附件')
+      return
+    }
     if (!expertParametersValid.value) {
       reportError(new ApiError('请先修复专家检索参数，再运行查询。'), '检索参数无效')
       return
@@ -287,6 +319,7 @@ export function useWorkbench() {
           question.value.trim(),
           [knowledgeBaseState.selectedKnowledgeBaseId.value],
           options,
+          multimodalQuery.attachmentRefs.value,
           (event: ConversationStreamEvent, partialText: string) => {
             if (event.type === 'retrieval.completed' && event.retrieval_trace) {
               answer.value = {
@@ -400,15 +433,25 @@ export function useWorkbench() {
   }
 
   async function selectDocument(documentId: string) {
-    loadingDocument.value = true
     clearError()
     try {
-      selectedDocument.value = await getDocumentDetail(documentId)
+      await documentViewer.open(documentId)
       inspectorTab.value = 'document'
     } catch (caught) {
       reportError(caught, '文档详情加载失败', () => selectDocument(documentId))
-    } finally {
-      loadingDocument.value = false
+    }
+  }
+
+  async function openCitationElement() {
+    const citation = selectedCitation.value
+    const elementId = citation?.element_ids?.[0]
+    if (!citation || !elementId) return
+    clearError()
+    try {
+      await documentViewer.open(citation.document_id, elementId)
+      inspectorTab.value = 'document'
+    } catch (caught) {
+      reportError(caught, '无法定位引用元素', openCitationElement)
     }
   }
 
@@ -417,7 +460,7 @@ export function useWorkbench() {
     clearError()
     try {
       await deleteDocument(documentId)
-      if (selectedDocument.value?.document.id === documentId) selectedDocument.value = null
+      if (selectedDocument.value?.document.id === documentId) documentViewer.clear()
       if (selectedCitation.value?.document_id === documentId) selectedCitation.value = null
       await Promise.all([refreshDocuments(), refreshActivity()])
     } catch (caught) {
@@ -467,9 +510,10 @@ export function useWorkbench() {
     if (knowledgeBaseId === knowledgeBaseState.selectedKnowledgeBaseId.value) return
     knowledgeBaseState.selectedKnowledgeBaseId.value = knowledgeBaseId
     scopedDocumentIds.value = []
-    selectedDocument.value = null
+    documentViewer.clear()
     answer.value = null
-    await refreshDocuments()
+    await multimodalQuery.clear()
+    await Promise.all([refreshDocuments(), graphState.load(knowledgeBaseId)])
   }
 
   async function addKnowledgeBase() {
@@ -479,7 +523,7 @@ export function useWorkbench() {
         knowledgeBaseState.selectedKnowledgeBaseId.value = created.id
         scopedDocumentIds.value = []
         answer.value = null
-        await refreshDocuments()
+        await Promise.all([refreshDocuments(), graphState.load(created.id)])
       }
     } catch (caught) {
       reportError(caught, '创建知识库失败', addKnowledgeBase)
@@ -626,6 +670,11 @@ export function useWorkbench() {
     queryRewrite.value = true
     searchMode.value = 'hybrid'
     searchProfile.value = 'balanced'
+    retrievalStrategy.value = 'auto'
+    graphWeight.value = 0.25
+    graphMaxHops.value = 2
+    parentWindow.value = 1
+    modalityFilters.value = []
   }
 
   async function retryLast() {
@@ -639,6 +688,7 @@ export function useWorkbench() {
     uploadController?.abort()
     importController?.abort()
     conversationState.cancelStream()
+    multimodalQuery.cancel()
   })
 
   return {
@@ -646,7 +696,8 @@ export function useWorkbench() {
     selectedDocument, selectedFile, urlToImport, question, answer, selectedCitation,
     citationContext, compareResult, feedbackStats, feedbackText, feedbackMessage,
     rewriteResult, cardMessage, evalQuestion, evalKeywords, evalResults,
-    appMode, workMode, searchMode, searchProfile, topK, candidateK, vectorBalance,
+    appMode, workMode, searchMode, searchProfile, retrievalStrategy, graphWeight,
+    graphMaxHops, parentWindow, modalityFilters, topK, candidateK, vectorBalance,
     mmrLambda, minScore, queryRewrite, scopedDocumentIds, documentFilter, inspectorTab,
     booting, loading, uploading, importingUrl, comparing, rebuildingId, loadingDocument,
     loadingContext, feedbackSubmitting, rewriting, evalRunning, error, errorRequestId,
@@ -654,7 +705,7 @@ export function useWorkbench() {
     scopeLabel, filteredDocuments, isRefusal, diagnostics, citationAudit, trust,
     expertParametersValid,
     boot, handleRun, cancelRun, handleUpload, handleImportUrl, handleCompare,
-    selectCitation, selectDocument, removeDocument, rebuildOne, rebuildAll,
+    selectCitation, selectDocument, openCitationElement, removeDocument, rebuildOne, rebuildAll,
     toggleScope, clearScope, useHistory, eraseHistory, handleFeedback, handleRewrite,
     handleSaveCard, handleCreateEvalCase, handleRunEvalDrafts, handleDiagnosticAction,
     resetRetrievalControls, retryLast, clearError,
@@ -673,6 +724,20 @@ export function useWorkbench() {
     streamPhase: conversationState.streamPhase,
     streamAuditPending,
     providerStatus: providerState.providerStatus,
+    queryAttachments: multimodalQuery.attachments,
+    queryAttachmentDetail: multimodalQuery.detail,
+    queryAttachmentUploading: multimodalQuery.uploading,
+    queryAttachmentError: multimodalQuery.error,
+    queryAttachmentAudit: qualityAudit.queryAttachmentAudit,
+    addQueryAttachments: multimodalQuery.addFiles,
+    removeQueryAttachment: multimodalQuery.remove,
+    clearQueryAttachments: multimodalQuery.clear,
+    documentElements: documentViewer.elements,
+    focusedElementId: documentViewer.focusedElementId,
+    knowledgeGraph: graphState.graph,
+    graphLoading: graphState.loading,
+    graphError: graphState.error,
+    refreshGraph: () => graphState.load(knowledgeBaseState.selectedKnowledgeBaseId.value),
     selectKnowledgeBase,
     addKnowledgeBase,
     startNewConversation,

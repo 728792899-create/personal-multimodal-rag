@@ -1,5 +1,5 @@
 import { ApiError, apiRequest, formatApiErrorDetail, jsonBody } from './client'
-import type { Conversation, ConversationMessage, ConversationStreamEvent, RequestOptions, RetrievalOptions } from './types'
+import type { Conversation, ConversationMessage, ConversationStreamEvent, QueryAttachmentRef, RequestOptions, RetrievalOptions } from './types'
 
 
 export async function listConversations(options: RequestOptions = {}): Promise<Conversation[]> {
@@ -27,12 +27,13 @@ export async function streamConversationMessage(
   retrieval: RetrievalOptions,
   onEvent: (event: ConversationStreamEvent) => void,
   options: RequestOptions = {},
+  attachments: QueryAttachmentRef[] = [],
 ): Promise<void> {
   const response = await fetch(`/api/conversations/${encodeURIComponent(conversationId)}/messages:stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
     credentials: 'same-origin',
-    body: JSON.stringify({ question, ...retrieval }),
+    body: JSON.stringify({ question, ...retrieval, attachments }),
     signal: options.signal,
   })
   if (!response.ok || !response.body) {

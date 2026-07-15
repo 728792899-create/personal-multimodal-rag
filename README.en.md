@@ -14,7 +14,7 @@
 
 The project is a durable single-instance Beta rather than a chat UI wrapped around one model call. It ingests PDF, DOCX, Markdown, text, images and public URLs into isolated knowledge bases; combines BM25 and vector recall; persists conversations; streams audited answers; refuses unsupported questions; and links every answer back to inspectable chunks.
 
-The in-progress **0.3 Multimodal Intelligence** release adds a typed text/heading/image/table/equation/code intermediate representation, content-addressed assets, contextual enrichment, and a provenance-backed Graph-lite. Graph paths only navigate to local evidence chunks before RRF, MMR, reranking, refusal, and citation audit. The zero-download built-in parser and deterministic template enrichment remain the default; heavy parsers and vision providers are optional. See the [pinned RAG-Anything comparative review](docs/comparative-review-rag-anything.md) for the evidence and trade-offs.
+**0.3 Multimodal Intelligence** adds a typed text/heading/image/table/equation/code intermediate representation, content-addressed assets, contextual enrichment, provenance-backed Graph-lite, 24-hour query images, precise element citations, and accessible graph inspection. Graph paths only navigate to local evidence chunks before RRF, MMR, reranking, refusal, and citation audit. The zero-download built-in parser and deterministic template enrichment remain the default; heavy parsers and vision providers are optional. See the [pinned RAG-Anything comparative review](docs/comparative-review-rag-anything.md) for the evidence and trade-offs.
 
 The default path is deterministic and offline: hash embeddings, an in-memory vector store and template answers require **no API key and make no paid API calls**. Optional adapters expose the production integration boundaries without making the local demo depend on them.
 
@@ -24,9 +24,9 @@ The default path is deterministic and offline: hash embeddings, an in-memory vec
 | --- | --- | --- |
 | File upload and guarded URL import | Evidence threshold and explicit refusal | FastAPI, Vue 3, Docker Compose |
 | Ordinary and expert modes | Stage-by-stage retrieval Trace | pytest, Vitest and Playwright |
-| Citation and neighboring context | Citation coverage audit | Fixed 40-case offline golden set |
-| Feedback to evaluation draft | Request IDs, timeout, cancel and retry | Health checks and five-job CI |
-| Durable local index jobs | Lease recovery and index compatibility | 97 backend / 13 frontend / 6 E2E tests |
+| Precise element citations and context | Citation and graph provenance audit | Fixed 100-case offline golden set |
+| Feedback to evaluation draft | Request IDs, timeout, cancel and retry | Health checks and multi-lane CI |
+| Durable local index jobs | Lease recovery and index compatibility | 103 backend / 15 frontend / 8 E2E tests |
 
 ![System map from ingestion to evidence-constrained answers and evaluation](docs/assets/system-overview.svg)
 
@@ -34,9 +34,9 @@ The default path is deterministic and offline: hash embeddings, an in-memory vec
 
 | Workbench | Grounded answer | Mobile refusal |
 | --- | --- | --- |
-| ![Ordinary-mode workbench with knowledge and query panels](docs/screenshots/01-workbench-beta.png) | ![Answer citations and seven-stage retrieval trace](docs/screenshots/02-grounded-trace.png) | ![Expert-mode refusal at a 390-pixel viewport](docs/screenshots/03-mobile-expert-refusal.png) |
+| ![Ordinary-mode workbench with knowledge and query panels](docs/screenshots/01-workbench-beta.png) | ![Answer citations and retrieval trace](docs/screenshots/02-grounded-trace.png) | ![Expert-mode refusal at a 390-pixel viewport](docs/screenshots/03-mobile-expert-refusal.png) |
 
-The extended gallery also shows [URL ingestion](docs/screenshots/04-ingestion-url.png), [neighboring citation context](docs/screenshots/05-citation-context.png), [quality audit](docs/screenshots/06-quality-dashboard.png), [feedback-generated eval drafts](docs/screenshots/07-feedback-eval-draft.png), and [retry after an API failure](docs/screenshots/08-error-retry.png).
+The extended gallery also shows [URL ingestion](docs/screenshots/04-ingestion-url.png), [neighboring citation context](docs/screenshots/05-citation-context.png), [quality audit](docs/screenshots/06-quality-dashboard.png), [feedback-generated eval drafts](docs/screenshots/07-feedback-eval-draft.png), [retry after an API failure](docs/screenshots/08-error-retry.png), [multimodal query and persistent conversation state](docs/screenshots/09-multimodal-query-trace.jpg), [the accessible Graph evidence workbench](docs/screenshots/10-graph-evidence-workbench.jpg), [precise element citations](docs/screenshots/11-precise-element-citation.jpg), and [the 390-pixel expert layout](docs/screenshots/12-mobile-multimodal-expert.jpg).
 
 ## Zero-key quick start
 
@@ -88,17 +88,19 @@ Read the [architecture guide](docs/architecture.md), [code tour](docs/code-tour.
 
 ## Deterministic evaluation
 
-![Forty-case offline scorecard with thresholds for recall, ranking, citation and refusal](docs/assets/evaluation-scorecard.svg)
+![One-hundred-case offline scorecard covering retrieval, multimodal extraction and graph evidence](docs/assets/evaluation-scorecard.svg)
 
 | Metric | Recorded result | CI minimum |
 | --- | ---: | ---: |
 | Recall@5 | 1.0000 | 0.90 |
-| MRR | 0.9844 | 0.75 |
-| First-citation accuracy | 0.9688 | 0.75 |
+| MRR | 0.9888 | 0.75 |
+| First-citation accuracy | 0.9775 | 0.75 |
 | Refusal accuracy | 1.0000 | 0.80 |
 | Answer-acceptance accuracy | 1.0000 | 0.85 |
+| Modality Recall@5 / table / caption / formula | all 1.0000 | 0.85 / 0.90 |
+| Graph path precision / evidence coverage / multi-hop Recall@5 | all 1.0000 | 0.90 / 0.95 / 0.85 |
 
-The set contains 40 sanitized cases: 32 answerable and 8 refusal cases, including knowledge-base isolation, multi-turn follow-ups and real DOCX table parsing. These numbers are regression signals for fixed repository fixtures—not a claim about open-domain production quality. See [evaluation results and caveats](docs/evaluation-results.md).
+The set contains 100 sanitized cases: 89 answerable and 11 refusal cases, including 12 image, 12 table, 8 formula, 12 layout/OCR, 10 graph multi-hop, and 6 conflict/refusal additions. These numbers are regression signals for fixed repository fixtures—not a claim about open-domain production quality. See [evaluation results and caveats](docs/evaluation-results.md).
 
 Run all acceptance checks with offline providers enforced:
 

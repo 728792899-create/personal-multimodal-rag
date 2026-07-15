@@ -4,9 +4,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PARSER_JOB_DIR=/tmp/parser-jobs
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends git libreoffice \
-    && rm -rf /var/lib/apt/lists/* \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=60 update \
+    && apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=60 install -y --no-install-recommends \
+        git libreoffice-writer libreoffice-calc libreoffice-impress \
     && useradd --create-home --uid 10001 parser
 
 WORKDIR /worker

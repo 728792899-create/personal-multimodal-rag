@@ -1,12 +1,10 @@
 # 检索与可信回答
 
-这份文档解释系统如何把“找得到”与“答得有依据”分开处理。默认 hash embedding 只为离线可复现服务，下面描述的是工程链路，不是对默认语义质量的夸大。
+这份文档解释系统如何把“找得到”“看懂多模态内容”和“答得有依据”分开处理。默认 hash embedding 与 template enrichment 只为离线可复现服务，下面描述的是工程链路，不是对默认语义或视觉质量的夸大。
 
-![七阶段检索管线](assets/retrieval-pipeline.svg)
+![十阶段多模态与 Graph 检索管线](assets/retrieval-pipeline.svg)
 
-## 为什么要混合检索
-
-BM25 与向量检索解决不同类型的问题：
+## 为什么保留混合检索
 
 | 问题形态 | BM25 更有优势 | 向量检索更有优势 |
 | --- | --- | --- |
@@ -15,110 +13,88 @@ BM25 与向量检索解决不同类型的问题：
 | 罕见专有名词 | 通常可靠 | 依赖 embedding 模型 |
 | 概念性问题 | 依赖资料措辞 | 更容易覆盖相关段落 |
 
-Hybrid 模式并不假设两个分支同分布。系统先保留各自分数，再按权重归一融合，让 Trace 可以说明每个结果来自哪里。
+Graph-lite 不替代这两个分支。它只在存在带来源的实体关系时导航到证据 chunk，再通过加权 RRF 汇入候选池；没有 evidence element 的边不能单独支撑答案或引用。
 
-## 七个阶段
+## 十个阶段
 
-### 1. BM25 召回
+### 1. Query enrichment
 
-把 query 分词后，与 chunk 词项频率和逆文档频率比较。它对文件名、技术名词、环境变量和错误文本特别有效。Trace 会记录候选数量以及每条结果的 `bm25_score` 与匹配词。
+纯文本问题保持原事件顺序。附加图片时，系统先验证真实图片签名、像素、动画和知识库边界，再用 OCR、尺寸/格式元数据及可选视觉 provider 产生受限查询扩展。原始问题仍用于生成，扩展文本只帮助检索；Trace 记录附件、detail、provider 和 fallback。
 
-### 2. 向量召回
+### 2. BM25 召回
 
-通过当前 embedding adapter 生成 query vector，再从 memory、Chroma 或 pgvector adapter 召回相似 chunk。默认 `mock` 是 deterministic hash embedding，优点是零 Key、跨运行可复现；缺点是不能代表生产语义模型。
+把 query 分词后，与 chunk 词项频率和逆文档频率比较。它对文件名、技术名词、环境变量和错误文本特别有效。Trace 记录候选数量、`bm25_score` 与匹配词。
 
-### 3. 融合与去重
+### 3. 向量召回
 
-Hybrid 模式按 `bm25_weight` 和 `vector_weight` 合并两个候选池。相同 chunk 只保留一次，同时保留两条分支的原始分数，方便检查“两个分支都认可”还是“单分支强命中”。
+通过 embedding adapter 生成 query vector，再从 memory、Chroma 或 pgvector adapter 召回相似 chunk。默认 `mock` 是 deterministic hash embedding，零 Key且跨运行可复现，但不能代表生产语义模型。
 
-权重用于相对比较，不应把融合分数解释成概率。默认值偏向 BM25，是因为脱敏示例资料中包含明确的技术词和配置项。
+### 4. 融合与去重
 
-### 4. MMR 多样化
+Hybrid 模式保留各分支原始分数并按权重归一融合。相同 chunk 只保留一次。融合分数用于相对排序，不应解释为概率。
 
-Maximum Marginal Relevance 在相关性与结果间差异之间取舍：
+### 5. Graph 导航
+
+`hybrid_graph` 用问题中的实体 seed 查询同一知识库内、带 `evidence_element_id` 的关系边；`auto` 只有在关系/多跳意图和有效边同时成立时才启用。Graph 结果按 `k=60` 的 weighted RRF 融入候选，默认 graph weight 为 `0.25`。SVG 路径视图始终配有可键盘操作的等价表格。
+
+### 6. Parent context expansion
+
+元素命中后可补入同一父元素及相邻上下文，避免表格单元、图片 caption 或公式脱离标题路径。chunk 保留 `element_ids`、modality 和父级定位，引用可以回到文档查看器中的精确元素。
+
+### 7. MMR 多样化
+
+Maximum Marginal Relevance 在相关性与结果差异之间取舍：
 
 ```text
 MMR = λ × relevance − (1 − λ) × max_similarity_to_selected
 ```
 
-较高 `λ` 更重视原始相关性；较低 `λ` 更主动减少重复。它适合多个相邻 chunk 都在重复同一句话的情况，但调得过低可能牺牲最相关证据。
+较高 `λ` 更重视原始相关性；较低 `λ` 更主动减少重复。调得过低可能牺牲最相关证据。
 
-### 5. Rerank
+### 8. Rerank
 
-默认 keyword reranker 保持离线可运行。可选模型 reranker 应通过 adapter 接入，并记录 provider、耗时和 fallback。Rerank 只改变候选顺序，不能补回初始召回完全遗漏的资料，所以诊断时必须先看阶段 1–3。
+默认 keyword reranker 保持离线可运行。可选模型通过 adapter 接入，并记录 provider、耗时和 fallback。Rerank 只能调整已有候选，不能补回初始召回完全遗漏的资料。
 
-### 6. 回答或拒答
+### 9. 回答或拒答
 
-拒答门不会只判断候选数组是否为空。它综合最低分、候选相关性和通用噪声，避免 hash embedding 恰好命中“系统、工作、文档”等泛词时生成无依据答案。
+拒答门综合最低分、候选相关性和通用噪声，而不只判断候选数组是否为空。无候选、低于门槛、仅有泛词或检索失败且无可信 fallback 都会拒答。拒答是正确产品结果，响应仍携带 Trace、缺口分析和修复建议。
 
-典型拒答原因：
+### 10. 引用审计
 
-- 没有符合文档范围的候选；
-- 最佳证据低于 `min_score` 或全局门槛；
-- 候选只包含通用匹配，没有问题特有证据；
-- 检索链路失败并且没有可信 fallback。
+生成完成后才展示最终审计，检查引用来源、主张覆盖、grounding 置信度和无支撑主张。流式正文完成前标记为“待审计”，避免把半成品误认为可信答案。
 
-拒答是正确产品结果，不是异常。响应仍会携带 Trace、缺口分析和修复建议。
+## 策略与 profile
 
-### 7. 引用审计
-
-生成后再检查回答与实际引用，而不是假定“把上下文传给模型”就自动可信。审计重点包括：
-
-- 引用数量与来源文档；
-- 回答主张被证据覆盖的比例；
-- grounding 置信度；
-- 可能缺少支撑的主张；
-- 无引用回答是否应被降级或拒答。
-
-## 三种检索模式
-
-| 模式 | 启用阶段 | 用途 |
+| 策略 | 启用链路 | 用途 |
 | --- | --- | --- |
-| `keyword` | BM25 → MMR/Rerank → Gate | 专有名词、配置、错误码、基线对照 |
-| `semantic` | Vector → MMR/Rerank → Gate | 同义改写和概念问题 |
-| `hybrid` | BM25 + Vector → Fusion → MMR/Rerank → Gate | 默认通用路径 |
+| `hybrid` | BM25 + Vector → Fusion → Parent/MMR/Rerank → Gate | 默认稳定路径 |
+| `hybrid_graph` | Hybrid + Graph RRF → Parent/MMR/Rerank → Gate | 明确关系和多跳问题 |
+| `auto` | 意图与 provenance 双门控后选择上述路径 | 普通模式默认 |
 
-## 三种 profile
-
-Profile 是一组检索意图，不是固定质量承诺：
-
-| Profile | 目标 | 建议观察 |
-| --- | --- | --- |
-| `balanced` | 在覆盖与精度间取平衡 | 日常默认 |
-| `precision` | 减少弱证据进入答案 | 拒答率、首条引用准确率 |
-| `recall` | 扩大候选覆盖 | Recall@K、候选池和延迟 |
-
-专家参数会覆盖 profile 中相应默认值。评测时要记录完整参数，否则一次结果难以复现。
+`keyword`、`semantic` 仍作为兼容检索模式保留。`balanced`、`precision`、`recall` profile 是参数意图，不是固定质量承诺；专家参数会覆盖 profile 默认值，评测必须记录完整参数。
 
 ## 如何阅读一条 Trace
 
-推荐按因果顺序阅读，而不是直接盯最终分数：
-
-1. **Query**：原始问题是否为空、过长或包含错误范围？改写是否偏离原意？
-2. **Recall**：目标文档是否在 BM25 或 vector 候选中？
+1. **Query enrichment**：图片或改写是否偏离原意？
+2. **Recall**：目标元素是否进入 BM25 或 vector 候选？
 3. **Fusion**：正确 chunk 是否被权重或去重压低？
-4. **MMR**：是否因为与已选片段相似而被移除？
-5. **Rerank**：重排是否把弱证据提到了前面？
-6. **Decision**：门槛和理由码是否符合产品预期？
-7. **Citation**：最终主张是否能回到原文上下文？
+4. **Graph**：关系边是否有证据元素，路径是否跨错知识库？
+5. **Parent context**：标题、表格、caption 和相邻元素是否完整？
+6. **MMR / Rerank**：证据为何被移除或改变顺序？
+7. **Decision**：门槛和理由码是否符合产品预期？
+8. **Citation**：最终主张能否回到原件、页码和元素？
 
 ## 常见故障定位
 
 | 表现 | 首先检查 | 常见修复 |
 | --- | --- | --- |
+| 图片问题没有召回 | enrichment 事件、OCR/视觉 provider、KB 范围 | 重传有效图片、启用合适 provider、修复 OCR |
+| 多跳问题退化为关键词 | Graph seed/path、edge provenance | 补充可验证关系、检查 graph build/index version |
 | 明明有资料却拒答 | BM25/vector 候选、文档范围 | 补同义词、扩大 candidate K、换 embedding |
-| 回答引用了重复段落 | MMR 与 chunk overlap | 降低重复、调整 λ 或切分策略 |
-| 第一条引用来自错误文档 | 分支分数与融合权重 | 调整权重、补负样本、升级 reranker |
-| 专有名词搜不到 | BM25 tokenizer 与原文 | 保留原始词面、检查解析编码 |
-| 概念问题只有字面匹配 | vector provider | 使用真实语义 embedding 并重建索引 |
+| 回答引用重复段落 | Parent expansion、MMR 与 overlap | 缩小 parent window、调整 λ 或切分策略 |
+| 第一引用来自错误文档 | 分支分数、Graph 权重与 rerank | 调整权重、补负样本、升级 reranker |
 | 回答流畅但引用不足 | citation audit | 提高覆盖门槛、约束生成或拒答 |
 
 ## 可量化指标
 
-- **Recall@K**：目标来源是否出现在前 K 条证据中。
-- **MRR**：第一个正确来源越靠前，分数越高。
-- **首条引用准确率**：回答的第一引用是否来自期望来源。
-- **拒答准确率**：无证据问题是否被正确拒绝。
-- **引用覆盖率**：回答主张被引用支持的比例，当前在线审计与离线回归分别记录。
-
-指标定义、阈值和新增 case 流程见[测试与评测](testing-and-evaluation.md)。
+除 Recall@5、MRR、首条引用准确率、拒答准确率和回答接受率外，0.3 还固定检查 modality Recall@5、表格单元、caption、公式、Graph path precision、Graph evidence coverage 与多跳 Recall@5。定义、阈值和 100 条 case 构成见[测试与评测](testing-and-evaluation.md)。

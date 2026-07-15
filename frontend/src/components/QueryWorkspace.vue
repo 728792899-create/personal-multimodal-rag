@@ -8,6 +8,29 @@ const presets = [
   '这个系统如何通过引用和拒答机制降低幻觉？',
   '这份资料有没有提到 Kubernetes 部署？',
 ]
+
+const modalities = [
+  { id: 'text', label: '文本' },
+  { id: 'image', label: '图像' },
+  { id: 'table', label: '表格' },
+  { id: 'equation', label: '公式' },
+  { id: 'code', label: '代码' },
+] as const
+
+async function onQueryImages(event: Event) {
+  const input = event.target as HTMLInputElement
+  await workbench.addQueryAttachments(
+    Array.from(input.files || []),
+    workbench.selectedKnowledgeBaseId.value,
+  )
+  input.value = ''
+}
+
+function toggleModality(id: typeof modalities[number]['id']) {
+  workbench.modalityFilters.value = workbench.modalityFilters.value.includes(id)
+    ? workbench.modalityFilters.value.filter((item) => item !== id)
+    : [...workbench.modalityFilters.value, id]
+}
 </script>
 
 <template>
@@ -26,6 +49,8 @@ const presets = [
         <button
           type="button"
           :aria-pressed="workbench.workMode.value === 'search'"
+          :disabled="Boolean(workbench.queryAttachments.value.length)"
+          title="图片提问需在问答模式中完成审计"
           @click="workbench.workMode.value = 'search'"
         >只检索</button>
       </div>
@@ -43,6 +68,43 @@ const presets = [
       ></textarea>
       <small>⌘/Ctrl + Enter 运行 · {{ workbench.question.value.length }}/4000</small>
     </label>
+
+    <section class="query-attachments" aria-labelledby="query-attachments-title">
+      <div class="attachment-toolbar">
+        <div>
+          <strong id="query-attachments-title">图片证据</strong>
+          <span>可选·PNG/JPEG/WEBP/非动画 GIF·最多 4 张</span>
+        </div>
+        <label class="button secondary-button attachment-picker" :class="{ disabled: workbench.queryAttachmentUploading.value || workbench.queryAttachments.value.length >= 4 }">
+          <span>{{ workbench.queryAttachmentUploading.value ? '正在处理…' : '添加图片' }}</span>
+          <input
+            type="file"
+            multiple
+            accept="image/png,image/jpeg,image/webp,image/gif"
+            :disabled="workbench.queryAttachmentUploading.value || workbench.queryAttachments.value.length >= 4"
+            data-testid="query-image-input"
+            @change="onQueryImages"
+          />
+        </label>
+      </div>
+      <div v-if="workbench.queryAttachments.value.length" class="attachment-list" aria-live="polite">
+        <article v-for="asset in workbench.queryAttachments.value" :key="asset.id">
+          <img :src="asset.preview_url" :alt="`待查询图片：${asset.filename}`" />
+          <div><strong>{{ asset.filename }}</strong><span>{{ asset.width }}×{{ asset.height }}·{{ Math.ceil(asset.size_bytes / 1024) }} KB</span></div>
+          <button type="button" class="button icon-button danger-button" :aria-label="`移除 ${asset.filename}`" @click="workbench.removeQueryAttachment(asset.id)">×</button>
+        </article>
+        <label class="attachment-detail">
+          <span>视觉细节</span>
+          <select v-model="workbench.queryAttachmentDetail.value">
+            <option value="auto">Auto</option>
+            <option value="low">Low</option>
+            <option value="high">High</option>
+            <option value="original">Original</option>
+          </select>
+        </label>
+      </div>
+      <p v-if="workbench.queryAttachmentError.value" class="parameter-error" role="status">{{ workbench.queryAttachmentError.value }}</p>
+    </section>
 
     <div class="preset-row" aria-label="示例问题">
       <button
@@ -82,6 +144,14 @@ const presets = [
           </select>
         </label>
         <label>
+          <span>证据策略</span>
+          <select v-model="workbench.retrievalStrategy.value" name="retrieval-strategy">
+            <option value="auto">Auto 自动关系识别</option>
+            <option value="hybrid">Hybrid</option>
+            <option value="hybrid_graph">Hybrid + Graph</option>
+          </select>
+        </label>
+        <label>
           <span>返回数量 <strong>{{ workbench.topK.value }}</strong></span>
           <input v-model.number="workbench.topK.value" name="top-k" type="range" min="1" max="12" />
         </label>
@@ -105,7 +175,29 @@ const presets = [
           <input v-model="workbench.queryRewrite.value" name="query-rewrite" type="checkbox" />
           <span>启用 Query Rewrite</span>
         </label>
+        <label>
+          <span>Graph 权重 <strong>{{ workbench.graphWeight.value.toFixed(2) }}</strong></span>
+          <input v-model.number="workbench.graphWeight.value" name="graph-weight" type="range" min="0" max="1" step="0.05" />
+        </label>
+        <label>
+          <span>Graph 最大跳数</span>
+          <input v-model.number="workbench.graphMaxHops.value" name="graph-hops" type="number" min="1" max="4" />
+        </label>
+        <label>
+          <span>父级上下文窗口</span>
+          <input v-model.number="workbench.parentWindow.value" name="parent-window" type="number" min="0" max="3" />
+        </label>
       </div>
+      <fieldset class="modality-filter">
+        <legend>元素类型过滤（留空表示全部）</legend>
+        <button
+          v-for="item in modalities"
+          :key="item.id"
+          type="button"
+          :aria-pressed="workbench.modalityFilters.value.includes(item.id)"
+          @click="toggleModality(item.id)"
+        >{{ item.label }}</button>
+      </fieldset>
       <p class="control-summary">
         BM25 {{ workbench.bm25Weight.value.toFixed(2) }} / Vector {{ workbench.vectorWeight.value.toFixed(2) }} ·
         {{ workbench.scopeLabel.value }}
@@ -117,8 +209,8 @@ const presets = [
 
     <div v-else class="default-profile-note">
       <div>
-        <strong>平衡检索已启用</strong>
-        <span>混合召回、MMR、Rerank 与拒答保护会自动运行。</span>
+        <strong>自动证据策略已启用</strong>
+        <span>混合召回为基线，仅在有 provenance 的关系问题中启用 Graph，并继续执行 MMR、Rerank 与拒答保护。</span>
       </div>
       <button type="button" class="button text-button" @click="workbench.appMode.value = 'expert'">调整参数</button>
     </div>
@@ -161,7 +253,7 @@ const presets = [
           type="button"
           class="button primary-button run-button"
           data-testid="run-query"
-          :disabled="!workbench.question.value.trim() || !workbench.expertParametersValid.value"
+          :disabled="!workbench.question.value.trim() || !workbench.expertParametersValid.value || workbench.queryAttachmentUploading.value"
           @click="workbench.handleRun"
         >
           {{ workbench.workMode.value === 'answer' ? '检索并回答' : '检索证据' }}
@@ -172,7 +264,8 @@ const presets = [
 
     <div v-if="workbench.loading.value" class="query-loading" aria-live="polite">
       <span class="spinner" aria-hidden="true"></span>
-      <span v-if="workbench.streamPhase.value === 'retrieving'">正在召回、融合与去重证据…</span>
+      <span v-if="workbench.streamPhase.value === 'enriching'">正在读取图片、OCR 并构建查询上下文…</span>
+      <span v-else-if="workbench.streamPhase.value === 'retrieving'">正在召回、融合与去重证据…</span>
       <span v-else-if="workbench.streamPhase.value === 'streaming'">证据已就绪，正在生成回答…</span>
       <span v-else-if="workbench.streamPhase.value === 'auditing'">正在流式生成，最终引用审计尚未完成…</span>
       <span v-else>正在召回、去重并审计证据…</span>

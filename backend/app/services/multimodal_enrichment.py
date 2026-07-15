@@ -146,13 +146,14 @@ class ResponsesVisionEnricher:
             f"Caption: {element.caption[:1000]}\nLaTeX: {element.latex[:2000]}\n"
             f"Nearby context: {str(context.get('text') or '')[:8000]}"
         )
+        requested_detail = str(context.get("image_detail") or self.image_detail)
         payload = self.executor.run(
             lambda: self.client.create_structured(
                 prompt,
                 schema=ENRICHMENT_SCHEMA,
                 schema_name="multimodal_enrichment",
                 image_data_url=image_data_url,
-                image_detail=self.image_detail,
+                image_detail=requested_detail,
             )
         )
         if not isinstance(payload, dict):
@@ -183,12 +184,13 @@ class StructuredVisionEnricher:
             f"Caption: {element.caption[:1000]}\nLaTeX: {element.latex[:2000]}\n"
             f"Nearby context: {str(context.get('text') or '')[:8000]}"
         )
+        requested_detail = str(context.get("image_detail") or self.image_detail)
         payload = self.executor.run(
             lambda: self.client.create_structured(
                 prompt,
                 schema=ENRICHMENT_SCHEMA,
                 image_data_url=image_data_url,
-                image_detail=self.image_detail,
+                image_detail=requested_detail,
             )
         )
         return _validate_enrichment(payload)

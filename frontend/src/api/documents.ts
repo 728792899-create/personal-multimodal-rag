@@ -1,5 +1,5 @@
 import { apiRequest, jsonBody } from './client'
-import type { DocumentDetail, DocumentMeta, KnowledgeOverview, RequestOptions } from './types'
+import type { DocumentDetail, DocumentElement, DocumentMeta, KnowledgeOverview, RequestOptions } from './types'
 
 
 export function uploadDocument(file: File, options: RequestOptions = {}) {
@@ -24,6 +24,11 @@ export function getKnowledgeOverview(options: RequestOptions = {}): Promise<Know
 
 export function getDocumentDetail(documentId: string, options: RequestOptions = {}): Promise<DocumentDetail> {
   return apiRequest(`/api/documents/${encodeURIComponent(documentId)}`, {}, options)
+}
+
+export async function getDocumentElements(documentId: string, options: RequestOptions = {}): Promise<DocumentElement[]> {
+  const data = await apiRequest<{ elements: DocumentElement[] }>(`/api/documents/${encodeURIComponent(documentId)}/elements`, {}, options)
+  return data.elements
 }
 
 export function deleteDocument(documentId: string, options: RequestOptions = {}) {

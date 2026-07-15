@@ -58,8 +58,14 @@ class RetrievalOptions(BaseModel):
     parent_window: int = Field(1, ge=0, le=3)
 
 
+class QueryAttachmentRef(BaseModel):
+    id: str = Field(..., min_length=1, max_length=80)
+    detail: Literal["low", "high", "original", "auto"] = "auto"
+
+
 class AskRequest(RetrievalOptions):
     question: str = Field(..., min_length=1, max_length=4000)
+    attachments: list[QueryAttachmentRef] = Field(default_factory=list, max_length=4)
 
 
 class SearchRequest(RetrievalOptions):
@@ -105,6 +111,7 @@ class ConversationUpdate(BaseModel):
 
 class ConversationMessageRequest(RetrievalOptions):
     question: str = Field(..., min_length=1, max_length=4000)
+    attachments: list[QueryAttachmentRef] = Field(default_factory=list, max_length=4)
 
 
 class AskResponse(BaseModel):

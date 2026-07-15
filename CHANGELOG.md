@@ -16,6 +16,9 @@
 - 上下文感知 template/OpenAI Responses/OpenAI-compatible/Ollama vision enrichment、版本化缓存、结构化输出与 `store:false` Responses 契约。
 - `hybrid_graph`/`auto`、加权 RRF、模态过滤、可配置 parent context，以及 graph seed/path/evidence Trace。
 - Provider/parser 指数退避、抖动和熔断；版面、OCR、caption、表格、公式、孤立资源与图谱覆盖指标。
+- 24 小时 Query Asset：最多 4 张 PNG/JPEG/WEBP/非动画 GIF，单张 10 MB，支持 OCR/视觉查询增强、过期清理与知识库隔离。
+- 图片提问 SSE 事件、文档元素查看器、精确引用跳转、Graph SVG/键盘表格、十阶段 Trace 与多模态质量面板。
+- 100 条固定黄金集与 12 项阈值；新增 multimodal-eval、graph-eval、parser-contract 和 asset-security CI。
 
 ## 0.2.0-beta
 

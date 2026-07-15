@@ -25,7 +25,8 @@
 | `src/components/query/` | 提问与专家参数 | 请求参数与 disabled 状态 |
 | `src/components/answer/` | 回答、引用、反馈 | 可信度与失败闭环 |
 | `src/components/inspector/` | Trace、指标、质量 | 可解释性与审计视图 |
-| `src/components/trace/` | 七阶段流程卡 | BM25/vector/MMR/rerank 诊断 |
+| `src/components/RetrievalTrace.vue` | 十阶段流程卡 | query/BM25/vector/graph/parent/MMR/rerank/拒答/引用诊断 |
+| `src/components/GraphExplorer.vue` | Graph SVG + 等价表格 | provenance 路径的视觉和键盘审查 |
 | `src/composables/useWorkbench.ts` | 领域状态与动作 | loading、cancel、retry、数据刷新 |
 | `src/composables/useKnowledgeBases.ts` | KB 列表、选择与创建 | 知识范围 |
 | `src/composables/useIngestionJobs.ts` | 任务轮询、取消与重试 | 可恢复入库 |
