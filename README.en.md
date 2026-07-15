@@ -14,7 +14,7 @@
 
 The project is a durable single-instance Beta rather than a chat UI wrapped around one model call. It ingests PDF, DOCX, Markdown, text, images and public URLs into isolated knowledge bases; combines BM25 and vector recall; persists conversations; streams audited answers; refuses unsupported questions; and links every answer back to inspectable chunks.
 
-**0.3 Multimodal Intelligence** adds a typed text/heading/image/table/equation/code intermediate representation, content-addressed assets, contextual enrichment, provenance-backed Graph-lite, 24-hour query images, precise element citations, and accessible graph inspection. Graph paths only navigate to local evidence chunks before RRF, MMR, reranking, refusal, and citation audit. The zero-download built-in parser and deterministic template enrichment remain the default; heavy parsers and vision providers are optional. See the [pinned RAG-Anything comparative review](docs/comparative-review-rag-anything.md) for the evidence and trade-offs.
+**0.3 Multimodal Intelligence** adds a typed text/heading/image/table/equation/code intermediate representation, content-addressed assets, contextual enrichment, provenance-backed Graph-lite, 24-hour query images, precise element citations, and accessible graph inspection. Graph paths only navigate to local evidence chunks before RRF, MMR, reranking, refusal, and citation audit. Cooperative job cancellation now converges to a durable terminal state, and SQLite plus referenced objects can be exercised through a non-destructive isolated restore drill. The zero-download built-in parser and deterministic template enrichment remain the default; heavy parsers and vision providers are optional. See the [pinned RAG-Anything comparative review](docs/comparative-review-rag-anything.md) for the evidence and trade-offs.
 
 The default path is deterministic and offline: hash embeddings, an in-memory vector store and template answers require **no API key and make no paid API calls**. Optional adapters expose the production integration boundaries without making the local demo depend on them.
 
@@ -26,7 +26,7 @@ The default path is deterministic and offline: hash embeddings, an in-memory vec
 | Ordinary and expert modes | Stage-by-stage retrieval Trace | pytest, Vitest and Playwright |
 | Precise element citations and context | Citation and graph provenance audit | Fixed 100-case offline golden set |
 | Feedback to evaluation draft | Request IDs, timeout, cancel and retry | Health checks and multi-lane CI |
-| Durable local index jobs | Lease recovery and index compatibility | 103 backend / 15 frontend / 8 E2E tests |
+| Durable local index jobs | Lease recovery, terminal cancellation and restore drill | 110 backend / 15 frontend / 8 E2E tests |
 
 ![System map from ingestion to evidence-constrained answers and evaluation](docs/assets/system-overview.svg)
 
@@ -108,13 +108,13 @@ Run all acceptance checks with offline providers enforced:
 npm run verify
 ```
 
-Or run `npm test`, `npm run lint:docs`, `npm run lint:secrets`, `npm run build`, `npm run test:demo`, `npm run eval:retrieval`, and `npm run test:e2e` separately.
+Or run `npm test`, `npm run lint:docs`, `npm run lint:secrets`, `npm run build`, `npm run test:demo`, `npm run eval:retrieval`, `npm run test:restore-drill`, and `npm run test:e2e` separately.
 
 ## Security and production boundary
 
 ![Trust boundaries between the browser, API, untrusted input, providers and storage](docs/assets/security-boundaries.svg)
 
-Implemented controls cover upload type/size/signature checks, SSRF-aware URL validation across redirects, optional bearer authentication, process-local rate limiting, timeouts, cancellation, source cleanup, request IDs and sensitive-log redaction. The default Sentry integration disables PII and request bodies.
+Implemented controls cover upload type/size/signature checks, SSRF-aware URL validation across redirects, optional bearer authentication, process-local rate limiting, timeouts, terminal cooperative cancellation, source cleanup, request IDs and sensitive-log redaction. `scripts/verify_local_restore.py` creates an isolated SQLite snapshot and checks integrity, foreign keys, schema, safe object paths, byte sizes and SHA-256 without changing business rows in the input database. The default Sentry integration disables PII and request bodies.
 
 This repository does **not** claim multi-tenant isolation. Versioned SQLite migrations, a lease-based local worker, local uploads, memory vectors and process-local rate limiting fit the local/single-instance Beta. Production teams still need workspace-scoped authorization, a distributed queue, object storage, pgvector migrations, Redis-backed limits, malware scanning, backups and operational ownership. The boundary and migration steps are explicit in the [Durable Local 0.2 guide](docs/durable-local-0.2.md), [security model](docs/security-model.md), and [production adapter plan](docs/production-adapters.md).
 

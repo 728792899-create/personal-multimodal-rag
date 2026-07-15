@@ -18,7 +18,7 @@
 
 默认使用 deterministic hash embedding、内存向量库和模板回答：**无需真实 API Key、不会调用付费 API**。PDF、DOCX、Markdown、文本、图片 OCR、URL 导入、持久会话、引用上下文、质量审计、反馈评测和专家参数均保留。
 
-**0.3 Multimodal Intelligence** 将文档拆成可审查的 text、heading、image、table、equation、code 元素；原件与内嵌资源进入内容寻址对象存储，chunk 保留元素 provenance。上下文感知 enrichment 和 Graph-lite 只导航到本地 evidence，再与 BM25/vector 通过 RRF 融合，不能绕过拒答或引用门。工作台已支持 24 小时临时图片提问、精确元素定位、Graph SVG/表格 Trace 和多模态质量面板。默认内置解析与 template enrichment 仍然零下载；MinerU、Docling、PaddleOCR 和视觉 Provider 均为可选。设计取舍见 [RAG-Anything 固定提交对比审查](docs/comparative-review-rag-anything.md)。
+**0.3 Multimodal Intelligence** 将文档拆成可审查的 text、heading、image、table、equation、code 元素；原件与内嵌资源进入内容寻址对象存储，chunk 保留元素 provenance。上下文感知 enrichment 和 Graph-lite 只导航到本地 evidence，再与 BM25/vector 通过 RRF 融合，不能绕过拒答或引用门。工作台已支持 24 小时临时图片提问、精确元素定位、Graph SVG/表格 Trace 和多模态质量面板。索引任务的协作取消会可靠收敛到终态，SQLite 与对象存储可执行非破坏性隔离恢复演练。默认内置解析与 template enrichment 仍然零下载；MinerU、Docling、PaddleOCR 和视觉 Provider 均为可选。设计取舍见 [RAG-Anything 固定提交对比审查](docs/comparative-review-rag-anything.md)。
 
 ## 一分钟看懂
 
@@ -26,7 +26,7 @@
 
 | 默认体验 | 可信度机制 | 工程证据 | 生产边界 |
 | --- | --- | --- | --- |
-| 零 Key、离线可运行 | 无证据拒答 | 103 个后端测试 | 可选认证与 Sentry |
+| 零 Key、离线可运行 | 无证据拒答 | 110 个后端测试 | 可选认证与 Sentry |
 | 多知识库、DOCX 与图片提问 | 十阶段检索 Trace | 15 个前端测试 | Chroma / pgvector adapter |
 | 持久会话与流式回答 | 精确元素引用与 Graph provenance | 8 个 Browser E2E | 外部任务队列/对象存储方案 |
 | 可恢复索引任务 | 反馈 → eval draft | 100 条黄金回归 case | 本地 Demo 永不依赖外部服务 |
@@ -47,7 +47,7 @@
 | 领域 | 已实现 | 默认离线 | 可选增强 |
 | --- | --- | :---: | --- |
 | 输入 | PDF、DOCX、Markdown、TXT、图片，以及 PNG/JPEG/WEBP/GIF 图片提问 | ✓ | Tesseract OCR / 视觉 Provider |
-| 处理 | SQLite 任务、租约恢复、去重、重试/取消、版本兼容 | ✓ | 分布式队列待接入 |
+| 处理 | SQLite 任务、租约恢复、去重、终态取消、版本兼容 | ✓ | 分布式队列待接入 |
 | 检索 | 知识库隔离、BM25、vector、Graph-lite、RRF、MMR、rerank | ✓ | LightRAG 导航、local/OpenAI/Ollama embedding、Chroma、pgvector |
 | 回答 | 持久会话、SSE、模板/Responses/chat/Ollama adapter | ✓ | 外部 Provider 人工验证 |
 | 可信度 | no-answer gate、引用、相邻上下文、citation audit | ✓ | NLI/LLM judge 待规划 |
@@ -126,6 +126,7 @@ npm run test:demo        # 端到端 API smoke
 npm run eval:retrieval   # 100 条固定黄金集 + 12 项阈值
 npm run eval:multimodal  # 44 条图像/表格/公式/版面专项
 npm run eval:graph       # 10 条 provenance-backed 多跳专项
+npm run test:restore-drill # SQLite + 对象存储隔离恢复契约
 npm run test:e2e         # Chromium 桌面 + 390px 级移动视图
 ```
 
@@ -141,7 +142,7 @@ npm run verify
 
 | 检查 | 当前本地结果 | CI 门槛 |
 | --- | ---: | ---: |
-| 后端测试 | 103 passed | 全部通过 |
+| 后端测试 | 110 passed | 全部通过 |
 | 前端单元/组件 | 15 passed | 全部通过 |
 | Browser E2E | 8 passed | 桌面与移动全部通过 |
 | Recall@5 | 1.0000 | ≥ 0.90 |
@@ -251,8 +252,9 @@ flowchart LR
 - 前端请求有超时、取消、Abort 语义、可读错误、请求 ID 与重试入口。
 - 日志会清理 Authorization、token、password、secret、URL query/fragment。
 - Sentry 仅在显式提供 DSN 且安装可选依赖时启用；默认关闭 PII 与 request body。
-- SQLite 任务以租约恢复进程中断工作，最多三次自动尝试；内容哈希与索引版本组成幂等键。
+- SQLite 任务以租约恢复进程中断工作，最多三次自动尝试；协作取消和过期的 `cancelling` 租约都会收敛为 `cancelled`，内容哈希与索引版本组成幂等键。
 - `memory` 向量库重启时会从 SQLite 文档注册表重建缺失索引；维度/模型/索引版本不兼容的文档被标记 `needs_rebuild`，不混用向量。
+- `scripts/verify_local_restore.py` 使用 SQLite Backup API 在临时目录检查完整性、外键、schema，以及引用对象的安全路径、大小和 SHA-256；完整恢复步骤见[运维手册](docs/operations-runbook.md)。
 
 安全策略与漏洞报告见 [SECURITY.md](SECURITY.md)。
 
