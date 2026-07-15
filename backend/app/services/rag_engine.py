@@ -380,7 +380,7 @@ class RagEngine:
             "modality": chunk.modality,
             "parent_element_id": chunk.parent_element_id,
             "metadata": redact_private_metadata(chunk.metadata),
-            "parent_context": self._parent_context(chunk),
+            "parent_context": self._parent_context(chunk, int(item.get("parent_window", 1))),
             "score": round(float(item["score"]), 4),
             "bm25_score": round(float(item["bm25_score"]), 4),
             "vector_score": round(float(item["vector_score"]), 4),
@@ -411,7 +411,7 @@ class RagEngine:
         suffix = "..." if end < len(cleaned) else ""
         return f"{prefix}{cleaned[start:end]}{suffix}"
 
-    def _parent_context(self, chunk) -> dict:
+    def _parent_context(self, chunk, radius: int = 1) -> dict:
         siblings = sorted(
             [
                 item
@@ -423,12 +423,14 @@ class RagEngine:
         index = next((idx for idx, item in enumerate(siblings) if item.chunk_id == chunk.chunk_id), -1)
         if index < 0:
             return {"strategy": "parent_child", "text": chunk.text, "chunk_ids": [chunk.chunk_id]}
-        window = siblings[max(0, index - 1) : min(len(siblings), index + 2)]
+        radius = max(0, min(int(radius), 3))
+        window = siblings[max(0, index - radius) : min(len(siblings), index + radius + 1)]
         return {
             "strategy": "parent_child",
             "text": "\n\n".join(item.text for item in window),
             "chunk_ids": [item.chunk_id for item in window],
             "current_chunk_id": chunk.chunk_id,
+            "window": radius,
         }
 
     def _diagnostics(self, query: str, ranked: list[dict], trace: dict, threshold: float) -> list[dict]:

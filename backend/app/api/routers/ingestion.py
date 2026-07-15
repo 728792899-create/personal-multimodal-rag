@@ -27,6 +27,8 @@ async def enqueue_file(
     file: UploadFile = File(...),
     knowledge_base_id: str = Form("default"),
     parser_profile: str = Form("builtin"),
+    enrich_modalities: bool = Form(True),
+    build_graph: bool = Form(True),
 ):
     if not registry.get_knowledge_base(knowledge_base_id):
         raise HTTPException(status_code=404, detail="Knowledge base not found")
@@ -65,12 +67,18 @@ async def enqueue_file(
         )
         created_asset_id = asset["id"]
         key = hashlib.sha256(
-            f"{knowledge_base_id}:{digest.hexdigest()}:{profile}:{settings.chunker_version}:{settings.embedding_provider}:{settings.embedding_model}:{settings.resolved_embedding_dimension()}:{settings.index_version}".encode()
+            f"{knowledge_base_id}:{digest.hexdigest()}:{profile}:{enrich_modalities}:{build_graph}:{settings.enrichment_provider}:{settings.enrichment_prompt_version}:{settings.chunker_version}:{settings.embedding_provider}:{settings.embedding_model}:{settings.resolved_embedding_dimension()}:{settings.index_version}".encode()
         ).hexdigest()
         job = registry.create_index_job(
             source_type="file",
             source_name=safe_name,
-            payload={"asset_id": asset["id"], "content_hash": digest.hexdigest(), "parser_profile": profile},
+            payload={
+                "asset_id": asset["id"],
+                "content_hash": digest.hexdigest(),
+                "parser_profile": profile,
+                "enrich_modalities": enrich_modalities,
+                "build_graph": build_graph,
+            },
             knowledge_base_id=knowledge_base_id,
             idempotency_key=key,
         )
@@ -96,12 +104,18 @@ def enqueue_url(payload: IngestionUrlRequest):
     if not registry.get_knowledge_base(payload.knowledge_base_id):
         raise HTTPException(status_code=404, detail="Knowledge base not found")
     key = hashlib.sha256(
-        f"{payload.knowledge_base_id}:{payload.url.strip()}:{payload.parser_profile}:{settings.chunker_version}:{settings.embedding_provider}:{settings.embedding_model}:{settings.index_version}".encode()
+        f"{payload.knowledge_base_id}:{payload.url.strip()}:{payload.parser_profile}:{payload.enrich_modalities}:{payload.build_graph}:{settings.enrichment_provider}:{settings.enrichment_prompt_version}:{settings.chunker_version}:{settings.embedding_provider}:{settings.embedding_model}:{settings.index_version}".encode()
     ).hexdigest()
     job = registry.create_index_job(
         source_type="url",
         source_name=sanitize_url_for_log(payload.url),
-        payload={"url": payload.url, "title": payload.title, "parser_profile": payload.parser_profile},
+        payload={
+            "url": payload.url,
+            "title": payload.title,
+            "parser_profile": payload.parser_profile,
+            "enrich_modalities": payload.enrich_modalities,
+            "build_graph": payload.build_graph,
+        },
         knowledge_base_id=payload.knowledge_base_id,
         idempotency_key=key,
     )

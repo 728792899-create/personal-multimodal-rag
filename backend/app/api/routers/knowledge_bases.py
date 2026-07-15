@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query
 
-from app.core.store import object_store, registry, retriever
+from app.core.store import graph_store, object_store, registry, retriever
 from app.models.schemas import KnowledgeBaseCreate, KnowledgeBaseUpdate
 
 
@@ -25,6 +25,13 @@ def update_knowledge_base(knowledge_base_id: str, payload: KnowledgeBaseUpdate):
     if not updated:
         raise HTTPException(status_code=404, detail="Knowledge base not found")
     return {"knowledge_base": updated}
+
+
+@router.get("/{knowledge_base_id}/graph")
+def get_knowledge_base_graph(knowledge_base_id: str, limit: int = Query(500, ge=1, le=2000)):
+    if not registry.get_knowledge_base(knowledge_base_id):
+        raise HTTPException(status_code=404, detail="Knowledge base not found")
+    return graph_store.snapshot(knowledge_base_id, limit=limit)
 
 
 @router.delete("/{knowledge_base_id}")

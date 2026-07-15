@@ -39,6 +39,25 @@ def build_system_metrics(
         level = operation.get("level") or "info"
         operation_types[event_type] = operation_types.get(event_type, 0) + 1
         operation_levels[level] = operation_levels.get(level, 0) + 1
+    modality_counts: dict[str, int] = {}
+    enrichment_fallback_count = 0
+    graph_node_count = 0
+    graph_edge_count = 0
+    for document in documents:
+        for element in document.elements:
+            modality_counts[element.type] = modality_counts.get(element.type, 0) + 1
+            enrichment = element.metadata.get("enrichment")
+            if isinstance(enrichment, dict) and enrichment.get("fallback"):
+                enrichment_fallback_count += 1
+        graph = document.metadata.get("graph")
+        if isinstance(graph, dict):
+            graph_node_count += int(graph.get("node_count") or 0)
+            graph_edge_count += int(graph.get("edge_count") or 0)
+    graph_hit_count = sum(
+        1
+        for item in history
+        if item.get("retrieval_trace", {}).get("pipeline", {}).get("graph", {}).get("status") == "success"
+    )
 
     return {
         "knowledge": {
@@ -46,6 +65,7 @@ def build_system_metrics(
             "chunk_count": chunk_count,
             "avg_quality_score": round(mean(quality_scores), 2) if quality_scores else 0,
             "low_quality_count": sum(1 for score in quality_scores if score < 70),
+            "modality_counts": modality_counts,
         },
         "answering": {
             "history_count": len(history),
@@ -66,6 +86,16 @@ def build_system_metrics(
             "index_version_mismatch_count": sum(
                 1 for document in documents if document.metadata.get("index_status") == "needs_rebuild"
             ),
+            "parser_fallback_count": sum(
+                1 for document in documents if document.metadata.get("parser_fallback_from")
+            ),
+            "enrichment_fallback_count": enrichment_fallback_count,
+        },
+        "graph": {
+            "indexed_document_count": sum(1 for document in documents if isinstance(document.metadata.get("graph"), dict)),
+            "node_count": graph_node_count,
+            "edge_count": graph_edge_count,
+            "retrieval_hit_count": graph_hit_count,
         },
         "feedback": feedback_stats,
         "operations": {

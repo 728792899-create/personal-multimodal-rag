@@ -4,9 +4,9 @@
 
 ![SQLite 业务表、chunk 向量存储及生产 workspace 迁移边界](assets/data-model.svg)
 
-## 当前 schema（version 4）
+## 当前 schema（version 5）
 
-`backend/app/services/document_registry.py` 创建 15 张表，其中 `schema_migrations` 记录版本：
+`backend/app/services/document_registry.py` 创建 18 张表，其中 `schema_migrations` 记录版本：
 
 | 表 | 作用 | 关键一致性 |
 | --- | --- | --- |
@@ -16,7 +16,10 @@
 | `assets` | 原件、PDF/DOCX 内嵌资源和后续临时查询资源 | 只保存内容寻址 object key；文档删除级联，API 不暴露本地路径 |
 | `document_elements` | text/heading/image/table/equation/code 统一 IR | 页码、顺序、bbox、标题路径、资源、结构化表格与置信度 |
 | `parser_runs` | 每次解析的 provider/profile、结果与版本快照 | 文档删除级联；与入库 job 可关联 |
-| `enrichment_cache` | 后续上下文感知多模态 enrichment 缓存 | key 包含内容、provider、模型与 prompt version |
+| `enrichment_cache` | 上下文感知多模态 enrichment 缓存 | key 包含内容、上下文、provider、模型与 prompt version |
+| `graph_nodes` | document、element、entity 节点 | KB 隔离；document/element 删除级联 |
+| `graph_edges` | contains、mentions、adjacent 与显式关系 | 每条边必须有 evidence element、span、confidence、version |
+| `entity_mentions` | 实体在元素中的可验证出现 | 保存 element、offset、span 与 extraction version |
 | `conversations` | 会话标题和 KB 范围 | 最近更新时间排序 |
 | `conversation_messages` | user/assistant/system 消息 | conversation 外键级联；streaming/completed/failed/cancelled |
 | `index_jobs` | 入库任务事实源 | 唯一幂等键、状态/阶段、租约、尝试、取消和脱敏错误 |
@@ -34,9 +37,11 @@
 
 chunk 从元素派生并保存 `element_ids`、`modality` 和 `parent_element_id`。因此引用可以先定位 chunk，再跳到精确页/元素；后续 parent-child 与 graph 检索仍以原始元素为 provenance，不允许图谱关系替代证据。
 
+Graph-lite 仍以 SQLite 为事实来源。native extractor 只写结构关系、显式英文/中文关系、表格三元组和通过原文 span 校验的 Provider 关系。LightRAG bridge 返回的 element ID 必须属于调用方选择的本地 KB；没有本地 provenance 的 path 被丢弃。
+
 ## 索引版本与向量存储
 
-文档 payload 同时记录 chunker、embedding provider/model/dimension 和 index version。启动 hydration 会比较当前配置：不兼容记录被标记为 `needs_rebuild`，不会与当前维度混用。
+文档 payload 同时记录 parser、enrichment、graph、chunker、embedding provider/model/dimension 和 index version。0.3 默认 `INDEX_VERSION=multimodal-v1`；启动 hydration 会比较当前配置，旧 `hybrid-v1` 或维度不兼容记录被标记为 `needs_rebuild`，不会与新 chunk/向量混用。
 
 - `memory`：进程内 chunk/向量；启动从兼容 registry 文档重建。
 - `chroma`：collection metadata 记录维度、模型和 index version；写入前校验。

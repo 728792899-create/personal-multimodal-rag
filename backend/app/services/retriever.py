@@ -23,6 +23,7 @@ class HybridRetriever:
         embedding_model: str = "",
         vector_store_name: Optional[str] = None,
         query_rewriter: Optional[BaseQueryRewriter] = None,
+        graph_store=None,
         mmr_lambda: float = 0.78,
         bm25_weight: float = 0.62,
         vector_weight: float = 0.38,
@@ -31,6 +32,7 @@ class HybridRetriever:
         self.vector_store = vector_store or MemoryVectorStore()
         self.reranker = reranker or KeywordReranker()
         self.query_rewriter = query_rewriter or NoopQueryRewriter()
+        self.graph_store = graph_store
         self.initial_retrieval_k = initial_retrieval_k
         self.embedding_provider_name = embedding_provider_name or self.embedding_provider.__class__.__name__
         self.embedding_model = embedding_model
@@ -77,6 +79,7 @@ class HybridRetriever:
         candidate_k: Optional[int] = None,
         search_mode: str = "hybrid",
         search_profile: str = "balanced",
+        strategy: str = "hybrid",
         document_ids: Optional[list[str]] = None,
         knowledge_base_ids: Optional[list[str]] = None,
         bm25_weight: Optional[float] = None,
@@ -85,6 +88,10 @@ class HybridRetriever:
         min_score: Optional[float] = None,
         query_rewrite: bool = True,
         rerank_enabled: bool = True,
+        graph_weight: float = 0.25,
+        graph_max_hops: int = 2,
+        modality_filters: Optional[list[str]] = None,
+        parent_window: int = 1,
     ) -> tuple[list[dict], dict]:
         search_mode = search_mode if search_mode in {"hybrid", "keyword", "semantic"} else "hybrid"
         search_profile = search_profile if search_profile in {"balanced", "precision", "recall"} else "balanced"
@@ -94,6 +101,7 @@ class HybridRetriever:
         query_analysis = analyze_query(query)
         document_filter = {item for item in (document_ids or []) if item}
         knowledge_base_filter = {item for item in (knowledge_base_ids or []) if item}
+        modality_filter = {item for item in (modality_filters or []) if item}
         chunks = {
             chunk_id: chunk
             for chunk_id, chunk in self.vector_store.chunks.items()
@@ -102,6 +110,7 @@ class HybridRetriever:
                 not knowledge_base_filter
                 or self._knowledge_base_for_document(chunk.document_id) in knowledge_base_filter
             )
+            and (not modality_filter or chunk.modality in modality_filter)
         }
         try:
             rewritten_queries = self._rewrite_queries(query, enabled=query_rewrite)
@@ -179,6 +188,26 @@ class HybridRetriever:
                 }
             )
 
+        requested_strategy = strategy if strategy in {"hybrid", "hybrid_graph", "auto"} else "hybrid"
+        active_strategy = "hybrid"
+        graph_result: dict | None = None
+        if requested_strategy != "hybrid" and self.graph_store is not None:
+            graph_result = self.graph_store.search(
+                query,
+                knowledge_base_ids=sorted(knowledge_base_filter) or None,
+                max_hops=graph_max_hops,
+            )
+            graph_active = bool(graph_result.get("evidence_element_ids")) and (
+                requested_strategy == "hybrid_graph" or bool(graph_result.get("eligible"))
+            )
+            if graph_active:
+                active_strategy = "hybrid_graph"
+                raw_scores = self._graph_rrf(
+                    raw_scores,
+                    graph_result["evidence_element_ids"],
+                    graph_weight=max(0.0, min(float(graph_weight), 1.0)),
+                )
+
         sorted_scores = sorted(raw_scores, key=lambda item: item["score"], reverse=True)
         deduped = self._dedupe_candidates(sorted_scores)
         candidates = deduped[:active_candidate_k]
@@ -205,6 +234,9 @@ class HybridRetriever:
                 for item in ranked
                 if float(item.get("rerank_score", item["score"])) >= float(min_score)
             ]
+        active_parent_window = max(0, min(int(parent_window), 3))
+        for item in ranked:
+            item["parent_window"] = active_parent_window
         bm25_candidates = sum(1 for item in raw_scores if float(item["bm25_score"]) > 0)
         vector_candidates = sum(1 for item in raw_scores if float(item["vector_score"]) > 0)
         trace = {
@@ -222,8 +254,12 @@ class HybridRetriever:
             "returned": len(ranked),
             "search_mode": search_mode,
             "search_profile": search_profile,
+            "strategy": active_strategy,
+            "graph_requested_strategy": requested_strategy,
             "document_ids": sorted(document_filter),
             "knowledge_base_ids": sorted(knowledge_base_filter),
+            "modality_filters": sorted(modality_filter),
+            "parent_window": active_parent_window,
             "scoring": f"{active_bm25_weight} * normalized BM25 + {active_vector_weight} * vector similarity",
             "bm25_weight": active_bm25_weight,
             "vector_weight": active_vector_weight,
@@ -255,6 +291,26 @@ class HybridRetriever:
                 "rerank": {"status": rerank_status, "returned": len(ranked), "provider": self.reranker.name if rerank_enabled else "off"},
             },
         }
+        if requested_strategy != "hybrid":
+            graph_payload = graph_result or {
+                "seed_count": 0,
+                "seed_nodes": [],
+                "paths": [],
+                "evidence_element_ids": [],
+                "eligible": False,
+                "max_hops": max(1, min(int(graph_max_hops), 4)),
+            }
+            trace["pipeline"]["graph"] = {
+                "status": "success" if active_strategy == "hybrid_graph" else "skipped",
+                "reason": "evidence_fused" if active_strategy == "hybrid_graph" else "auto_gate_or_no_path",
+                "weight": max(0.0, min(float(graph_weight), 1.0)),
+                "seed_count": int(graph_payload.get("seed_count", 0)),
+                "seed_nodes": graph_payload.get("seed_nodes", []),
+                "paths": graph_payload.get("paths", []),
+                "evidence_element_ids": graph_payload.get("evidence_element_ids", []),
+                "eligible": bool(graph_payload.get("eligible")),
+                "max_hops": graph_payload.get("max_hops", graph_max_hops),
+            }
         return ranked, trace
 
     def _knowledge_base_for_document(self, document_id: str) -> str:
@@ -325,6 +381,37 @@ class HybridRetriever:
         for item in ranked:
             item["rerank_score"] = item["score"]
         return ranked
+
+    @staticmethod
+    def _graph_rrf(raw_scores: list[dict], evidence_element_ids: list[str], *, graph_weight: float) -> list[dict]:
+        if not raw_scores or not evidence_element_ids or graph_weight <= 0:
+            return raw_scores
+        base_sorted = sorted(raw_scores, key=lambda item: item["score"], reverse=True)
+        base_ranks = {item["chunk"].chunk_id: rank for rank, item in enumerate(base_sorted, start=1)}
+        evidence_ranks = {element_id: rank for rank, element_id in enumerate(evidence_element_ids, start=1)}
+        graph_rank_by_chunk: dict[str, int] = {}
+        for item in raw_scores:
+            ranks = [evidence_ranks[element_id] for element_id in item["chunk"].element_ids if element_id in evidence_ranks]
+            if ranks:
+                graph_rank_by_chunk[item["chunk"].chunk_id] = min(ranks)
+        for item in raw_scores:
+            chunk_id = item["chunk"].chunk_id
+            base_rank = base_ranks[chunk_id]
+            graph_rank = graph_rank_by_chunk.get(chunk_id)
+            base_rrf = (1 - graph_weight) / (60 + base_rank)
+            graph_rrf = graph_weight / (60 + graph_rank) if graph_rank is not None else 0.0
+            original_score = item["score"]
+            item["score"] = 61 * (base_rrf + graph_rrf)
+            item["score_breakdown"].update(
+                {
+                    "pre_graph_score": round(original_score, 6),
+                    "base_rrf_rank": base_rank,
+                    "graph_rrf_rank": graph_rank,
+                    "graph_weight": graph_weight,
+                    "graph_rrf_fused": round(item["score"], 6),
+                }
+            )
+        return raw_scores
 
     def _token_overlap(self, left: Chunk, right: Chunk) -> float:
         left_tokens = set(self.chunk_tokens.get(left.chunk_id, tokenize(left.text)))

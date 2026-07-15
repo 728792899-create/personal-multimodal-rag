@@ -95,6 +95,8 @@ CHROMA_COLLECTION=personal_knowledge_openai_v1
 | `GROUNDING_MIN_CONFIDENCE` | 0.15 | grounding 最低置信度 |
 | `CITATION_OVERLAP_THRESHOLD` | 0.34 | 引用文本重合阈值 |
 | `MMR_LAMBDA` | 0.78 | MMR 相关性权重 |
+| `GRAPH_WEIGHT` | 0.25 | `hybrid_graph` 加权 RRF 的图谱权重 |
+| `GRAPH_MAX_HOPS` | 2 | 图路径最大跳数，API 仍限制为 1–4 |
 
 不要只因为一条演示问题失败就修改全局阈值。先把问题加入 eval draft，判断是召回、排序、切分、引用还是拒答门，再用固定集比较改动前后。
 
@@ -117,6 +119,20 @@ CHROMA_COLLECTION=personal_knowledge_openai_v1
 
 `APP_ENVIRONMENT=local/test/development` 默认允许显式模板 fallback；production 默认不允许。外部 Provider 未配置/不可用时返回脱敏 `503`，避免生产流量静默变成模板回答。`/api/providers/status` 只返回能力、配置完整性和模式，不返回 Key 或带凭据 URL。
 
+### Multimodal enrichment
+
+| 变量 | 默认 | 说明 |
+| --- | --- | --- |
+| `ENRICHMENT_PROVIDER` | `template` | `template`、`openai_responses`、`openai_compatible_vision` 或 `ollama_vision` |
+| `ENRICHMENT_MODEL` | `gpt-5.6` | 视觉/结构化输出模型名；可覆盖 |
+| `ENRICHMENT_BASE_URL` | 空 | Responses 未设置时使用官方端点；compatible provider 必填 |
+| `ENRICHMENT_API_KEY` | 空 | 未设置时回退 `OPENAI_API_KEY`；永不返回浏览器 |
+| `ENRICHMENT_PROMPT_VERSION` | `multimodal-v1` | enrichment cache 与可审计提取版本 |
+| `ENRICHMENT_IMAGE_DETAIL` | `auto` | Responses 支持 `low/high/original/auto`；兼容端点按能力降级 |
+| `ENRICHMENT_CONTEXT_CHARS` | 8000 | 相邻页/元素上下文硬上限 |
+
+默认 template 从 OCR、表格矩阵、公式和相邻文本生成确定性描述，不调用网络。外部 provider 使用严格 JSON schema；关系只有在 `evidence_span` 确实出现在原元素时才写入图谱。local/test 可显式允许 template fallback，production fail closed。
+
 ### Ollama
 
 | 变量 | 默认 | 说明 |
@@ -134,7 +150,8 @@ CHROMA_COLLECTION=personal_knowledge_openai_v1
 | `DOCUMENT_REGISTRY_PATH` | `./data/registry.sqlite3` | SQLite registry |
 | `OBJECT_STORE_PATH` | `./data/objects` | 内容寻址的原件与派生资源目录；不要直接作为静态目录公开 |
 | `CHUNKER_VERSION` | `paragraph-v1` | 写入文档和幂等键的 chunker 版本 |
-| `INDEX_VERSION` | `hybrid-v1` | 索引兼容门；变化后需要 rebuild |
+| `INDEX_VERSION` | `multimodal-v1` | parser/enrichment/chunk/graph 总兼容门；变化后需要 rebuild |
+| `PARSER_VERSION` | `builtin-elements-v1` | 内置 IR 提取版本，写入文档 metadata |
 | `INGESTION_POLL_SECONDS` | `0.10` | 本地 worker 空闲轮询间隔 |
 | `INGESTION_LEASE_SECONDS` | `120` | 任务 claim 租约 |
 | `PARSER_PROVIDER` | `builtin` | `builtin` 不下载模型；`mineru/docling/paddleocr` 通过隔离 worker |

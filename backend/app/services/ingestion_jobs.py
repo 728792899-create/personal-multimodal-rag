@@ -18,7 +18,19 @@ class JobCancelled(Exception):
 
 
 class IngestionWorker:
-    def __init__(self, registry, processor, retriever, settings, *, fetcher=fetch_url, object_store=None, parser_client=None):
+    def __init__(
+        self,
+        registry,
+        processor,
+        retriever,
+        settings,
+        *,
+        fetcher=fetch_url,
+        object_store=None,
+        parser_client=None,
+        enrichment_service=None,
+        graph_store=None,
+    ):
         self.registry = registry
         self.processor = processor
         self.retriever = retriever
@@ -26,6 +38,8 @@ class IngestionWorker:
         self.fetcher = fetcher
         self.object_store = object_store or LocalObjectStore(settings.object_store_path)
         self.parser_client = parser_client
+        self.enrichment_service = enrichment_service
+        self.graph_store = graph_store
         self.worker_id = f"local-{uuid.uuid4().hex[:10]}"
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -144,6 +158,8 @@ class IngestionWorker:
                 "embedding_model": self.settings.embedding_model,
                 "embedding_dimension": self.settings.resolved_embedding_dimension(),
                 "index_version": self.settings.index_version,
+                "parser_version": self.settings.parser_version,
+                "enrichment_version": self.settings.enrichment_prompt_version,
                 "parser_provider": parser_provider,
                 "parser_profile": parser_profile,
             }
@@ -160,26 +176,47 @@ class IngestionWorker:
         self._check_cancel(job["id"])
         self.registry.update_index_job(job["id"], stage="extract_elements", progress=35)
         self._check_cancel(job["id"])
+        self.registry.update_index_job(job["id"], stage="enrich_modalities", progress=42)
+        enrich_modalities = bool(job["payload"].get("enrich_modalities", True))
+        enrichment_started = datetime.utcnow()
+        if enrich_modalities and self.enrichment_service is not None:
+            self.enrichment_service.enrich_document(document)
+        enrichment_ended = datetime.utcnow()
+        self._check_cancel(job["id"])
         self.registry.update_index_job(job["id"], stage="chunk", progress=50)
         split_started = datetime.utcnow()
         chunks = self.processor.split(document)
         split_ended = datetime.utcnow()
         self._check_cancel(job["id"])
-        self.registry.update_index_job(job["id"], stage="embed", progress=70)
+        self.registry.update_index_job(job["id"], stage="embed", progress=65)
         index_started = datetime.utcnow()
         self.retriever.add_document(document, chunks)
         index_ended = datetime.utcnow()
         self._check_cancel(job["id"])
-        self.registry.update_index_job(job["id"], stage="quality", progress=90)
+        self.registry.update_index_job(job["id"], stage="graph_extract", progress=78)
         document.metadata["index_status"] = "indexed"
         document.metadata["lifecycle"] = [
             lifecycle_event("parse", "success", parse_started, parse_ended),
+            lifecycle_event(
+                "enrich_modalities",
+                "success" if enrich_modalities else "skipped",
+                enrichment_started,
+                enrichment_ended,
+            ),
             lifecycle_event("chunk", "success", split_started, split_ended),
             lifecycle_event("index", "success", index_started, index_ended),
         ]
         document.metadata["quality"] = assess_document_quality(document, chunks)
         document.metadata["summary"] = summarize_document(document, chunks)
         self.registry.save_document(document)
+        build_graph = bool(job["payload"].get("build_graph", True))
+        self.registry.update_index_job(job["id"], stage="graph_write", progress=84)
+        if build_graph and self.graph_store is not None:
+            document.metadata["graph"] = self.graph_store.build_document(document)
+            document.metadata["quality"] = assess_document_quality(document, chunks)
+            self.registry.save_document(document)
+        self._check_cancel(job["id"])
+        self.registry.update_index_job(job["id"], stage="quality", progress=90)
         asset_id = str(job["payload"].get("asset_id") or "")
         if asset_id:
             self.registry.link_asset(asset_id, document.document_id)

@@ -96,6 +96,56 @@ class ResponsesClient:
                 return json.loads(text[start : end + 1])
             raise
 
+    def create_structured(
+        self,
+        prompt: str,
+        *,
+        schema: dict,
+        schema_name: str,
+        image_data_url: str = "",
+        image_detail: str = "auto",
+    ) -> Any:
+        content: list[dict] = [{"type": "input_text", "text": prompt}]
+        if image_data_url:
+            content.append(
+                {
+                    "type": "input_image",
+                    "image_url": image_data_url,
+                    "detail": image_detail if image_detail in {"low", "high", "original", "auto"} else "auto",
+                }
+            )
+        payload = {
+            "model": self.model,
+            "input": [{"role": "user", "content": content}],
+            "text": {
+                "format": {
+                    "type": "json_schema",
+                    "name": schema_name,
+                    "strict": True,
+                    "schema": schema,
+                }
+            },
+            "store": False,
+        }
+        request = {
+            "url": f"{self.base_url}/responses",
+            "headers": {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            },
+            "json": payload,
+            "timeout": self.timeout_seconds,
+        }
+        response = self.http_client.post(**request) if self.http_client is not None else httpx.post(**request)
+        response.raise_for_status()
+        text = self._extract_text(response.json()).strip()
+        if not text:
+            raise ValueError("Responses API returned no structured output")
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise ValueError("Responses API returned invalid structured JSON") from exc
+
     def _extract_text(self, payload: dict) -> str:
         if isinstance(payload.get("output_text"), str):
             return payload["output_text"]

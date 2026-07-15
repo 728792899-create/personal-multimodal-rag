@@ -77,6 +77,7 @@ URL 导入只允许公开 HTTP(S) 地址。回环、内网、链路本地、嵌�
 | --- | --- | --- |
 | GET / POST | `/api/knowledge-bases` | 列表 / 创建知识库 |
 | PATCH | `/api/knowledge-bases/{id}` | 改名或更新描述 |
+| GET | `/api/knowledge-bases/{id}/graph?limit=500` | provenance-backed Graph-lite 快照；只返回所选 KB |
 | DELETE | `/api/knowledge-bases/{id}?force=false` | 有文档/终态任务时需 `force=true`；活动任务始终 `409`；默认库不可删除 |
 | POST | `/api/ingestions/file` | multipart 文件入队，返回 `202` + `IndexJob` |
 | POST | `/api/ingestions/url` | URL 入队，返回 `202` + `IndexJob` |
@@ -84,7 +85,7 @@ URL 导入只允许公开 HTTP(S) 地址。回环、内网、链路本地、嵌�
 | POST | `/api/index-jobs/{id}/retry` | 仅 failed/cancelled 可重试 |
 | DELETE | `/api/index-jobs/{id}` | 请求取消；running 先进入 cancelling |
 
-文件表单字段是 `file`、`knowledge_base_id` 与可选 `parser_profile`。默认 profile 为 `builtin`；`mineru/docling/paddleocr/auto` 需要隔离 parser worker。任务状态为 `queued/running/succeeded/failed/cancelling/cancelled`；0.3 阶段包含 `receive/validate/parse/extract_elements/chunk/embed/quality/complete`，后续 graph/enrichment 阶段保持向后兼容。重复幂等请求会返回已有任务，不重复创建文档。
+文件表单字段是 `file`、`knowledge_base_id`、可选 `parser_profile`、`enrich_modalities` 和 `build_graph`。默认是 `builtin/true/true`；`mineru/docling/paddleocr/auto` 需要隔离 parser worker。任务状态为 `queued/running/succeeded/failed/cancelling/cancelled`；阶段包含 `receive/validate/parse/extract_elements/enrich_modalities/chunk/embed/graph_extract/graph_write/quality/complete`。重复幂等请求会返回已有任务，不重复创建文档。
 
 强制删除知识库会级联清理其文档与终态任务，并从持久会话范围移除该库；若会话不再选择任何库，则回退到默认库。为避免 worker 写回已删除空间，仍处于 queued/running/cancelling 的任务必须先取消并等待终态。
 
@@ -134,6 +135,7 @@ curl --fail-with-body \
 | `candidate_k` | 1–80 或 null | provider 默认 | 初始候选池 |
 | `search_mode` | hybrid / keyword / semantic | hybrid | 召回分支 |
 | `search_profile` | balanced / precision / recall | balanced | 目标导向预设 |
+| `strategy` | hybrid / hybrid_graph / auto | hybrid | 图谱显式启用或按多跳/多实体门控 |
 | `document_ids` | string[] | [] | 空数组代表全库 |
 | `knowledge_base_ids` | string[] | [] | 缺省使用默认库；先隔离 KB 再应用文档筛选 |
 | `bm25_weight` | 0–1 或 null | 环境默认 | 融合词法权重 |
@@ -142,6 +144,12 @@ curl --fail-with-body \
 | `min_score` | 0–1 或 null | 环境默认 | 请求级最低分 |
 | `query_rewrite` | boolean | true | 是否允许查询改写 adapter |
 | `rerank_enabled` | boolean | true | 是否运行 reranker |
+| `graph_weight` | 0–1 | 0.25 | Graph evidence 在加权 RRF 中的权重 |
+| `graph_max_hops` | 1–4 | 2 | provenance-backed path 最大跳数 |
+| `modality_filters` | element type[] | [] | 只召回指定 text/image/table/equation 等 chunk |
+| `parent_window` | 0–3 | 1 | 引用 parent-child 相邻 chunk 窗口 |
+
+`hybrid_graph` 不把图边直接当答案：图只返回 element ID，再映射到现有 chunk 参与 RRF。`auto` 只有在至少两个 entity seed 或明确多跳意图、且存在可验证路径时启用；图谱后仍运行 MMR、rerank、拒答与引用审计。
 
 ### 问答响应结构
 

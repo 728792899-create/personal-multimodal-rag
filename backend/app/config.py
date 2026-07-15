@@ -44,6 +44,15 @@ class Settings:
     grounding_min_confidence: float = float(os.getenv("GROUNDING_MIN_CONFIDENCE", "0.15"))
     citation_overlap_threshold: float = float(os.getenv("CITATION_OVERLAP_THRESHOLD", "0.34"))
     mmr_lambda: float = float(os.getenv("MMR_LAMBDA", "0.78"))
+    graph_weight: float = float(os.getenv("GRAPH_WEIGHT", "0.25"))
+    graph_max_hops: int = int(os.getenv("GRAPH_MAX_HOPS", "2"))
+    enrichment_provider: str = os.getenv("ENRICHMENT_PROVIDER", "template")
+    enrichment_model: str = os.getenv("ENRICHMENT_MODEL", os.getenv("OPENAI_MODEL", "gpt-5.6"))
+    enrichment_base_url: str = os.getenv("ENRICHMENT_BASE_URL", os.getenv("OPENAI_BASE_URL", ""))
+    enrichment_api_key: str = os.getenv("ENRICHMENT_API_KEY", os.getenv("OPENAI_API_KEY", ""))
+    enrichment_prompt_version: str = os.getenv("ENRICHMENT_PROMPT_VERSION", "multimodal-v1")
+    enrichment_image_detail: str = os.getenv("ENRICHMENT_IMAGE_DETAIL", "auto")
+    enrichment_context_chars: int = int(os.getenv("ENRICHMENT_CONTEXT_CHARS", "8000"))
 
     answer_provider: str = os.getenv("ANSWER_PROVIDER", "template")
     answer_model: str = os.getenv("ANSWER_MODEL", os.getenv("OPENAI_MODEL", "gpt-5.6"))
@@ -80,7 +89,8 @@ class Settings:
         "1" if os.getenv("APP_ENVIRONMENT", "local") in {"local", "test", "development"} else "0",
     ).strip().lower() in {"1", "true", "yes", "on"}
     chunker_version: str = os.getenv("CHUNKER_VERSION", "paragraph-v1")
-    index_version: str = os.getenv("INDEX_VERSION", "hybrid-v1")
+    index_version: str = os.getenv("INDEX_VERSION", "multimodal-v1")
+    parser_version: str = os.getenv("PARSER_VERSION", "builtin-elements-v1")
     ingestion_poll_seconds: float = float(os.getenv("INGESTION_POLL_SECONDS", "0.10"))
     ingestion_lease_seconds: int = int(os.getenv("INGESTION_LEASE_SECONDS", "120"))
     parser_provider: str = os.getenv("PARSER_PROVIDER", "builtin")

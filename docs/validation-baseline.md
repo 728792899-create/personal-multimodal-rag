@@ -46,6 +46,22 @@
 
 黄金集实测：Recall@5 1.0000、MRR 0.9844、首条引用准确率 0.9688、拒答准确率 1.0000、回答接受准确率 1.0000。
 
+## 0.3 Graph Retrieval 第二阶段验收
+
+2026-07-15 在 `codex/graph-retrieval` 执行 `npm run verify`。所有 Provider 测试继续使用 template 或 `httpx.MockTransport`，Key 被显式清空，没有外部模型请求。
+
+| 项目 | 真实结果 |
+| --- | --- |
+| 文档/图片 | 33 Markdown、10 SVG、12 raster 通过；secret scan 检查 210 个候选 |
+| 后端 pytest | 97 passed；新增 v4→v5 迁移、Graph provenance/KB 隔离、视觉契约、重试/熔断与 LightRAG 白名单 |
+| 前端 Vitest | 4 files / 13 tests passed |
+| `npm run build` | 通过；JS 128.65 kB（gzip 45.09），CSS 25.66 kB（gzip 5.35） |
+| Demo smoke | 1 passed |
+| Playwright | 6 passed；desktop Chromium + 390px mobile Chromium |
+| 黄金集 | 40（32 answerable / 8 refusal），五项原有阈值全部通过 |
+
+黄金集保持 Recall@5 1.0000、MRR 0.9844、首条引用准确率 0.9688、拒答准确率 1.0000、回答接受准确率 1.0000。Graph 专项当前由 13 个确定性后端契约覆盖；100 条多模态/graph 固定集和 Browser 图谱 UI 验收属于第三阶段，尚未提前声称完成。
+
 ## Docker Compose
 
 - `docker compose config --quiet` 通过。

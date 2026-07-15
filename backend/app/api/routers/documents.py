@@ -16,13 +16,14 @@ from app.api.common import (
     index_document,
 )
 from app.config import settings
-from app.core.store import object_store, processor, registry, retriever
+from app.core.store import enrichment_service, graph_store, object_store, processor, registry, retriever
 from app.models.domain import Document
 from app.models.schemas import UrlImportRequest
 from app.services.document_quality import assess_document_quality, lifecycle_event, summarize_document
 from app.services.document_processor import SUPPORTED_EXTENSIONS
 from app.services.safe_logging import redact_private_metadata, redact_sensitive_text, sanitize_url_for_log
 from app.services.multimodal_assets import delete_document_assets, materialize_document_assets
+from app.services.multimodal_enrichment import ProviderUnavailableError
 from app.services.url_importer import fetch_url
 
 
@@ -194,6 +195,17 @@ async def upload_document(file: UploadFile = File(...), knowledge_base_id: str =
             level="warning",
         )
         raise
+    except ProviderUnavailableError as exc:
+        registry.log_operation(
+            "document_upload_failed",
+            f"文档 enrichment provider 不可用：{safe_name or '未命名文件'}",
+            {"filename": safe_name, "error": redact_sensitive_text(exc)},
+            level="error",
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Configured multimodal enrichment provider is unavailable; inspect provider status.",
+        ) from exc
     except ValueError as exc:
         message = friendly_index_error(exc)
         registry.log_operation(
@@ -341,6 +353,7 @@ def _rebuild(doc: Document) -> tuple[Document, list]:
             if element.type == "image" and element.metadata.get("source_asset_role"):
                 element.asset_id = str(doc.metadata.get("source_asset_id") or "") or None
     rebuilt_doc.metadata["index_status"] = "indexing"
+    enrichment_service.enrich_document(rebuilt_doc)
     split_started = datetime.utcnow()
     chunks = processor.split(rebuilt_doc)
     split_ended = datetime.utcnow()
@@ -355,6 +368,9 @@ def _rebuild(doc: Document) -> tuple[Document, list]:
     ]
     rebuilt_doc.metadata["quality"] = assess_document_quality(rebuilt_doc, chunks)
     rebuilt_doc.metadata["summary"] = summarize_document(rebuilt_doc, chunks)
+    registry.save_document(rebuilt_doc)
+    rebuilt_doc.metadata["graph"] = graph_store.build_document(rebuilt_doc)
+    rebuilt_doc.metadata["quality"] = assess_document_quality(rebuilt_doc, chunks)
     registry.save_document(rebuilt_doc)
     return rebuilt_doc, chunks
 

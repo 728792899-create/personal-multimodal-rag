@@ -1,5 +1,5 @@
 import { apiRequest, jsonBody } from './client'
-import type { KnowledgeBase, RequestOptions } from './types'
+import type { KnowledgeBase, KnowledgeGraph, RequestOptions } from './types'
 
 
 export async function listKnowledgeBases(options: RequestOptions = {}): Promise<KnowledgeBase[]> {
@@ -19,4 +19,8 @@ export async function updateKnowledgeBase(id: string, name: string, description?
 
 export function deleteKnowledgeBase(id: string, force = false, options: RequestOptions = {}) {
   return apiRequest(`/api/knowledge-bases/${encodeURIComponent(id)}?force=${force}`, { method: 'DELETE' }, options)
+}
+
+export function getKnowledgeBaseGraph(id: string, limit = 500, options: RequestOptions = {}): Promise<KnowledgeGraph> {
+  return apiRequest(`/api/knowledge-bases/${encodeURIComponent(id)}/graph?limit=${Math.max(1, Math.min(limit, 2000))}`, {}, options)
 }

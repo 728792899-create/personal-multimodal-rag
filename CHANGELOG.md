@@ -12,6 +12,10 @@
 - 可选隔离 parser worker，固定 RAG-Anything `1.3.1`/`a8c27f7`，支持 MinerU、Docling、PaddleOCR profile 与 `content_list` 转换。
 - 递归/增量/并发上限/`dry-run` 批量目录导入 CLI，以及解析器能力与元素/资源 API。
 - [RAG-Anything 固定提交对比审查](docs/comparative-review-rag-anything.md)。
+- SQLite schema v5 provenance-backed Graph-lite、中文/英文显式关系、表格三元组、知识库隔离与受控 LightRAG 导航 adapter。
+- 上下文感知 template/OpenAI Responses/OpenAI-compatible/Ollama vision enrichment、版本化缓存、结构化输出与 `store:false` Responses 契约。
+- `hybrid_graph`/`auto`、加权 RRF、模态过滤、可配置 parent context，以及 graph seed/path/evidence Trace。
+- Provider/parser 指数退避、抖动和熔断；版面、OCR、caption、表格、公式、孤立资源与图谱覆盖指标。
 
 ## 0.2.0-beta
 

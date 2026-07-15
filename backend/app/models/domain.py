@@ -84,3 +84,37 @@ class Chunk(BaseModel):
     @property
     def index(self) -> int:
         return self.chunk_index
+
+
+class GraphNode(BaseModel):
+    node_id: str
+    knowledge_base_id: str
+    type: Literal["document", "element", "entity"]
+    label: str
+    normalized_label: str
+    document_id: Optional[str] = None
+    element_id: Optional[str] = None
+    properties: dict[str, Any] = Field(default_factory=dict)
+
+
+class GraphEdge(BaseModel):
+    edge_id: str
+    knowledge_base_id: str
+    source_node_id: str
+    target_node_id: str
+    relation: str
+    document_id: str
+    evidence_element_ids: list[str] = Field(min_length=1)
+    evidence_span: str = ""
+    confidence: float = Field(ge=0, le=1)
+    extraction_version: str
+    properties: dict[str, Any] = Field(default_factory=dict)
+
+
+class GraphPath(BaseModel):
+    node_ids: list[str] = Field(default_factory=list)
+    edge_ids: list[str] = Field(default_factory=list)
+    labels: list[str] = Field(default_factory=list)
+    relations: list[str] = Field(default_factory=list)
+    evidence_element_ids: list[str] = Field(default_factory=list)
+    score: float = 0

@@ -244,6 +244,11 @@ def test_knowledge_base_and_async_ingestion_api(monkeypatch, tmp_path):
         assert terminal["document_id"]
         detail = client.get(f"/api/documents/{terminal['document_id']}").json()
         assert detail["document"]["metadata"]["knowledge_base_id"] == knowledge_base_id
+        assert detail["document"]["metadata"]["enrichment"]["provider"] == "template"
+        assert detail["document"]["metadata"]["graph"]["node_count"] >= 2
+        graph = client.get(f"/api/knowledge-bases/{knowledge_base_id}/graph")
+        assert graph.status_code == 200
+        assert graph.json()["summary"]["evidence_element_count"] >= 1
 
         blocked = client.delete(f"/api/knowledge-bases/{knowledge_base_id}")
         assert blocked.status_code == 409

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from app.config import settings
 from app.services.document_processor import DocumentProcessor
 from app.services.document_registry import DocumentRegistry
@@ -23,7 +25,22 @@ from app.services.vectorstore import ChromaVectorStore, MemoryVectorStore, PgVec
 from app.services.ingestion_jobs import IngestionWorker
 from app.services.object_store import LocalObjectStore
 from app.services.parser_worker import ParserWorkerClient
-from app.services.provider_clients import OllamaChatClient, OpenAICompatibleChatClient
+from app.services.provider_clients import (
+    OllamaChatClient,
+    OllamaVisionClient,
+    OpenAICompatibleChatClient,
+    OpenAICompatibleVisionClient,
+)
+from app.services.context_window import ContextWindowBuilder
+from app.services.graph_store import NativeGraphStore
+from app.services.multimodal_enrichment import (
+    MultimodalEnrichmentService,
+    FallbackMultimodalEnricher,
+    UnavailableMultimodalEnricher,
+    ResponsesVisionEnricher,
+    StructuredVisionEnricher,
+    TemplateMultimodalEnricher,
+)
 
 
 def create_embedding_provider():
@@ -148,12 +165,86 @@ def create_query_rewriter():
     raise ValueError(f"Unsupported QUERY_REWRITE_PROVIDER: {settings.query_rewrite_provider}")
 
 
+def create_multimodal_enricher():
+    provider = settings.enrichment_provider.lower()
+    if provider in {"template", "local", "none"}:
+        return TemplateMultimodalEnricher()
+    if provider in {"responses", "openai-responses", "openai_responses"}:
+        try:
+            primary = ResponsesVisionEnricher(
+                ResponsesClient(
+                    api_key=settings.enrichment_api_key,
+                    base_url=settings.enrichment_base_url,
+                    model=settings.enrichment_model,
+                    timeout_seconds=settings.answer_timeout_seconds,
+                ),
+                image_detail=settings.enrichment_image_detail,
+            )
+            return FallbackMultimodalEnricher(primary) if settings.provider_fallback_allowed else primary
+        except Exception:
+            if settings.provider_fallback_allowed:
+                return TemplateMultimodalEnricher()
+            return UnavailableMultimodalEnricher("openai_responses", "missing provider configuration")
+    if provider in {"openai-compatible-vision", "openai_compatible_vision"}:
+        try:
+            primary = StructuredVisionEnricher(
+                OpenAICompatibleVisionClient(
+                    base_url=settings.enrichment_base_url,
+                    model=settings.enrichment_model,
+                    api_key=settings.enrichment_api_key,
+                    timeout_seconds=settings.answer_timeout_seconds,
+                ),
+                provider="openai_compatible_vision",
+                image_detail=settings.enrichment_image_detail,
+            )
+            return FallbackMultimodalEnricher(primary) if settings.provider_fallback_allowed else primary
+        except Exception:
+            if settings.provider_fallback_allowed:
+                return TemplateMultimodalEnricher()
+            return UnavailableMultimodalEnricher("openai_compatible_vision", "missing provider configuration")
+    if provider in {"ollama", "ollama-vision", "ollama_vision"}:
+        primary = StructuredVisionEnricher(
+            OllamaVisionClient(
+                base_url=settings.ollama_base_url,
+                model=settings.enrichment_model,
+                timeout_seconds=settings.answer_timeout_seconds,
+            ),
+            provider="ollama_vision",
+            image_detail=settings.enrichment_image_detail,
+        )
+        return FallbackMultimodalEnricher(primary) if settings.provider_fallback_allowed else primary
+    raise ValueError(f"Unsupported ENRICHMENT_PROVIDER: {settings.enrichment_provider}")
+
+
 processor = DocumentProcessor()
 registry = DocumentRegistry(settings.document_registry_path)
 object_store = LocalObjectStore(settings.object_store_path)
 parser_worker_client = ParserWorkerClient(
     settings.parser_worker_url,
     timeout_seconds=settings.parser_timeout_seconds,
+)
+graph_store = NativeGraphStore(registry)
+
+
+def _load_asset(asset_id: str) -> tuple[bytes, str] | None:
+    asset = registry.get_asset(asset_id, include_private=True)
+    if not asset:
+        return None
+    try:
+        path = object_store.path_for(asset["object_key"])
+    except ValueError:
+        return None
+    if not path.is_file():
+        return None
+    return path.read_bytes(), str(asset.get("media_type") or "application/octet-stream")
+
+
+enrichment_service = MultimodalEnrichmentService(
+    registry,
+    create_multimodal_enricher(),
+    ContextWindowBuilder(max_context_chars=settings.enrichment_context_chars),
+    prompt_version=settings.enrichment_prompt_version,
+    asset_loader=_load_asset,
 )
 retriever = HybridRetriever(
     embedding_provider=create_embedding_provider(),
@@ -164,6 +255,7 @@ retriever = HybridRetriever(
     embedding_model=settings.embedding_model,
     vector_store_name=settings.vector_store.lower(),
     query_rewriter=create_query_rewriter(),
+    graph_store=graph_store,
     mmr_lambda=settings.mmr_lambda,
     bm25_weight=settings.bm25_weight,
     vector_weight=settings.vector_weight,
@@ -193,4 +285,6 @@ ingestion_worker = IngestionWorker(
     settings,
     object_store=object_store,
     parser_client=parser_worker_client,
+    enrichment_service=enrichment_service,
+    graph_store=graph_store,
 )

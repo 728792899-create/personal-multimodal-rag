@@ -19,7 +19,7 @@ from app.services.multimodal_assets import materialize_document_assets
 
 def test_schema_v4_persists_document_elements_assets_and_parser_runs(tmp_path: Path):
     registry = DocumentRegistry(str(tmp_path / "registry.sqlite3"))
-    assert registry.schema_version == 4
+    assert registry.schema_version == 5
 
     document = DocumentProcessor().parse_text_source(
         "# Architecture\n\nThe parser emits typed elements.",

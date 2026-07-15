@@ -21,6 +21,18 @@ export interface DocumentQuality {
   max_chunk_length: number
   weird_char_ratio: number
   duplicate_chunk_ratio: number
+  multimodal?: {
+    modality_counts: Record<string, number>
+    layout_bbox_coverage: number
+    ocr_confidence: number | null
+    caption_alignment: number
+    table_structure_accuracy: number
+    formula_extraction_accuracy: number
+    orphan_asset_count: number
+    graph_evidence_coverage: number
+    index_version: string
+    index_status: string
+  }
   signals: Array<{ level: 'info' | 'warning' | 'error'; message: string; delta: number }>
   suggestions: string[]
   updated_at: string
@@ -60,12 +72,13 @@ export interface ChunkResult {
   cross_encoder_score: number | null
   matched_terms: string[]
   snippet: string
-  score_breakdown: Record<string, number>
+  score_breakdown: Record<string, number | null>
   parent_context?: {
     strategy: string
     text: string
     chunk_ids: string[]
     current_chunk_id?: string
+    window?: number
   }
 }
 
@@ -121,6 +134,17 @@ export interface PipelineTrace {
   rerank?: { status: string; returned: number; provider: string }
   decision?: { status: 'refused' | 'answered'; reason: string; threshold: number; confidence: number }
   citation_audit?: { coverage: number; grounding: number; status: string }
+  graph?: {
+    status: 'success' | 'skipped' | string
+    reason: string
+    weight: number
+    seed_count: number
+    seed_nodes: GraphNode[]
+    paths: GraphPath[]
+    evidence_element_ids: string[]
+    eligible: boolean
+    max_hops: number
+  }
 }
 
 export interface RetrievalTrace {
@@ -134,6 +158,8 @@ export interface RetrievalTrace {
   vector_weight: number
   search_mode: SearchMode
   search_profile: SearchProfile
+  strategy?: RetrievalStrategy
+  graph_requested_strategy?: RetrievalStrategy
   available_chunks: number
   raw_candidates: number
   bm25_candidates?: number
@@ -143,6 +169,8 @@ export interface RetrievalTrace {
   returned: number
   document_ids: string[]
   knowledge_base_ids?: string[]
+  modality_filters?: DocumentElementType[]
+  parent_window?: number
   embedding_provider: string
   embedding_model: string
   vector_store: string
@@ -230,6 +258,8 @@ export interface CitationAudit {
 
 export type SearchMode = 'hybrid' | 'keyword' | 'semantic'
 export type SearchProfile = 'balanced' | 'precision' | 'recall'
+export type RetrievalStrategy = 'hybrid' | 'hybrid_graph' | 'auto'
+export type DocumentElementType = 'text' | 'heading' | 'image' | 'table' | 'equation' | 'code' | 'mixed'
 export type WorkMode = 'answer' | 'search'
 export type AppMode = 'user' | 'expert'
 
@@ -238,6 +268,7 @@ export interface RetrievalOptions {
   candidate_k?: number
   search_mode?: SearchMode
   search_profile?: SearchProfile
+  strategy?: RetrievalStrategy
   document_ids?: string[]
   knowledge_base_ids?: string[]
   bm25_weight?: number
@@ -246,6 +277,57 @@ export interface RetrievalOptions {
   min_score?: number
   query_rewrite?: boolean
   rerank_enabled?: boolean
+  graph_weight?: number
+  graph_max_hops?: number
+  modality_filters?: DocumentElementType[]
+  parent_window?: number
+}
+
+export interface GraphNode {
+  node_id: string
+  knowledge_base_id: string
+  type: 'document' | 'element' | 'entity'
+  label: string
+  normalized_label: string
+  document_id: string | null
+  element_id: string | null
+  properties: Record<string, unknown>
+}
+
+export interface GraphEdge {
+  edge_id: string
+  knowledge_base_id: string
+  source_node_id: string
+  target_node_id: string
+  relation: string
+  document_id: string
+  evidence_element_ids: string[]
+  evidence_span: string
+  confidence: number
+  extraction_version: string
+  properties: Record<string, unknown>
+}
+
+export interface GraphPath {
+  node_ids?: string[]
+  edge_ids?: string[]
+  labels: string[]
+  relations: string[]
+  evidence_element_ids: string[]
+  score: number
+  backend?: string
+}
+
+export interface KnowledgeGraph {
+  knowledge_base_id: string
+  nodes: GraphNode[]
+  edges: GraphEdge[]
+  summary: {
+    node_count: number
+    edge_count: number
+    evidence_element_count: number
+    extraction_version: string
+  }
 }
 
 export interface SearchResponse {
@@ -380,7 +462,7 @@ export interface EvaluationResult {
 }
 
 export interface SystemMetrics {
-  knowledge: { document_count: number; chunk_count: number; avg_quality_score: number; low_quality_count: number }
+  knowledge: { document_count: number; chunk_count: number; avg_quality_score: number; low_quality_count: number; modality_counts?: Record<string, number> }
   answering: {
     history_count: number
     avg_confidence: number
@@ -398,7 +480,10 @@ export interface SystemMetrics {
     retry_count: number
     by_status: Record<string, number>
     index_version_mismatch_count: number
+    parser_fallback_count?: number
+    enrichment_fallback_count?: number
   }
+  graph?: { indexed_document_count: number; node_count: number; edge_count: number; retrieval_hit_count: number }
   feedback: FeedbackStats
   operations: {
     total: number
@@ -472,10 +557,17 @@ export interface ProviderStatus {
   environment: string
   fallback_allowed: boolean
   providers: {
-    answer: { provider: string; configured: boolean; mode: string; capabilities: string[] }
-    embedding: { provider: string; configured: boolean; mode: string; capabilities: string[] }
-    vector_store: { provider: string; configured: boolean }
+    answer: { provider: string; configured: boolean; health?: string; mode: string; capabilities: string[] }
+    embedding: { provider: string; configured: boolean; health?: string; mode: string; capabilities: string[] }
+    enrichment?: { provider: string; configured: boolean; health?: string; mode: string; capabilities: string[] }
+    vector_store: { provider: string; configured: boolean; health?: string }
   }
+}
+
+export interface IngestionRequestOptions extends RequestOptions {
+  parserProfile?: 'builtin' | 'auto' | 'mineru' | 'docling' | 'paddleocr'
+  enrichModalities?: boolean
+  buildGraph?: boolean
 }
 
 export type ConversationStreamEvent =

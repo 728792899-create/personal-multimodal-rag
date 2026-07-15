@@ -1,35 +1,41 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="780" viewBox="0 0 1440 780" role="img" aria-labelledby="title desc">
-  <title id="title">Current local Beta data model and production normalization boundary</title>
-  <desc id="desc">Versioned SQLite stores knowledge bases, documents, durable index jobs, conversations and messages while a separate vector store holds chunks. A lower lane shows the production workspace and distributed execution boundary.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="920" viewBox="0 0 1440 920" role="img" aria-labelledby="title desc">
+  <title id="title">SQLite schema version 5, vector store, and production normalization boundary</title>
+  <desc id="desc">The local Beta stores knowledge bases, documents, multimodal elements, content-addressed assets, provenance-backed graph nodes and edges, durable jobs, conversations, and audits in SQLite. Chunks and embeddings remain in a compatible vector store. Production requires workspace normalization and distributed infrastructure.</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#f8fafc"/><stop offset="1" stop-color="#eef8f7"/></linearGradient>
     <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 10 5 0 10z" fill="#0f766e"/></marker>
     <filter id="shadow"><feDropShadow dy="7" stdDeviation="9" flood-color="#0f172a" flood-opacity=".12"/></filter>
-    <style>text{font-family:Arial,Helvetica,sans-serif}.h{font-size:30px;font-weight:700;fill:#0f172a}.sub{font-size:16px;fill:#475569}.k{font-size:13px;font-weight:700;letter-spacing:1.3px;fill:#0f766e}.t{font-size:17px;font-weight:700;fill:#0f172a}.c{font-size:13px;fill:#64748b}.box{fill:#fff;stroke:#cbd5e1;stroke-width:1.5}.store{fill:#ecfeff;stroke:#22a6b3;stroke-width:1.5}.line{fill:none;stroke:#0f766e;stroke-width:2;marker-end:url(#arrow)}.dash{fill:none;stroke:#64748b;stroke-width:1.7;stroke-dasharray:6 6;marker-end:url(#arrow)}</style>
+    <style>text{font-family:Arial,Helvetica,sans-serif}.h{font-size:30px;font-weight:700;fill:#0f172a}.sub{font-size:16px;fill:#475569}.k{font-size:13px;font-weight:700;letter-spacing:1.3px;fill:#0f766e}.t{font-size:17px;font-weight:700;fill:#0f172a}.c{font-size:13px;fill:#64748b}.box{fill:#fff;stroke:#cbd5e1;stroke-width:1.5}.store{fill:#ecfeff;stroke:#22a6b3;stroke-width:1.5}.graph{fill:#f0fdfa;stroke:#14b8a6;stroke-width:1.5}.line{fill:none;stroke:#0f766e;stroke-width:2;marker-end:url(#arrow)}.dash{fill:none;stroke:#64748b;stroke-width:1.7;stroke-dasharray:6 6;marker-end:url(#arrow)}</style>
   </defs>
-  <rect width="1440" height="780" rx="28" fill="url(#bg)"/>
-  <text x="54" y="62" class="h">Durable Local v3 schema, workspace-normalized production boundary</text>
-  <text x="54" y="92" class="sub">Per-operation SQLite connections · migrations and backup · vector compatibility gates · single local worker</text>
+  <rect width="1440" height="920" rx="28" fill="url(#bg)"/>
+  <text x="54" y="62" class="h">Durable Local schema v5 and production workspace boundary</text>
+  <text x="54" y="92" class="sub">Per-operation SQLite connections · migration backup · provenance gates · vector compatibility · single local worker</text>
   <text x="54" y="140" class="k">CURRENT SINGLE-INSTANCE BETA</text>
 
   <g filter="url(#shadow)">
-    <rect x="54" y="170" width="250" height="132" rx="18" class="box"/><text x="78" y="204" class="t">knowledge_bases</text><text x="78" y="232" class="c">default is non-deletable</text><text x="78" y="256" class="c">local retrieval scope</text><text x="78" y="280" class="c">not an authorization tenant</text>
-    <rect x="356" y="170" width="250" height="132" rx="18" class="box"/><text x="380" y="204" class="t">documents</text><text x="380" y="232" class="c">KB · content hash · payload</text><text x="380" y="256" class="c">chunker · embedding dimension</text><text x="380" y="280" class="c">index version · needs_rebuild</text>
-    <rect x="658" y="170" width="250" height="132" rx="18" class="store"/><text x="682" y="204" class="t">chunks / vector store</text><text x="682" y="232" class="c">chunk_id · document_id</text><text x="682" y="256" class="c">dimension / version checked</text><text x="682" y="280" class="c">memory / Chroma / pgvector</text>
-    <rect x="960" y="170" width="250" height="132" rx="18" class="box"/><text x="984" y="204" class="t">index_jobs</text><text x="984" y="232" class="c">state · stage · progress</text><text x="984" y="256" class="c">idempotency · attempts · cancel</text><text x="984" y="280" class="c">worker lease · safe error</text>
-    <rect x="54" y="350" width="250" height="120" rx="18" class="box"/><text x="78" y="384" class="t">conversations</text><text x="78" y="412" class="c">title · KB scopes</text><text x="78" y="436" class="c">created_at · updated_at</text>
-    <rect x="356" y="350" width="250" height="120" rx="18" class="box"/><text x="380" y="384" class="t">conversation_messages</text><text x="380" y="412" class="c">role · content · status</text><text x="380" y="436" class="c">response audit metadata</text>
-    <rect x="658" y="350" width="552" height="120" rx="18" class="box"/><text x="682" y="384" class="t">audit and compatibility tables</text><text x="682" y="412" class="c">history · feedback · operation_logs · knowledge_cards · eval_cases · schema_migrations</text><text x="682" y="436" class="c">legacy /api/ask remains compatible; new conversations own streaming context</text>
-  </g>
-  <path d="M304 236H356" class="line"/><path d="M606 236H658" class="line"/><path d="M960 236H908" class="dash"/><path d="M304 410H356" class="line"/><path d="M482 350V302" class="dash"/>
-  <text x="312" y="220" class="c">knowledge_base_id</text><text x="622" y="220" class="c">document_id</text><text x="912" y="220" class="c">job writes</text>
+    <rect x="54" y="170" width="250" height="126" rx="18" class="box"/><text x="78" y="204" class="t">knowledge_bases</text><text x="78" y="232" class="c">default is non-deletable</text><text x="78" y="256" class="c">retrieval scope, not tenant auth</text><text x="78" y="280" class="c">cascade boundary for local data</text>
+    <rect x="356" y="170" width="250" height="126" rx="18" class="box"/><text x="380" y="204" class="t">documents</text><text x="380" y="232" class="c">KB · content hash · payload</text><text x="380" y="256" class="c">parser · enrichment · graph version</text><text x="380" y="280" class="c">index version · needs_rebuild</text>
+    <rect x="658" y="170" width="250" height="126" rx="18" class="store"/><text x="682" y="204" class="t">chunks / vector store</text><text x="682" y="232" class="c">element IDs · modality · parent</text><text x="682" y="256" class="c">dimension and version checked</text><text x="682" y="280" class="c">memory / Chroma / pgvector</text>
+    <rect x="960" y="170" width="250" height="126" rx="18" class="box"/><text x="984" y="204" class="t">index_jobs</text><text x="984" y="232" class="c">stage · progress · idempotency</text><text x="984" y="256" class="c">lease · attempts · cancellation</text><text x="984" y="280" class="c">safe error · source asset</text>
 
-  <rect x="54" y="522" width="1332" height="204" rx="22" fill="#0f172a"/>
-  <text x="82" y="558" class="k" fill="#5eead4">PRODUCTION NORMALIZATION BOUNDARY</text>
-  <text x="82" y="594" class="t" fill="#f8fafc">workspace_id and user_id must become server-derived columns—not browser-declared JSON.</text>
-  <text x="82" y="626" class="c" fill="#cbd5e1">workspaces → memberships → KB/documents/chunks/conversations/jobs · object keys and queue claims scoped by the same boundary</text>
-  <rect x="82" y="656" width="270" height="42" rx="21" fill="#134e4a"/><text x="108" y="682" class="t" fill="#ccfbf1">PostgreSQL + RLS</text>
-  <rect x="372" y="656" width="270" height="42" rx="21" fill="#164e63"/><text x="398" y="682" class="t" fill="#cffafe">pgvector versioning</text>
-  <rect x="662" y="656" width="270" height="42" rx="21" fill="#1e3a8a"/><text x="688" y="682" class="t" fill="#dbeafe">object ownership</text>
-  <rect x="952" y="656" width="350" height="42" rx="21" fill="#312e81"/><text x="978" y="682" class="t" fill="#e0e7ff">distributed queue + audit</text>
+    <rect x="54" y="340" width="552" height="126" rx="18" class="box"/><text x="78" y="374" class="t">document_elements · assets · parser_runs</text><text x="78" y="402" class="c">text / heading / image / table / equation / code · page · bbox · order</text><text x="78" y="426" class="c">content-addressed source and derived objects · controlled asset API</text><text x="78" y="450" class="c">parser profile, confidence, source availability, cascading deletion</text>
+    <rect x="658" y="340" width="552" height="126" rx="18" class="graph"/><text x="682" y="374" class="t">enrichment_cache · graph_nodes · graph_edges · entity_mentions</text><text x="682" y="402" class="c">content + context + provider + model + prompt-version cache key</text><text x="682" y="426" class="c">document / element / entity nodes · contains / mentions / explicit relations</text><text x="682" y="450" class="c">every retrievable edge retains evidence element, span, confidence and version</text>
+
+    <rect x="54" y="510" width="250" height="112" rx="18" class="box"/><text x="78" y="544" class="t">conversations</text><text x="78" y="572" class="c">title · KB scopes</text><text x="78" y="596" class="c">created_at · updated_at</text>
+    <rect x="356" y="510" width="250" height="112" rx="18" class="box"/><text x="380" y="544" class="t">conversation_messages</text><text x="380" y="572" class="c">role · content · stream status</text><text x="380" y="596" class="c">final citation audit metadata</text>
+    <rect x="658" y="510" width="552" height="112" rx="18" class="box"/><text x="682" y="544" class="t">audit and compatibility tables</text><text x="682" y="572" class="c">history · feedback · operation_logs · knowledge_cards · eval_cases</text><text x="682" y="596" class="c">schema_migrations · legacy /api/ask remains compatible</text>
+  </g>
+
+  <path d="M304 233H356" class="line"/><path d="M606 233H658" class="line"/><path d="M960 233H908" class="dash"/>
+  <path d="M482 296V340" class="line"/><path d="M783 296V340" class="line"/><path d="M304 566H356" class="line"/>
+  <text x="312" y="217" class="c">knowledge_base_id</text><text x="622" y="217" class="c">document_id</text><text x="912" y="217" class="c">job writes</text>
+
+  <rect x="54" y="674" width="1332" height="196" rx="22" fill="#0f172a"/>
+  <text x="82" y="710" class="k" fill="#5eead4">PRODUCTION NORMALIZATION BOUNDARY</text>
+  <text x="82" y="746" class="t" fill="#f8fafc">workspace_id and user_id must be server-derived columns—not browser-declared JSON.</text>
+  <text x="82" y="778" class="c" fill="#cbd5e1">workspaces → memberships → KB/documents/elements/graph/chunks/conversations/jobs · object keys and queue claims share one boundary</text>
+  <rect x="82" y="808" width="270" height="42" rx="21" fill="#134e4a"/><text x="108" y="834" class="t" fill="#ccfbf1">PostgreSQL + RLS</text>
+  <rect x="372" y="808" width="270" height="42" rx="21" fill="#164e63"/><text x="398" y="834" class="t" fill="#cffafe">pgvector versioning</text>
+  <rect x="662" y="808" width="270" height="42" rx="21" fill="#1e3a8a"/><text x="688" y="834" class="t" fill="#dbeafe">object ownership</text>
+  <rect x="952" y="808" width="350" height="42" rx="21" fill="#312e81"/><text x="978" y="834" class="t" fill="#e0e7ff">distributed queue + audit</text>
 </svg>

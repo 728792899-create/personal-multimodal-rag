@@ -10,6 +10,7 @@ from typing import Callable
 import httpx
 
 from app.models.domain import Document, DocumentElement, DocumentPage
+from app.services.resilience import ResilientExecutor
 
 
 PARSER_PROFILES = ("builtin", "auto", "mineru", "docling", "paddleocr")
@@ -24,6 +25,7 @@ class ParserWorkerClient:
         timeout_seconds: float = 300,
         http_client: httpx.Client | None = None,
         poll_seconds: float = 0.25,
+        executor: ResilientExecutor | None = None,
     ):
         self.base_url = base_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
@@ -31,6 +33,7 @@ class ParserWorkerClient:
         # host proxy extras. Internal parser traffic also must not use proxies.
         self.http_client = http_client
         self.poll_seconds = poll_seconds
+        self.executor = executor or ResilientExecutor("parser_worker", base_delay_seconds=0.2)
 
     def _client(self) -> httpx.Client:
         if self.http_client is None:
@@ -38,8 +41,7 @@ class ParserWorkerClient:
         return self.http_client
 
     def capabilities(self) -> dict:
-        response = self._client().get(f"{self.base_url}/v1/capabilities")
-        response.raise_for_status()
+        response = self.executor.run(lambda: self._checked(self._client().get(f"{self.base_url}/v1/capabilities")))
         payload = response.json()
         return payload if isinstance(payload, dict) else {"profiles": []}
 
@@ -54,12 +56,17 @@ class ParserWorkerClient:
         if profile not in PARSER_PROFILES or profile == "builtin":
             raise ValueError("A heavy parser profile is required")
         with path.open("rb") as handle:
-            response = self._client().post(
-                f"{self.base_url}/v1/jobs",
-                data={"profile": profile},
-                files={"file": (Path(original_name).name, handle, "application/octet-stream")},
+            def submit_job():
+                handle.seek(0)
+                return self._client().post(
+                    f"{self.base_url}/v1/jobs",
+                    data={"profile": profile},
+                    files={"file": (Path(original_name).name, handle, "application/octet-stream")},
+                )
+
+            response = self.executor.run(
+                lambda: self._checked(submit_job())
             )
-        response.raise_for_status()
         job_id = str(response.json().get("id") or "")
         if not job_id:
             raise ValueError("Parser worker returned no job id")
@@ -68,8 +75,9 @@ class ParserWorkerClient:
             if cancel_check and cancel_check():
                 self._client().delete(f"{self.base_url}/v1/jobs/{job_id}")
                 raise ValueError("Parser job cancelled")
-            status = self._client().get(f"{self.base_url}/v1/jobs/{job_id}")
-            status.raise_for_status()
+            status = self.executor.run(
+                lambda: self._checked(self._client().get(f"{self.base_url}/v1/jobs/{job_id}"))
+            )
             payload = status.json()
             state = payload.get("status")
             if state == "succeeded":
@@ -91,6 +99,11 @@ class ParserWorkerClient:
             self._client().delete(f"{self.base_url}/v1/jobs/{job_id}")
         except httpx.HTTPError:
             pass
+
+    @staticmethod
+    def _checked(response: httpx.Response) -> httpx.Response:
+        response.raise_for_status()
+        return response
 
 
 def document_from_content_list(

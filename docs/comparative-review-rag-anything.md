@@ -18,13 +18,13 @@ RAG-Anything 把 MinerU、Docling、PaddleOCR 统一到 `content_list`，并提�
 
 上游会在分析图片、表格和公式时收集相邻页或相邻内容，支持窗口、token 上限、caption/header 开关和内容类型过滤。这比“把孤立图片直接交给 VLM”更符合真实文档语义，也是 0.3 `ContextWindowBuilder` 的直接设计依据。
 
-本项目会进一步把上下文、provider、模型和 prompt version 纳入缓存键，并要求 enrichment 输出结构化 description、keywords、entities、relationships、confidence、warnings。任何关系必须保留 evidence element 和原文 span；生成描述可以帮助召回，但不能替代原始证据和引用门。
+本项目把上下文、provider、模型和 prompt version 纳入缓存键，并要求 enrichment 输出结构化 description、keywords、entities、relationships、confidence、warnings。任何关系必须保留 evidence element 和原文 span；生成描述可以帮助召回，但不能替代原始证据和引用门。
 
 ### 批处理、可插拔性和韧性
 
 上游批处理支持递归目录、并发、进度、`dry-run` 与增量 manifest；resilience 模块提供同步/异步指数退避与 circuit breaker；callback manager 为阶段指标提供扩展点。这些设计比逐个文件手工上传更适合本地知识库建设。
 
-本项目新增 `scripts/import_folder.py`，保留 recursive、dry-run、并发上限、知识库、解析 profile 和内容哈希 manifest，但仍通过公开 ingestion API 写入现有 SQLite job 状态机。worker/provider 的超时、重试、取消、熔断与脱敏指标会在后续堆叠 PR 继续落地。
+本项目新增 `scripts/import_folder.py`，保留 recursive、dry-run、并发上限、知识库、解析 profile 和内容哈希 manifest，但仍通过公开 ingestion API 写入现有 SQLite job 状态机。高级解析与视觉 enrichment 共用指数退避、抖动和 circuit breaker；任务取消、错误与指标仍只保存脱敏数据。
 
 ### 图谱作为导航，而不是答案来源
 
@@ -53,6 +53,16 @@ RAG-Anything 借助 LightRAG 把多模态描述纳入实体和关系检索。它
 - Compose worker 以非 root、只读根文件系统、`cap_drop: ALL`、独立 tmpfs、PID/内存上限运行；默认 Compose 不启动它。
 - 批量目录 CLI 通过现有 ingestion API 入队，支持增量、并发上限和 `dry-run`。
 
+## 已落地的 0.3 第二阶段
+
+- SQLite schema v5 增加 `graph_nodes`、`graph_edges` 和 `entity_mentions`；每条可检索边都要求 evidence element、原文 span、confidence 和 extraction version。
+- `ContextWindowBuilder` 在固定字符预算内收集相邻页/元素，template、OpenAI Responses、OpenAI-compatible vision 和 Ollama vision 共用严格 enrichment schema 与版本化缓存。
+- OpenAI Responses 视觉请求使用 `input_image`、可配置 detail、`text.format` JSON Schema 和 `store:false`；自动化只使用 mock transport。
+- native Graph-lite 提取显式英文/中文关系与表格三元组，拒绝没有原文 span 的 Provider 关系，并按知识库隔离节点、边与 mention。
+- `hybrid_graph` 通过 `k=60`、默认 graph weight `0.25` 的加权 RRF 融合证据 chunk；`auto` 只有在多实体、provenance-backed path 成立时启用，之后仍执行 MMR、rerank、拒答与引用审计。
+- 可选 `LightRAGNavigationAdapter` 只接受能解析到当前本地 KB element 的 evidence ID；外部图不会写入 SQLite，也不能绕过 citation gate。
+- 文档质量与系统指标新增 bbox、OCR、caption、表格、公式、孤立资源、图谱覆盖、模态数量、fallback 与 graph hit。
+
 ## 尚未声称完成的外部验收
 
 普通 CI 不下载 MinerU/Docling/PaddleOCR 模型，也不调用 OpenAI、Ollama、LightRAG 外部存储或付费 API。当前自动化验证的是：IR、对象生命周期、内置 PDF/DOCX、恶意 Office 防护、worker HTTP 契约、`content_list` adapter、受控资源 API 和默认离线路径。
@@ -61,8 +71,8 @@ RAG-Anything 借助 LightRAG 把多模态描述纳入实体和关系检索。它
 
 ## 后续实现顺序
 
-1. schema v5、上下文窗口、离线/视觉 enrichment 和 provenance-backed native graph。
-2. `hybrid_graph/auto`、graph RRF、parent expansion 和完整 Trace。
+1. ~~schema v5、上下文窗口、离线/视觉 enrichment 和 provenance-backed native graph。~~
+2. ~~`hybrid_graph/auto`、graph RRF、可配置 parent context 和后端 Trace。~~
 3. 临时 query asset、图片提问、元素查看器、精确引用跳转和图谱可访问视图。
 4. 100 条确定性多模态黄金集、parser/asset/graph CI、Docker 故障注入与 Browser 验收。
 

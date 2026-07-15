@@ -412,9 +412,18 @@ class DocumentProcessor:
             for element in sorted(doc.elements, key=lambda item: item.order):
                 if not element.text.strip():
                     continue
+                retrieval_text = element.text.strip()
+                enrichment = element.metadata.get("enrichment")
+                if isinstance(enrichment, dict):
+                    description = str(enrichment.get("description") or "").strip()
+                    keywords = [str(item) for item in enrichment.get("keywords", []) if str(item).strip()]
+                    if description and description not in retrieval_text:
+                        retrieval_text = f"{retrieval_text}\n\n{description}"
+                    if keywords:
+                        retrieval_text = f"{retrieval_text}\n\nKeywords: {', '.join(keywords[:16])}"
                 paragraphs.append(
                     (
-                        element.text.strip(),
+                        retrieval_text,
                         {
                             "page_number": element.page_number,
                             "heading_path": list(element.heading_path),

@@ -18,7 +18,7 @@
 
 默认使用 deterministic hash embedding、内存向量库和模板回答：**无需真实 API Key、不会调用付费 API**。PDF、DOCX、Markdown、文本、图片 OCR、URL 导入、持久会话、引用上下文、质量审计、反馈评测和专家参数均保留。
 
-正在交付的 **0.3 Multimodal Intelligence** 将文档拆成可审查的 text、heading、image、table、equation、code 元素；原件与内嵌资源进入内容寻址对象存储，chunk 保留元素 provenance。默认内置解析器仍然零下载；MinerU、Docling、PaddleOCR 只通过隔离的可选 Compose profile 接入。设计取舍见 [RAG-Anything 固定提交对比审查](docs/comparative-review-rag-anything.md)。
+正在交付的 **0.3 Multimodal Intelligence** 将文档拆成可审查的 text、heading、image、table、equation、code 元素；原件与内嵌资源进入内容寻址对象存储，chunk 保留元素 provenance。schema v5 已加入上下文感知 enrichment 和 Graph-lite：图谱只导航到本地 evidence，再与 BM25/vector 通过 RRF 融合，不能绕过拒答或引用门。默认内置解析与 template enrichment 仍然零下载；MinerU、Docling、PaddleOCR 和视觉 Provider 均为可选。设计取舍见 [RAG-Anything 固定提交对比审查](docs/comparative-review-rag-anything.md)。
 
 ## 一分钟看懂
 
@@ -26,7 +26,7 @@
 
 | 默认体验 | 可信度机制 | 工程证据 | 生产边界 |
 | --- | --- | --- | --- |
-| 零 Key、离线可运行 | 无证据拒答 | 73 个后端测试 | 可选认证与 Sentry |
+| 零 Key、离线可运行 | 无证据拒答 | 97 个后端测试 | 可选认证与 Sentry |
 | 多知识库、DOCX 与 URL | 七阶段检索 Trace | 11 个前端测试 | Chroma / pgvector adapter |
 | 持久会话与流式回答 | 引用上下文与覆盖审计 | 6 个 Browser E2E | 外部任务队列/对象存储方案 |
 | 可恢复索引任务 | 反馈 → eval draft | 40 条黄金回归 case | 本地 Demo 永不依赖外部服务 |
@@ -48,7 +48,7 @@
 | --- | --- | :---: | --- |
 | 输入 | PDF、DOCX、Markdown、TXT、PNG/JPEG、公开 URL | ✓ | Tesseract OCR |
 | 处理 | SQLite 任务、租约恢复、去重、重试/取消、版本兼容 | ✓ | 分布式队列待接入 |
-| 检索 | 知识库隔离、BM25、vector、融合、MMR、rerank | ✓ | local/OpenAI/Ollama embedding、Chroma、pgvector |
+| 检索 | 知识库隔离、BM25、vector、Graph-lite、RRF、MMR、rerank | ✓ | LightRAG 导航、local/OpenAI/Ollama embedding、Chroma、pgvector |
 | 回答 | 持久会话、SSE、模板/Responses/chat/Ollama adapter | ✓ | 外部 Provider 人工验证 |
 | 可信度 | no-answer gate、引用、相邻上下文、citation audit | ✓ | NLI/LLM judge 待规划 |
 | 质量 | 反馈、eval draft、黄金集、Recall@K、MRR、引用/拒答 | ✓ | 真实流量抽样待规划 |
@@ -139,7 +139,7 @@ npm run verify
 
 | 检查 | 当前本地结果 | CI 门槛 |
 | --- | ---: | ---: |
-| 后端测试 | 73 passed | 全部通过 |
+| 后端测试 | 97 passed | 全部通过 |
 | 前端单元/组件 | 13 passed | 全部通过 |
 | Browser E2E | 6 passed | 桌面与移动全部通过 |
 | Recall@5 | 1.0000 | ≥ 0.90 |

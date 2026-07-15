@@ -35,10 +35,12 @@
 - [x] PDF/DOCX 原始顺序、bbox/表格/图片与 element-driven chunk；内置解析器继续零下载。
 - [x] 隔离 parser worker 契约与 RAG-Anything `content_list` adapter；高级镜像仅手动 profile。
 - [x] 递归、增量、并发受控的批量目录导入 CLI。
-- [ ] schema v5 enrichment cache、provenance-backed Graph-lite 与 `hybrid_graph/auto`。
+- [x] schema v5 enrichment cache、provenance-backed Graph-lite 与 `hybrid_graph/auto`。
+- [x] 上下文窗口、template/Responses/compatible/Ollama enrichment、重试与熔断。
+- [x] 可配置 parent context、模态过滤、graph RRF 和后端 Trace 契约。
 - [ ] 图片提问、元素查看器、graph Trace 与精确引用跳转。
 - [ ] 扩展至 100 条多模态黄金集和 parser/asset/graph 专项 CI。
-- [ ] 解析质量、OCR、caption、表格、公式和图谱覆盖 dashboard。
+- [ ] 解析质量、OCR、caption、表格、公式和图谱覆盖 dashboard（后端指标已完成，UI 待交付）。
 
 退出条件：对象/元素迁移与删除、解析 fallback/取消、图谱 provenance、图片提问、100 条固定集及 Browser 普通/专家/窄屏验收均有真实自动化或人工证据。
 

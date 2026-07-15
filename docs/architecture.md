@@ -30,6 +30,8 @@ flowchart TB
     RERANK["MMR + Reranker"]
     GATE["No-answer Gate"]
     AUDIT["Citation Audit"]
+    GRAPH["Provenance Graph-lite"]
+    RRF["Weighted RRF"]
   end
 
   subgraph ADAPTERS["可替换适配层"]
@@ -53,13 +55,16 @@ flowchart TB
   PROCESSOR --> REGISTRY
   PROCESSOR --> UPLOADS
   PROCESSOR --> BM25
+  PROCESSOR --> GRAPH
   PROCESSOR --> EMBED
   EMBED --> STORE
   STORE --> VECTOR
   ENGINE --> HYBRID
+  GRAPH --> RRF
+  HYBRID --> RRF
   BM25 --> HYBRID
   VECTOR --> HYBRID
-  HYBRID --> RERANK --> GATE
+  RRF --> RERANK --> GATE
   GATE --> ANSWER --> AUDIT --> FASTAPI
 ```
 
@@ -68,6 +73,9 @@ flowchart TB
 | 模块 | 文件 | 职责 |
 | --- | --- | --- |
 | 文档解析 | `backend/app/services/document_processor.py` | PDF/DOCX/文本/OCR、chunk 切分、metadata |
+| 多模态 enrichment | `backend/app/services/{context_window,multimodal_enrichment}.py` | 有界相邻上下文、确定性/视觉结构化描述与缓存 |
+| Graph-lite | `backend/app/services/{graph_store,graph_adapters}.py` | provenance 节点/边、路径、KB 隔离和 LightRAG 导航白名单 |
+| 韧性执行 | `backend/app/services/resilience.py` | 超时类错误重试、指数退避、抖动与熔断 |
 | 入库任务 | `backend/app/services/ingestion_jobs.py` | SQLite claim、租约、重试、取消、阶段进度 |
 | URL 导入 | `backend/app/services/url_importer.py` | 抓取网页、清洗正文、生成文档 |
 | 检索器 | `backend/app/services/retriever.py` | BM25、向量召回、MMR、rerank 前候选 |
@@ -122,6 +130,7 @@ sequenceDiagram
   participant C as Conversation API
   participant E as RAG Engine
   participant R as Hybrid Retriever
+  participant GR as Graph-lite
   participant G as Answer Generator
   participant A as Citation Audit
 
@@ -131,7 +140,12 @@ sequenceDiagram
   C->>E: 问题 + KB scope
   E->>E: Normalize / Intent / Query Rewrite
   E->>R: BM25 与向量并行召回
-  R->>R: Score Fusion / Dedup / MMR / Rerank
+  opt strategy=hybrid_graph 或 auto 门控成立
+    R->>GR: entity seed + KB scope + max hops
+    GR-->>R: provenance-backed path + element IDs
+    R->>R: Weighted RRF
+  end
+  R->>R: Dedup / Parent Context / MMR / Rerank
   R-->>E: Evidence + Retrieval Trace
   alt 证据不足
     E-->>C: refusal
@@ -146,7 +160,29 @@ sequenceDiagram
   end
 ```
 
-## 4. 反馈与评测闭环
+## 4. 元素、enrichment 与图谱证据流
+
+```mermaid
+flowchart LR
+  SOURCE["受控原件 / URL 正文"] --> PARSER["Builtin 或隔离 Parser"]
+  PARSER --> IR["DocumentElement IR"]
+  IR --> CONTEXT["Bounded Context Window"]
+  CONTEXT --> ENRICH["Template / Vision Enrichment"]
+  ENRICH --> CACHE["Versioned Enrichment Cache"]
+  ENRICH --> CHUNK["Element-derived Chunks"]
+  IR --> PROVENANCE["Evidence Element + Span"]
+  PROVENANCE --> GRAPH["Native Graph-lite"]
+  GRAPH --> PATH["Seed / Path / Evidence IDs"]
+  CHUNK --> HYBRID["BM25 + Vector"]
+  PATH --> RRF["Weighted RRF k=60"]
+  HYBRID --> RRF
+  RRF --> MMR["Parent Context → MMR → Rerank"]
+  MMR --> GATE["Refusal + Citation Gate"]
+```
+
+这条链有两个硬边界：Provider 关系必须在原元素中找到 `evidence_span`；图谱输出必须先映射回本地 chunk 才能进入排序。图边本身不能满足回答门槛。
+
+## 5. 反馈与评测闭环
 
 ![反馈到 CI 门禁](assets/evaluation-loop.svg)
 
@@ -161,7 +197,7 @@ flowchart LR
   G --> B
 ```
 
-## 5. Provider 与降级策略
+## 6. Provider 与降级策略
 
 ```mermaid
 flowchart LR
@@ -169,6 +205,7 @@ flowchart LR
   CFG --> VS["Vector Store Adapter"]
   CFG --> RW["Query Rewrite Adapter"]
   CFG --> AG["Answer Adapter"]
+  CFG --> ME["Multimodal Enrichment Adapter"]
 
   EMB -->|"默认离线"| MOCK["Hash / Mock"]
   EMB -->|"可选"| REAL_EMB["Sentence Transformer / OpenAI / Ollama"]
@@ -178,11 +215,13 @@ flowchart LR
   RW -->|"未配置或失败"| NOOP["No-op Rewrite"]
   AG -->|"local/test 显式允许"| TEMPLATE["Template Fallback"]
   AG -->|"可选"| RESPONSES["Responses / Chat / Ollama"]
+  ME -->|"默认离线"| TEMPLATE_ENRICH["Template + OCR/Table/Formula"]
+  ME -->|"可选"| VISION["Responses / Compatible Vision / Ollama Vision"]
 ```
 
 默认演示链路完全离线，目的是让代码审查和面试演示可复现；真实模型、持久向量库和 cross-encoder 属于可替换增强项，不能把默认 hash embedding 的效果描述成生产检索质量。
 
-## 6. 启动恢复与容器边界
+## 7. 启动恢复与容器边界
 
 ![部署演进模式](assets/deployment-modes.svg)
 

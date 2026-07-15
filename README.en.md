@@ -14,7 +14,7 @@
 
 The project is a durable single-instance Beta rather than a chat UI wrapped around one model call. It ingests PDF, DOCX, Markdown, text, images and public URLs into isolated knowledge bases; combines BM25 and vector recall; persists conversations; streams audited answers; refuses unsupported questions; and links every answer back to inspectable chunks.
 
-The in-progress **0.3 Multimodal Intelligence** release adds a typed text/heading/image/table/equation/code intermediate representation, content-addressed source and embedded assets, and element provenance on chunks. The zero-download built-in parser remains the default; MinerU, Docling, and PaddleOCR are available only through an isolated optional Compose profile. See the [pinned RAG-Anything comparative review](docs/comparative-review-rag-anything.md) for the evidence and trade-offs.
+The in-progress **0.3 Multimodal Intelligence** release adds a typed text/heading/image/table/equation/code intermediate representation, content-addressed assets, contextual enrichment, and a provenance-backed Graph-lite. Graph paths only navigate to local evidence chunks before RRF, MMR, reranking, refusal, and citation audit. The zero-download built-in parser and deterministic template enrichment remain the default; heavy parsers and vision providers are optional. See the [pinned RAG-Anything comparative review](docs/comparative-review-rag-anything.md) for the evidence and trade-offs.
 
 The default path is deterministic and offline: hash embeddings, an in-memory vector store and template answers require **no API key and make no paid API calls**. Optional adapters expose the production integration boundaries without making the local demo depend on them.
 
@@ -26,7 +26,7 @@ The default path is deterministic and offline: hash embeddings, an in-memory vec
 | Ordinary and expert modes | Stage-by-stage retrieval Trace | pytest, Vitest and Playwright |
 | Citation and neighboring context | Citation coverage audit | Fixed 40-case offline golden set |
 | Feedback to evaluation draft | Request IDs, timeout, cancel and retry | Health checks and five-job CI |
-| Durable local index jobs | Lease recovery and index compatibility | 73 backend / 13 frontend / 6 E2E tests |
+| Durable local index jobs | Lease recovery and index compatibility | 97 backend / 13 frontend / 6 E2E tests |
 
 ![System map from ingestion to evidence-constrained answers and evaluation](docs/assets/system-overview.svg)
 

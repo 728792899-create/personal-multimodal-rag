@@ -43,6 +43,7 @@ class RetrievalOptions(BaseModel):
     candidate_k: Optional[int] = Field(None, ge=1, le=80)
     search_mode: Literal["hybrid", "keyword", "semantic"] = "hybrid"
     search_profile: Literal["balanced", "precision", "recall"] = "balanced"
+    strategy: Literal["hybrid", "hybrid_graph", "auto"] = "hybrid"
     document_ids: list[str] = Field(default_factory=list)
     knowledge_base_ids: list[str] = Field(default_factory=list)
     bm25_weight: Optional[float] = Field(None, ge=0, le=1)
@@ -51,6 +52,10 @@ class RetrievalOptions(BaseModel):
     min_score: Optional[float] = Field(None, ge=0, le=1)
     query_rewrite: bool = True
     rerank_enabled: bool = True
+    graph_weight: float = Field(0.25, ge=0, le=1)
+    graph_max_hops: int = Field(2, ge=1, le=4)
+    modality_filters: list[Literal["text", "heading", "image", "table", "equation", "code", "mixed"]] = Field(default_factory=list)
+    parent_window: int = Field(1, ge=0, le=3)
 
 
 class AskRequest(RetrievalOptions):
@@ -70,6 +75,8 @@ class UrlImportRequest(BaseModel):
     title: str = Field("", max_length=200)
     knowledge_base_id: str = Field("default", min_length=1, max_length=80)
     parser_profile: Literal["builtin", "auto", "mineru", "docling", "paddleocr"] = "builtin"
+    enrich_modalities: bool = True
+    build_graph: bool = True
 
 
 class KnowledgeBaseCreate(BaseModel):

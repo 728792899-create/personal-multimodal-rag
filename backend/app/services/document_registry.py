@@ -30,7 +30,7 @@ class DocumentRegistry:
     SQLite URI plus a keeper connection to preserve test compatibility.
     """
 
-    CURRENT_SCHEMA_VERSION = 4
+    CURRENT_SCHEMA_VERSION = 5
 
     def __init__(self, db_path: str):
         self.db_path = db_path
@@ -77,6 +77,13 @@ class DocumentRegistry:
                 raise
             finally:
                 connection.close()
+
+    @contextmanager
+    def transaction(self) -> Iterator[sqlite3.Connection]:
+        """Expose a short SQLite transaction to split domain repositories."""
+
+        with self._connection() as connection:
+            yield connection
 
     def close(self) -> None:
         if self._keeper is not None:
@@ -294,6 +301,37 @@ class DocumentRegistry:
                 (document_id,),
             ).fetchall()
         return [self._parser_run_payload(row) for row in rows]
+
+    def get_enrichment_cache(self, cache_key: str) -> dict | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT payload FROM enrichment_cache WHERE cache_key = ?",
+                (cache_key,),
+            ).fetchone()
+        return json.loads(row["payload"]) if row else None
+
+    def set_enrichment_cache(
+        self,
+        cache_key: str,
+        *,
+        provider: str,
+        model: str,
+        prompt_version: str,
+        payload: dict,
+    ) -> None:
+        with self._connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO enrichment_cache
+                  (cache_key, provider, model, prompt_version, payload, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(cache_key) DO UPDATE SET
+                  provider = excluded.provider, model = excluded.model,
+                  prompt_version = excluded.prompt_version, payload = excluded.payload,
+                  created_at = excluded.created_at
+                """,
+                (cache_key, provider, model, prompt_version, json.dumps(payload, ensure_ascii=False), _utcnow()),
+            )
 
     # Knowledge bases -----------------------------------------------------------
 
@@ -1019,6 +1057,53 @@ class DocumentRegistry:
                   payload TEXT NOT NULL,
                   created_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS graph_nodes (
+                  node_id TEXT PRIMARY KEY,
+                  knowledge_base_id TEXT NOT NULL,
+                  document_id TEXT,
+                  element_id TEXT,
+                  node_type TEXT NOT NULL,
+                  label TEXT NOT NULL,
+                  normalized_label TEXT NOT NULL,
+                  payload TEXT NOT NULL,
+                  created_at TEXT NOT NULL,
+                  FOREIGN KEY (knowledge_base_id) REFERENCES knowledge_bases(knowledge_base_id) ON DELETE CASCADE,
+                  FOREIGN KEY (document_id) REFERENCES documents(document_id) ON DELETE CASCADE
+                );
+                CREATE TABLE IF NOT EXISTS graph_edges (
+                  edge_id TEXT PRIMARY KEY,
+                  knowledge_base_id TEXT NOT NULL,
+                  document_id TEXT NOT NULL,
+                  source_node_id TEXT NOT NULL,
+                  target_node_id TEXT NOT NULL,
+                  relation TEXT NOT NULL,
+                  evidence_element_ids TEXT NOT NULL,
+                  evidence_span TEXT NOT NULL,
+                  confidence REAL NOT NULL,
+                  extraction_version TEXT NOT NULL,
+                  payload TEXT NOT NULL,
+                  created_at TEXT NOT NULL,
+                  FOREIGN KEY (knowledge_base_id) REFERENCES knowledge_bases(knowledge_base_id) ON DELETE CASCADE,
+                  FOREIGN KEY (document_id) REFERENCES documents(document_id) ON DELETE CASCADE,
+                  FOREIGN KEY (source_node_id) REFERENCES graph_nodes(node_id) ON DELETE CASCADE,
+                  FOREIGN KEY (target_node_id) REFERENCES graph_nodes(node_id) ON DELETE CASCADE
+                );
+                CREATE TABLE IF NOT EXISTS entity_mentions (
+                  mention_id TEXT PRIMARY KEY,
+                  knowledge_base_id TEXT NOT NULL,
+                  document_id TEXT NOT NULL,
+                  element_id TEXT NOT NULL,
+                  entity_node_id TEXT NOT NULL,
+                  evidence_span TEXT NOT NULL,
+                  start_offset INTEGER NOT NULL,
+                  end_offset INTEGER NOT NULL,
+                  confidence REAL NOT NULL,
+                  extraction_version TEXT NOT NULL,
+                  created_at TEXT NOT NULL,
+                  FOREIGN KEY (knowledge_base_id) REFERENCES knowledge_bases(knowledge_base_id) ON DELETE CASCADE,
+                  FOREIGN KEY (document_id) REFERENCES documents(document_id) ON DELETE CASCADE,
+                  FOREIGN KEY (entity_node_id) REFERENCES graph_nodes(node_id) ON DELETE CASCADE
+                );
                 """
             )
             self._add_column_if_missing(connection, "documents", "knowledge_base_id", "TEXT NOT NULL DEFAULT 'default'")
@@ -1036,6 +1121,11 @@ class DocumentRegistry:
                 CREATE INDEX IF NOT EXISTS idx_elements_document ON document_elements(document_id, element_order);
                 CREATE INDEX IF NOT EXISTS idx_elements_kb_type ON document_elements(knowledge_base_id, element_type);
                 CREATE INDEX IF NOT EXISTS idx_parser_runs_document ON parser_runs(document_id, created_at);
+                CREATE INDEX IF NOT EXISTS idx_graph_nodes_kb_label ON graph_nodes(knowledge_base_id, normalized_label);
+                CREATE INDEX IF NOT EXISTS idx_graph_nodes_document ON graph_nodes(document_id, node_type);
+                CREATE INDEX IF NOT EXISTS idx_graph_edges_nodes ON graph_edges(source_node_id, target_node_id);
+                CREATE INDEX IF NOT EXISTS idx_graph_edges_document ON graph_edges(document_id, relation);
+                CREATE INDEX IF NOT EXISTS idx_entity_mentions_element ON entity_mentions(document_id, element_id);
                 """
             )
             now = _utcnow()

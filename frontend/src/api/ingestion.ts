@@ -1,17 +1,27 @@
 import { apiRequest, jsonBody } from './client'
-import type { IndexJob, RequestOptions } from './types'
+import type { IndexJob, IngestionRequestOptions, RequestOptions } from './types'
 
 
-export async function enqueueFileIngestion(file: File, knowledgeBaseId: string, options: RequestOptions = {}): Promise<IndexJob> {
+export async function enqueueFileIngestion(file: File, knowledgeBaseId: string, options: IngestionRequestOptions = {}): Promise<IndexJob> {
   const form = new FormData()
   form.append('file', file)
   form.append('knowledge_base_id', knowledgeBaseId)
+  form.append('parser_profile', options.parserProfile ?? 'builtin')
+  form.append('enrich_modalities', String(options.enrichModalities ?? true))
+  form.append('build_graph', String(options.buildGraph ?? true))
   const data = await apiRequest<{ job: IndexJob }>('/api/ingestions/file', { method: 'POST', body: form }, { timeoutMs: 90_000, ...options })
   return data.job
 }
 
-export async function enqueueUrlIngestion(url: string, knowledgeBaseId: string, title = '', options: RequestOptions = {}): Promise<IndexJob> {
-  const data = await apiRequest<{ job: IndexJob }>('/api/ingestions/url', { method: 'POST', ...jsonBody({ url, title, knowledge_base_id: knowledgeBaseId }) }, options)
+export async function enqueueUrlIngestion(url: string, knowledgeBaseId: string, title = '', options: IngestionRequestOptions = {}): Promise<IndexJob> {
+  const data = await apiRequest<{ job: IndexJob }>('/api/ingestions/url', { method: 'POST', ...jsonBody({
+    url,
+    title,
+    knowledge_base_id: knowledgeBaseId,
+    parser_profile: options.parserProfile ?? 'builtin',
+    enrich_modalities: options.enrichModalities ?? true,
+    build_graph: options.buildGraph ?? true,
+  }) }, options)
   return data.job
 }
 

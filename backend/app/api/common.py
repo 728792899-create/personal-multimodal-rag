@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from app.config import settings
-from app.core.store import processor, registry, retriever
+from app.core.store import enrichment_service, graph_store, processor, registry, retriever
 from app.models.domain import Chunk, Document
 from app.models.schemas import RetrievalOptions
 from app.services.document_quality import (
@@ -21,6 +21,7 @@ def retrieval_options(payload: RetrievalOptions) -> dict:
         "candidate_k": payload.candidate_k,
         "search_mode": payload.search_mode,
         "search_profile": payload.search_profile,
+        "strategy": payload.strategy,
         "document_ids": payload.document_ids,
         "knowledge_base_ids": payload.knowledge_base_ids,
         "bm25_weight": payload.bm25_weight,
@@ -29,6 +30,10 @@ def retrieval_options(payload: RetrievalOptions) -> dict:
         "min_score": payload.min_score,
         "query_rewrite": payload.query_rewrite,
         "rerank_enabled": payload.rerank_enabled,
+        "graph_weight": payload.graph_weight,
+        "graph_max_hops": payload.graph_max_hops,
+        "modality_filters": payload.modality_filters,
+        "parent_window": payload.parent_window,
     }
 
 
@@ -52,14 +57,26 @@ def chunks_for_document(document_id: str) -> list[Chunk]:
     ]
 
 
-def index_document(doc: Document, lifecycle: list[dict] | None = None) -> tuple[Document, list[Chunk]]:
+def index_document(
+    doc: Document,
+    lifecycle: list[dict] | None = None,
+    *,
+    enrich_modalities: bool = True,
+    build_graph: bool = True,
+) -> tuple[Document, list[Chunk]]:
     doc.metadata.setdefault("knowledge_base_id", "default")
     doc.metadata["chunker_version"] = settings.chunker_version
     doc.metadata["embedding_provider"] = settings.embedding_provider
     doc.metadata["embedding_model"] = settings.embedding_model
     doc.metadata["embedding_dimension"] = settings.resolved_embedding_dimension()
     doc.metadata["index_version"] = settings.index_version
+    doc.metadata["parser_version"] = settings.parser_version
+    doc.metadata["enrichment_version"] = settings.enrichment_prompt_version
     doc.metadata["index_status"] = "indexing"
+    enrichment_started = datetime.utcnow()
+    if enrich_modalities:
+        enrichment_service.enrich_document(doc)
+    enrichment_ended = datetime.utcnow()
     split_started = datetime.utcnow()
     chunks = processor.split(doc)
     split_ended = datetime.utcnow()
@@ -69,12 +86,22 @@ def index_document(doc: Document, lifecycle: list[dict] | None = None) -> tuple[
     doc.metadata["index_status"] = "indexed"
     doc.metadata["lifecycle"] = [
         *(lifecycle or []),
+        lifecycle_event(
+            "enrich_modalities",
+            "success" if enrich_modalities else "skipped",
+            enrichment_started,
+            enrichment_ended,
+        ),
         lifecycle_event("chunk", "success", split_started, split_ended),
         lifecycle_event("index", "success", index_started, index_ended),
     ]
     doc.metadata["quality"] = assess_document_quality(doc, chunks)
     doc.metadata["summary"] = summarize_document(doc, chunks)
     registry.save_document(doc)
+    if build_graph:
+        doc.metadata["graph"] = graph_store.build_document(doc)
+        doc.metadata["quality"] = assess_document_quality(doc, chunks)
+        registry.save_document(doc)
     return doc, chunks
 
 
