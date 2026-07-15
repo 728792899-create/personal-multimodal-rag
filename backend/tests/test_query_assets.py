@@ -74,9 +74,10 @@ def test_query_asset_lifecycle_and_offline_enrichment(tmp_path: Path):
 
 
 def test_query_assets_reject_invalid_oversized_and_animated_images(tmp_path: Path):
-    query_assets = service(tmp_path, max_bytes=100)
+    oversized_payload = image_bytes()
+    query_assets = service(tmp_path, max_bytes=len(oversized_payload) - 1)
     with pytest.raises(QueryAssetError, match="byte limit"):
-        query_assets.create(image_bytes(), "large.png", "default")
+        query_assets.create(oversized_payload, "large.png", "default")
 
     query_assets = service(tmp_path / "animated")
     with pytest.raises(QueryAssetError, match="Animated GIF"):
