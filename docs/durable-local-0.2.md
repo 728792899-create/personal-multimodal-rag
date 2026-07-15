@@ -62,6 +62,17 @@ npm run eval:retrieval
 4. 恢复匹配版本的 vector store；memory 模式会从恢复后的 registry 重建。
 5. 启动旧版本并执行 `/ready`、文档数核对、抽样问答与删除检查。
 
+恢复归档在切换前可先执行：
+
+```bash
+python3 scripts/verify_local_restore.py \
+  --database /path/to/restored/data/registry.sqlite3 \
+  --objects /path/to/restored/data/objects \
+  --expected-schema 5
+```
+
+这只验证 SQLite 与本地对象存储的一致性；回滚到旧代码时，应把 `--expected-schema` 改为该 release 支持的版本，并继续执行旧版本的 API/问答 smoke。
+
 迁移是 additive 的，但旧版本不了解知识库、会话和任务表；仅回滚 Git commit 而保留新数据库会丢失新功能语义。
 
 ## 从本地 worker 迁出

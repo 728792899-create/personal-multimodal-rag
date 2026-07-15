@@ -48,6 +48,10 @@ jobs:
         run: python -m pytest -q
         env:
           DOCUMENT_REGISTRY_PATH: ":memory:"
+      - name: Isolated SQLite and object-store restore drill
+        run: python -m pytest -q backend/tests/test_restore_drill.py
+        env:
+          DOCUMENT_REGISTRY_PATH: ":memory:"
 
   frontend:
     runs-on: ubuntu-latest

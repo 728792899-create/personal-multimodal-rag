@@ -69,7 +69,7 @@
 | 项目 | 真实结果 |
 | --- | --- |
 | 文档/图片 | 33 Markdown、10 SVG、16 raster 通过；secret scan 检查 244 个候选 |
-| 后端 pytest | 107 passed；Query Asset 格式/大小/动画/过期/KB 边界、失败对象清理、附件 SSE、协作取消终态与 Parser 取消/超时清理均有契约测试 |
+| 后端 pytest | 110 passed；Query Asset、附件 SSE、协作取消终态、Parser 取消/超时，以及 SQLite + 对象存储隔离恢复均有契约测试 |
 | 前端 Vitest | 5 files / 15 tests passed；新增图片附件与 Graph SVG/等价表格 |
 | `npm run build` | 通过；JS 145.54 kB（gzip 50.26），CSS 29.78 kB（gzip 5.99） |
 | Playwright | 8 passed；desktop + 390px mobile，含图片提问、Graph 控件与键盘表格 |
@@ -117,7 +117,7 @@ Docker 实栈重新构建后，`/ready` 返回 schema version 5 与 `mock / memo
 
 0.3 重新使用内置 Browser 验证 Docker 实栈：普通模式恢复含 1 张 Query Asset 的持久会话，十阶段 Trace 显示 3 条 provenance-backed 路径；Graph 页显示 43 nodes / 72 edges 的可缩放 SVG 和等价键盘表格；首条 citation 可跳到聚焦的 heading 元素；专家模式实际切换到 `hybrid_graph`、3 hops 与 table filter；390×844 下 `scrollWidth === clientWidth === 390`。停止后端后页面显示 504、唯一 Retry；恢复后重试使 alert 归零并返回受控拒答。桌面与移动页 console error/warning 均为 0。四张新截图使用 Browser 实际输出的 JPEG 格式保存，未使用伪 `.png` 扩展名。
 
-后续状态机审计复现并修复了运行中任务取消后停留在 `cancelling`、重启后变成不可领取 `queued` 的问题。新增回归验证 Worker 正常取消、过期取消租约恢复、Parser 远端清理、超时清理和“取消不得触发 builtin fallback”；完整 pytest 基线由 103 增至 107。
+后续状态机审计复现并修复了运行中任务取消后停留在 `cancelling`、重启后变成不可领取 `queued` 的问题。新增回归验证 Worker 正常取消、过期取消租约恢复、Parser 远端清理、超时清理和“取消不得触发 builtin fallback”。随后增加非破坏性恢复演练，验证 SQLite 快照、外键、schema 和引用对象的安全路径/大小/SHA；完整 pytest 基线由 103 增至 110。
 
 高级 `parser-worker` 本地真实构建已启动，但 Debian 镜像站在下载 28.3 MB `libreoffice-core` 时长时间无进度，限定窗口后主动终止，因此未声称高级 profile 或本地模型解析通过。Dockerfile 随后增加 apt cache、5 次 retry、60 秒下载 timeout，并从完整 `libreoffice` meta package 收窄到 writer/calc/impress；手动 `Advanced parser smoke` workflow 会在 GitHub-hosted runner 检查真实镜像/能力，在带 `rag-parser` 标签的 self-hosted runner 执行可选本地模型解析。默认 Compose 和内置 parser 的结果不受这项外部下载阻塞影响。
 

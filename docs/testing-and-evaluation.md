@@ -9,7 +9,7 @@
 | 层级 | 工具 | 当前覆盖 | 主要失败信号 |
 | --- | --- | --- | --- |
 | 文档质量 | Python stdlib checker | Markdown + SVG + PNG/JPEG 清单 | 失效链接、空 alt、无障碍元数据、伪格式或预览规格 |
-| 后端单元/接口 | pytest | 107 tests | migration、KB/jobs、取消收敛、元素、资产、Graph、SSE、provider、拒答与恢复 |
+| 后端单元/接口 | pytest | 110 tests | migration、KB/jobs、取消收敛、隔离恢复、元素、资产、Graph、SSE、provider 与拒答 |
 | 前端单元/组件 | Vitest + Testing Library | 15 tests | SSE、图片提问、Graph 无障碍视图、参数校验、Trace 和工作台交互 |
 | Demo smoke | pytest | 1 workflow | 导入 → 提问 → 引用的真实内存链路 |
 | 浏览器关键路径 | Playwright Chromium | 8 tests | 上传、URL、图片提问、Graph、引用、拒答、任务重试、移动端 |
@@ -30,6 +30,7 @@ npm run eval:retrieval   # 固定黄金集与阈值
 npm run eval:multimodal  # 44 条多模态专项
 npm run eval:graph       # 10 条多跳 Graph 专项
 npm run test:asset-security # 图片 fixture 与 Query Asset 安全
+npm run test:restore-drill # SQLite + 对象存储隔离恢复契约
 npm run test:e2e         # Playwright 桌面与移动项目
 npm run verify           # 以上全部
 ```

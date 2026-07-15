@@ -73,6 +73,17 @@ tar -czf personal-rag-data-backup.tgz data/
 5. 检查文档数、chunk 数、代表性问答和引用。
 6. 对 Chroma/pgvector 使用各自一致性快照，不要只恢复 SQLite。
 
+解包备份后、切换服务前，先在隔离临时目录运行可重复检查：
+
+```bash
+python3 scripts/verify_local_restore.py \
+  --database /path/to/restored/data/registry.sqlite3 \
+  --objects /path/to/restored/data/objects \
+  --expected-schema 5
+```
+
+命令使用 SQLite Backup API 再创建一次临时一致快照，并用 `PRAGMA query_only=ON` 禁止对输入数据库执行 SQL 写入；它验证 `integrity_check`、外键、schema，并只复制数据库引用的对象，核对安全路径、字节数和 SHA-256。输出不包含原始文件名、对象 key、问题或正文。任何失败都应阻止切换，先修复或选择另一份备份。该命令不验证 Chroma/pgvector，也不能代替旧应用版本的抽样问答。
+
 ### 生产 Beta
 
 备份必须覆盖数据库、对象存储、向量索引版本、迁移版本和 secret 配置引用。至少每季度演练一次恢复，并记录 RPO/RTO 的真实结果。

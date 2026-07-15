@@ -8,6 +8,7 @@
 - [x] 上传白名单、大小、空文件、签名、像素、动画、失败清理和知识库边界测试通过。
 - [x] URL SSRF、重定向、内容类型、超时和大小限制测试通过。
 - [x] 协作取消、过期租约、三次重试、Parser 超时/清理和取消不 fallback 测试通过。
+- [x] SQLite Backup API 与对象存储隔离恢复契约通过；缺失对象和不安全 key 会 fail closed。
 
 ## 自动质量门
 
@@ -15,6 +16,7 @@
 - [x] `npm test`、`npm run build` 与 `npm run test:demo`
 - [x] `npm run eval:retrieval`、`eval:multimodal` 与 `eval:graph`
 - [x] `npm run test:parser-contract` 与 `npm run test:asset-security`
+- [x] `npm run test:restore-drill`
 - [x] `npm run test:e2e`
 - [x] 100 条固定集的 12 项指标均达到 `eval/thresholds.json`。
 - [x] Browser 人工检查普通、专家、390px、图片提问、Graph、精确引用、拒答与错误恢复。
