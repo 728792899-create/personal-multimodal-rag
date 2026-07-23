@@ -20,6 +20,7 @@
 - PostgreSQL + MinIO 备份、manifest SHA-256 校验、显式确认恢复和 Compose 故障注入工具。
 - 机器可读 1.0 release readiness gate、真实语料证据模板和拒绝伪造结果的 `benchmark:real`。
 - CodeQL、依赖审计、Trivy、SPDX SBOM、GitHub provenance 与 keyless Cosign 镜像签名工作流。
+- 根据远端依赖审计升级 FastAPI/Starlette、python-multipart、PyMuPDF、pytest 与 python-dotenv 安全版本，并固定有效的 Trivy Action release。
 - 0.3 多模态统一 IR：text、heading、image、table、equation、code 元素，保留页码、顺序、bbox、标题路径、结构化表格和精确引用 ID。
 - 内容寻址本地对象存储、原件受控下载、PDF/DOCX 内嵌图片物化、引用计数与删除/失败回滚。
 - SQLite schema v4：`assets`、`document_elements`、`parser_runs`、`enrichment_cache`，旧文档明确标记原件可用性。
