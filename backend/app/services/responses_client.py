@@ -11,31 +11,79 @@ class ResponsesClient:
         self,
         api_key: str,
         model: str,
-        base_url: str,
+        base_url: str = "",
         timeout_seconds: float = 45,
+        http_client: httpx.Client | None = None,
     ):
         if not api_key:
             raise ValueError("Responses API key is required")
-        if not base_url:
-            raise ValueError("Responses base_url is required")
         self.api_key = api_key
         self.model = model
-        self.base_url = base_url.rstrip("/")
+        self.base_url = (base_url or "https://api.openai.com/v1").rstrip("/")
         self.timeout_seconds = timeout_seconds
+        # Build the default client lazily so provider selection remains offline
+        # and does not fail merely because a host proxy runtime is incomplete.
+        self.http_client = http_client
 
     def create_text(self, prompt: str) -> str:
-        payload = {"model": self.model, "input": prompt}
-        response = httpx.post(
-            f"{self.base_url}/responses",
-            headers={
+        payload = {"model": self.model, "input": prompt, "store": False}
+        request = {
+            "url": f"{self.base_url}/responses",
+            "headers": {
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
             },
-            json=payload,
-            timeout=self.timeout_seconds,
-        )
+            "json": payload,
+            "timeout": self.timeout_seconds,
+        }
+        if self.http_client is not None:
+            response = self.http_client.post(**request)
+        else:
+            response = httpx.post(**request)
         response.raise_for_status()
-        return self._extract_text(response.json()).strip()
+        text = self._extract_text(response.json()).strip()
+        if not text:
+            raise ValueError("Responses API returned no text output")
+        return text
+
+    def stream_text(self, prompt: str):
+        """Yield typed Responses text deltas from the official SSE protocol."""
+        payload = {"model": self.model, "input": prompt, "store": False, "stream": True}
+        request = {
+            "url": f"{self.base_url}/responses",
+            "headers": {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+                "Accept": "text/event-stream",
+            },
+            "json": payload,
+            "timeout": self.timeout_seconds,
+        }
+        stream = self.http_client.stream("POST", **request) if self.http_client is not None else httpx.stream("POST", **request)
+        completed = False
+        with stream as response:
+            response.raise_for_status()
+            for line in response.iter_lines():
+                if not line.startswith("data:"):
+                    continue
+                raw = line[5:].strip()
+                if not raw or raw == "[DONE]":
+                    continue
+                event = json.loads(raw)
+                event_type = str(event.get("type") or "")
+                if event_type == "response.output_text.delta":
+                    delta = event.get("delta")
+                    if isinstance(delta, str) and delta:
+                        yield delta
+                elif event_type == "response.completed":
+                    completed = True
+                    break
+                elif event_type in {"error", "response.failed"}:
+                    error = event.get("error") or event.get("response", {}).get("error") or {}
+                    message = error.get("message") if isinstance(error, dict) else str(error)
+                    raise ValueError(message or "Responses API stream failed")
+        if not completed:
+            raise ValueError("Responses API stream ended before response.completed")
 
     def create_json(self, prompt: str) -> Any:
         text = self.create_text(prompt)
@@ -48,13 +96,63 @@ class ResponsesClient:
                 return json.loads(text[start : end + 1])
             raise
 
+    def create_structured(
+        self,
+        prompt: str,
+        *,
+        schema: dict,
+        schema_name: str,
+        image_data_url: str = "",
+        image_detail: str = "auto",
+    ) -> Any:
+        content: list[dict] = [{"type": "input_text", "text": prompt}]
+        if image_data_url:
+            content.append(
+                {
+                    "type": "input_image",
+                    "image_url": image_data_url,
+                    "detail": image_detail if image_detail in {"low", "high", "original", "auto"} else "auto",
+                }
+            )
+        payload = {
+            "model": self.model,
+            "input": [{"role": "user", "content": content}],
+            "text": {
+                "format": {
+                    "type": "json_schema",
+                    "name": schema_name,
+                    "strict": True,
+                    "schema": schema,
+                }
+            },
+            "store": False,
+        }
+        request = {
+            "url": f"{self.base_url}/responses",
+            "headers": {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            },
+            "json": payload,
+            "timeout": self.timeout_seconds,
+        }
+        response = self.http_client.post(**request) if self.http_client is not None else httpx.post(**request)
+        response.raise_for_status()
+        text = self._extract_text(response.json()).strip()
+        if not text:
+            raise ValueError("Responses API returned no structured output")
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise ValueError("Responses API returned invalid structured JSON") from exc
+
     def _extract_text(self, payload: dict) -> str:
         if isinstance(payload.get("output_text"), str):
             return payload["output_text"]
         fragments: list[str] = []
         for output in payload.get("output", []) or []:
             for content in output.get("content", []) or []:
-                if isinstance(content.get("text"), str):
+                if content.get("type") == "output_text" and isinstance(content.get("text"), str):
                     fragments.append(content["text"])
         if fragments:
             return "\n".join(fragments)

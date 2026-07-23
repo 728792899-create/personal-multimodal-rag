@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="660" viewBox="0 0 1440 660" role="img" aria-labelledby="title desc">
+  <title id="title">Request lifecycle from browser action to evidence response</title>
+  <desc id="desc">A same-origin browser request passes through Nginx, request guards, domain routers, RAG services, stores and optional providers before returning an answer, refusal, trace and request ID.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#071629"/><stop offset="1" stop-color="#0d3540"/></linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#2dd4bf"/><stop offset="1" stop-color="#60a5fa"/></linearGradient>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 10 5 0 10z" fill="#67e8f9"/></marker>
+    <filter id="shadow"><feDropShadow dy="8" stdDeviation="10" flood-color="#020617" flood-opacity=".35"/></filter>
+    <style>text{font-family:Arial,Helvetica,sans-serif}.h{font-size:30px;font-weight:700;fill:#f8fafc}.sub{font-size:16px;fill:#94a3b8}.k{font-size:13px;font-weight:700;letter-spacing:1.4px;fill:#5eead4}.t{font-size:17px;font-weight:700;fill:#e2e8f0}.c{font-size:13px;fill:#94a3b8}.n{font-size:14px;font-weight:700;fill:#06252d}.box{fill:#10283b;stroke:#2a566b;stroke-width:1.5}.line{fill:none;stroke:#67e8f9;stroke-width:2.4;marker-end:url(#arrow)}</style>
+  </defs>
+  <rect width="1440" height="660" rx="28" fill="url(#bg)"/>
+  <circle cx="1320" cy="10" r="250" fill="#2563eb" opacity=".08"/>
+  <text x="54" y="64" class="h">One action, one observable request lifecycle</text>
+  <text x="54" y="94" class="sub">Cancellation, timeout, request ID, refusal and fallback remain visible end to end.</text>
+  <rect x="54" y="122" width="1332" height="7" rx="4" fill="url(#accent)"/>
+
+  <path d="M218 296H256" class="line"/><path d="M430 296H468" class="line"/><path d="M662 296H700" class="line"/><path d="M894 296H932" class="line"/><path d="M1126 296H1164" class="line"/>
+  <g filter="url(#shadow)">
+    <rect x="54" y="188" width="164" height="216" rx="20" class="box"/><circle cx="86" cy="220" r="18" fill="#5eead4"/><text x="81" y="225" class="n">1</text><text x="78" y="270" class="t">Vue workbench</text><text x="78" y="300" class="c">user action</text><text x="78" y="324" class="c">AbortController</text><text x="78" y="348" class="c">timeout + retry</text><text x="78" y="372" class="c">same-origin /api</text>
+    <rect x="256" y="188" width="174" height="216" rx="20" class="box"/><circle cx="288" cy="220" r="18" fill="#2dd4bf"/><text x="283" y="225" class="n">2</text><text x="280" y="270" class="t">Nginx</text><text x="280" y="300" class="c">static frontend</text><text x="280" y="324" class="c">/api reverse proxy</text><text x="280" y="348" class="c">502 / 504 boundary</text><text x="280" y="372" class="c">healthz</text>
+    <rect x="468" y="188" width="194" height="216" rx="20" class="box"/><circle cx="500" cy="220" r="18" fill="#22d3ee"/><text x="495" y="225" class="n">3</text><text x="492" y="270" class="t">Request guard</text><text x="492" y="300" class="c">optional bearer</text><text x="492" y="324" class="c">process rate limit</text><text x="492" y="348" class="c">Retry-After</text><text x="492" y="372" class="c">X-Request-ID</text>
+    <rect x="700" y="188" width="194" height="216" rx="20" class="box"/><circle cx="732" cy="220" r="18" fill="#38bdf8"/><text x="727" y="225" class="n">4</text><text x="724" y="270" class="t">Domain router</text><text x="724" y="300" class="c">documents</text><text x="724" y="324" class="c">retrieval</text><text x="724" y="348" class="c">quality</text><text x="724" y="372" class="c">Pydantic validation</text>
+    <rect x="932" y="188" width="194" height="216" rx="20" class="box"/><circle cx="964" cy="220" r="18" fill="#60a5fa"/><text x="959" y="225" class="n">5</text><text x="956" y="270" class="t">RAG services</text><text x="956" y="300" class="c">parse + retrieve</text><text x="956" y="324" class="c">gate + generate</text><text x="956" y="348" class="c">citation audit</text><text x="956" y="372" class="c">safe logging</text>
+    <rect x="1164" y="188" width="222" height="216" rx="20" class="box"/><circle cx="1196" cy="220" r="18" fill="#818cf8"/><text x="1191" y="225" class="n">6</text><text x="1188" y="270" class="t">Stores / providers</text><text x="1188" y="300" class="c">SQLite registry</text><text x="1188" y="324" class="c">BM25 + vector store</text><text x="1188" y="348" class="c">template / Responses</text><text x="1188" y="372" class="c">optional external calls</text>
+  </g>
+
+  <path d="M1270 422C1270 488 1040 502 894 502H252C170 502 136 472 136 424" class="line" stroke-dasharray="7 7"/>
+  <text x="520" y="488" class="k">RESPONSE PATH</text>
+  <rect x="54" y="528" width="1332" height="82" rx="18" fill="#0b2032" stroke="#285168"/>
+  <text x="82" y="562" class="t">Answer or refusal · citations · ten-stage trace · graph provenance · confidence · audit · history ID</text>
+  <text x="82" y="588" class="c">Errors keep the last successful answer; retry repeats the original action; request IDs link UI state to safe server logs.</text>
+</svg>

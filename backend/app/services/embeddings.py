@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import httpx
 from abc import ABC, abstractmethod
 from typing import Optional
 
@@ -66,16 +67,18 @@ class OpenAICompatibleEmbeddingProvider(BaseEmbeddingProvider):
         self.client = OpenAI(**kwargs)
         self.model = model
         self.dimensions = dimensions
-        self.batch_size = batch_size
+        self.batch_size = max(1, min(int(batch_size), 2048))
 
     def embed_text(self, text: str) -> list[float]:
         return self.embed_batch([text])[0]
 
     def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        if not texts or any(not isinstance(text, str) or not text.strip() for text in texts):
+            raise ValueError("Embedding input cannot be empty")
         embeddings: list[list[float]] = []
         for start in range(0, len(texts), self.batch_size):
             batch = texts[start : start + self.batch_size]
-            payload = {"model": self.model, "input": batch}
+            payload = {"model": self.model, "input": batch, "encoding_format": "float"}
             if self.dimensions:
                 payload["dimensions"] = self.dimensions
             response = self.client.embeddings.create(**payload)
@@ -109,3 +112,35 @@ class LocalSentenceTransformerEmbeddingProvider(BaseEmbeddingProvider):
             show_progress_bar=False,
         )
         return [row.astype(float).tolist() for row in embeddings]
+
+
+class OllamaEmbeddingProvider(BaseEmbeddingProvider):
+    def __init__(
+        self,
+        base_url: str,
+        model: str,
+        timeout_seconds: float = 45,
+        http_client: httpx.Client | None = None,
+    ):
+        self.base_url = base_url.rstrip("/")
+        self.model = model
+        self.timeout_seconds = timeout_seconds
+        self.http_client = http_client
+
+    def embed_text(self, text: str) -> list[float]:
+        return self.embed_batch([text])[0]
+
+    def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        if not texts or any(not isinstance(text, str) or not text.strip() for text in texts):
+            raise ValueError("Embedding input cannot be empty")
+        request = {
+            "url": f"{self.base_url}/api/embed",
+            "json": {"model": self.model, "input": texts},
+            "timeout": self.timeout_seconds,
+        }
+        response = self.http_client.post(**request) if self.http_client is not None else httpx.post(**request)
+        response.raise_for_status()
+        embeddings = response.json().get("embeddings")
+        if not isinstance(embeddings, list) or len(embeddings) != len(texts):
+            raise ValueError("Ollama returned an invalid embeddings payload")
+        return [[float(value) for value in row] for row in embeddings]

@@ -45,3 +45,9 @@ def test_image_parse_records_ocr_status_when_runtime_missing(tmp_path: Path):
     assert document.metadata["parser"] == "image_ocr"
     assert "ocr_status" in document.metadata
     assert "图片文件" in document.text
+    assert document.pages[0].metadata["image_width"] == 160
+    assert document.pages[0].metadata["image_height"] == 80
+    public_payload = "".join(page.model_dump_json() for page in document.pages)
+    public_payload += "".join(element.model_dump_json() for element in document.elements)
+    public_payload += str(document.metadata)
+    assert str(tmp_path) not in public_payload

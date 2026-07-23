@@ -1,0 +1,92 @@
+name: Advanced parser smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: Parser profile for the optional local-model smoke
+        required: true
+        default: mineru
+        type: choice
+        options:
+          - mineru
+          - docling
+          - paddleocr
+      run_local_model:
+        description: Run a real parse on a self-hosted runner labelled rag-parser
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  image-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and start the isolated parser worker
+        run: docker compose --profile advanced-parser up --build --wait --wait-timeout 300 -d parser-worker
+      - name: Verify health and capability contracts
+        run: |
+          docker compose exec -T parser-worker python -c "import json, urllib.request; health=json.load(urllib.request.urlopen('http://127.0.0.1:8090/health')); assert health['status'] == 'ok'; print(health)"
+          docker compose exec -T parser-worker python -c "import json, urllib.request; data=json.load(urllib.request.urlopen('http://127.0.0.1:8090/v1/capabilities')); ids={item['id'] for item in data['profiles']}; assert ids == {'mineru', 'docling', 'paddleocr'}; print(data)"
+      - name: Print worker logs
+        if: failure()
+        run: docker compose logs --no-color parser-worker
+      - name: Stop worker
+        if: always()
+        run: docker compose --profile advanced-parser down --volumes
+
+  local-model-smoke:
+    if: ${{ inputs.run_local_model }}
+    runs-on: [self-hosted, rag-parser]
+    timeout-minutes: 60
+    env:
+      PROFILE: ${{ inputs.profile }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start worker with the runner's local model cache
+        run: docker compose --profile advanced-parser up --build --wait --wait-timeout 300 -d parser-worker
+      - name: Copy sanitized smoke fixture
+        run: docker compose cp samples/demo-documents/08-table-evidence.md parser-worker:/tmp/parser-smoke.md
+      - name: Submit and verify a real parser job
+        run: |
+          docker compose exec -T -e PROFILE="$PROFILE" parser-worker python - <<'PY'
+          import json
+          import os
+          import time
+          import urllib.request
+
+          boundary = "----rag-parser-smoke"
+          payload = open("/tmp/parser-smoke.md", "rb").read()
+          body = (
+              f"--{boundary}\r\nContent-Disposition: form-data; name=\"profile\"\r\n\r\n{os.environ['PROFILE']}\r\n"
+              f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"parser-smoke.md\"\r\n"
+              "Content-Type: text/markdown\r\n\r\n"
+          ).encode() + payload + f"\r\n--{boundary}--\r\n".encode()
+          request = urllib.request.Request(
+              "http://127.0.0.1:8090/v1/jobs",
+              data=body,
+              headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+          )
+          job = json.load(urllib.request.urlopen(request, timeout=30))
+          for _ in range(300):
+              result = json.load(urllib.request.urlopen(f"http://127.0.0.1:8090/v1/jobs/{job['id']}", timeout=10))
+              if result["status"] in {"succeeded", "failed", "cancelled"}:
+                  break
+              time.sleep(2)
+          else:
+              raise SystemExit("parser smoke timed out")
+          if result["status"] != "succeeded" or not result.get("result", {}).get("content_list"):
+              raise SystemExit(json.dumps(result, ensure_ascii=False))
+          print(json.dumps({"status": result["status"], "profile": result["profile"], "elements": len(result["result"]["content_list"])}, ensure_ascii=False))
+          PY
+      - name: Print worker logs
+        if: failure()
+        run: docker compose logs --no-color parser-worker
+      - name: Stop worker
+        if: always()
+        run: docker compose --profile advanced-parser down --volumes

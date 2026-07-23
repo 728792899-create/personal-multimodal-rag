@@ -3,18 +3,102 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+    environment:
+      APP_ENVIRONMENT: ${APP_ENVIRONMENT:-local}
+      PROVIDER_FALLBACK_ALLOWED: ${PROVIDER_FALLBACK_ALLOWED:-1}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-mock}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-hash-mock}
+      EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION:-256}
+      VECTOR_STORE: ${VECTOR_STORE:-memory}
+      ANSWER_PROVIDER: ${ANSWER_PROVIDER:-template}
+      QUERY_REWRITE_PROVIDER: ${QUERY_REWRITE_PROVIDER:-none}
+      DOCUMENT_REGISTRY_PATH: /app/data/registry.sqlite3
+      OBJECT_STORE_PATH: /app/data/objects
+      CHUNKER_VERSION: ${CHUNKER_VERSION:-paragraph-v1}
+      INDEX_VERSION: ${INDEX_VERSION:-multimodal-v1}
+      PARSER_VERSION: ${PARSER_VERSION:-builtin-elements-v1}
+      ENRICHMENT_PROVIDER: ${ENRICHMENT_PROVIDER:-template}
+      ENRICHMENT_MODEL: ${ENRICHMENT_MODEL:-gpt-5.6}
+      ENRICHMENT_BASE_URL: ${ENRICHMENT_BASE_URL:-}
+      ENRICHMENT_API_KEY: ${ENRICHMENT_API_KEY:-}
+      ENRICHMENT_PROMPT_VERSION: ${ENRICHMENT_PROMPT_VERSION:-multimodal-v1}
+      ENRICHMENT_IMAGE_DETAIL: ${ENRICHMENT_IMAGE_DETAIL:-auto}
+      ENRICHMENT_CONTEXT_CHARS: ${ENRICHMENT_CONTEXT_CHARS:-8000}
+      QUERY_ASSET_MAX_BYTES: ${QUERY_ASSET_MAX_BYTES:-10485760}
+      QUERY_ASSET_MAX_COUNT: ${QUERY_ASSET_MAX_COUNT:-4}
+      QUERY_ASSET_TTL_HOURS: ${QUERY_ASSET_TTL_HOURS:-24}
+      QUERY_ASSET_MAX_PIXELS: ${QUERY_ASSET_MAX_PIXELS:-40000000}
+      INGESTION_POLL_SECONDS: ${INGESTION_POLL_SECONDS:-0.10}
+      INGESTION_LEASE_SECONDS: ${INGESTION_LEASE_SECONDS:-120}
+      PARSER_PROVIDER: ${PARSER_PROVIDER:-builtin}
+      PARSER_WORKER_URL: ${PARSER_WORKER_URL:-http://parser-worker:8090}
+      PARSER_TIMEOUT_SECONDS: ${PARSER_TIMEOUT_SECONDS:-300}
+      PARSER_FALLBACK_ALLOWED: ${PARSER_FALLBACK_ALLOWED:-1}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      ANSWER_BASE_URL: ${ANSWER_BASE_URL:-}
+      ANSWER_API_KEY: ${ANSWER_API_KEY:-}
+      QUERY_REWRITE_API_KEY: ${QUERY_REWRITE_API_KEY:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-qwen3:8b}
+      OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}
+      API_AUTH_TOKEN: ${API_AUTH_TOKEN:-}
+      RATE_LIMIT_REQUESTS: ${RATE_LIMIT_REQUESTS:-120}
+      RATE_LIMIT_WINDOW_SECONDS: ${RATE_LIMIT_WINDOW_SECONDS:-60}
     ports:
       - "8010:8010"
-    env_file:
-      - .env
     volumes:
       - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8010/ready', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      start_period: 10s
+      retries: 5
+    restart: unless-stopped
+
+  parser-worker:
+    profiles: ["advanced-parser"]
+    build:
+      context: .
+      dockerfile: parser-worker/Dockerfile
+    environment:
+      PARSER_JOB_DIR: /tmp/parser-jobs
+      PARSER_MAX_BYTES: ${PARSER_MAX_BYTES:-52428800}
+    read_only: true
+    tmpfs:
+      - /tmp:size=4g,mode=1777
+    volumes:
+      - parser_cache:/home/parser/.cache
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 512
+    mem_limit: ${PARSER_MEMORY_LIMIT:-8g}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=2)"]
+      interval: 30s
+      timeout: 3s
+      start_period: 60s
+      retries: 3
+    restart: unless-stopped
 
   frontend:
     build:
       context: .
       dockerfile: frontend/Dockerfile
     ports:
-      - "5173:5173"
+      - "5173:8080"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      start_period: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  parser_cache:

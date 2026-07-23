@@ -26,6 +26,9 @@ def test_hybrid_retriever_search_and_delete(tmp_path: Path):
 
     assert trace["total_chunks"] == len(chunks)
     assert trace["reranker"] == "keyword"
+    assert trace["bm25_candidates"] >= 1
+    assert trace["vector_candidates"] >= 1
+    assert trace["pipeline"]["mmr"]["selected"] == trace["mmr_selected"]
     assert results
     assert "rerank_score" in results[0]
     assert results[0]["chunk"].document_id == document.document_id

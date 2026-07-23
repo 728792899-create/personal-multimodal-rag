@@ -47,6 +47,7 @@ def assess_document_quality(document: Document, chunks: Iterable[Chunk]) -> dict
     duplicated_ratio = _duplicate_chunk_ratio(chunk_list)
     index_status = str(document.metadata.get("index_status") or "unknown")
     ocr_status = str(document.metadata.get("ocr_status") or "")
+    multimodal = _multimodal_quality(document)
 
     if char_count == 0:
         score -= 45
@@ -109,9 +110,51 @@ def assess_document_quality(document: Document, chunks: Iterable[Chunk]) -> dict
         "max_chunk_length": max_chunk_length,
         "weird_char_ratio": round(weird_ratio, 4),
         "duplicate_chunk_ratio": round(duplicated_ratio, 4),
+        "multimodal": multimodal,
         "signals": signals,
         "suggestions": suggestions[:4],
         "updated_at": datetime.utcnow().isoformat(),
+    }
+
+
+def _multimodal_quality(document: Document) -> dict:
+    elements = document.elements
+    modality_counts: dict[str, int] = {}
+    for element in elements:
+        modality_counts[element.type] = modality_counts.get(element.type, 0) + 1
+    positioned = [element for element in elements if element.page_number is not None]
+    bbox_ready = [element for element in positioned if len(element.bbox) == 4]
+    image_elements = [element for element in elements if element.type == "image"]
+    ocr_confidences = [
+        float(element.confidence)
+        for element in image_elements
+        if isinstance(element.confidence, (int, float))
+    ]
+    caption_ready = [element for element in image_elements if element.caption.strip() or element.text.strip()]
+    tables = [element for element in elements if element.type == "table"]
+    structured_tables = [
+        element for element in tables
+        if element.table and len({len(row) for row in element.table if row}) <= 1
+    ]
+    equations = [element for element in elements if element.type == "equation"]
+    extracted_equations = [element for element in equations if element.latex.strip() or element.text.strip()]
+    pending_assets = [
+        element for element in image_elements
+        if not element.asset_id and element.metadata.get("asset_status") == "pending_materialization"
+    ]
+    graph = document.metadata.get("graph") if isinstance(document.metadata.get("graph"), dict) else {}
+    graph_evidence = int(graph.get("evidence_element_count") or 0)
+    return {
+        "modality_counts": modality_counts,
+        "layout_bbox_coverage": round(len(bbox_ready) / len(positioned), 4) if positioned else 1.0,
+        "ocr_confidence": round(mean(ocr_confidences), 4) if ocr_confidences else None,
+        "caption_alignment": round(len(caption_ready) / len(image_elements), 4) if image_elements else 1.0,
+        "table_structure_accuracy": round(len(structured_tables) / len(tables), 4) if tables else 1.0,
+        "formula_extraction_accuracy": round(len(extracted_equations) / len(equations), 4) if equations else 1.0,
+        "orphan_asset_count": len(pending_assets),
+        "graph_evidence_coverage": round(graph_evidence / len(elements), 4) if elements else 0.0,
+        "index_version": str(document.metadata.get("index_version") or "unknown"),
+        "index_status": str(document.metadata.get("index_status") or "unknown"),
     }
 
 

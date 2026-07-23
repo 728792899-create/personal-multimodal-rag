@@ -44,3 +44,30 @@ def test_explicit_private_url_override(monkeypatch):
     monkeypatch.setattr(settings, "allow_private_urls", True)
 
     assert is_blocked_host("127.0.0.1") is False
+
+
+def test_binary_url_content_is_rejected(monkeypatch):
+    class FakeResponse:
+        headers = {"content-type": "application/octet-stream"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def geturl(self):
+            return "https://example.com/payload"
+
+        def read(self, size):
+            return b"binary"
+
+    class FakeOpener:
+        def open(self, request, timeout):
+            return FakeResponse()
+
+    monkeypatch.setattr("app.services.url_importer.is_blocked_host", lambda hostname: False)
+    monkeypatch.setattr("app.services.url_importer.build_opener", lambda *args: FakeOpener())
+
+    with pytest.raises(ValueError, match="content type"):
+        fetch_url("https://example.com/payload")

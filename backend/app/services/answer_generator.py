@@ -13,6 +13,12 @@ class BaseAnswerGenerator(ABC):
     def generate(self, question: str, citations: list[dict], trace: dict) -> dict:
         raise NotImplementedError
 
+    def stream(self, question: str, citations: list[dict], trace: dict):
+        generated = self.generate(question, citations, trace)
+        answer = str(generated.get("answer") or "")
+        for start in range(0, len(answer), 24):
+            yield answer[start : start + 24]
+
 
 class TemplateAnswerGenerator(BaseAnswerGenerator):
     name = "template"
@@ -74,6 +80,9 @@ class ResponsesAnswerGenerator(BaseAnswerGenerator):
             },
         }
 
+    def stream(self, question: str, citations: list[dict], trace: dict):
+        yield from self.client.stream_text(self._build_prompt(question, citations, trace))
+
     def _build_prompt(self, question: str, citations: list[dict], trace: dict) -> str:
         evidence = []
         for idx, item in enumerate(citations, start=1):
@@ -99,3 +108,21 @@ class ResponsesAnswerGenerator(BaseAnswerGenerator):
             f"检索调试信息：{json.dumps(trace, ensure_ascii=False)}\n\n"
             f"evidence：{json.dumps(evidence, ensure_ascii=False, indent=2)}"
         )
+
+
+class GroundedChatAnswerGenerator(ResponsesAnswerGenerator):
+    def __init__(self, client, provider_name: str):
+        super().__init__(client)
+        self.name = provider_name
+
+
+class UnavailableAnswerGenerator(BaseAnswerGenerator):
+    name = "unavailable"
+
+    def __init__(self, provider_name: str, reason: str):
+        self.provider_name = provider_name
+        self.reason = reason
+        self.name = provider_name
+
+    def generate(self, question: str, citations: list[dict], trace: dict) -> dict:
+        raise RuntimeError(self.reason)

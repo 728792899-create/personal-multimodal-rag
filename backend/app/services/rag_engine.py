@@ -4,7 +4,16 @@ import time
 
 from app.services.answer_generator import BaseAnswerGenerator, TemplateAnswerGenerator
 from app.services.citation_audit import audit_answer
+from app.services.embeddings import MockEmbeddingProvider
 from app.services.retriever import HybridRetriever
+from app.services.safe_logging import redact_private_metadata, redact_sensitive_text
+
+
+LOW_INFORMATION_MATCHES = {
+    "api", "app", "store", "系统", "流程", "方式", "功能", "参数", "配置", "应该", "需要",
+    "问题", "资料", "文档", "项目", "目的", "规则", "内容", "相关", "什么", "怎么", "如何",
+    "多少", "是否", "提供", "哪些", "当前", "自动",
+}
 
 
 class RagEngine:
@@ -15,16 +24,26 @@ class RagEngine:
         no_answer_threshold: float = 0.05,
         grounding_min_confidence: float = 0.15,
         citation_overlap_threshold: float = 0.34,
+        allow_generation_fallback: bool = True,
     ):
         self.retriever = retriever
         self.answer_generator = answer_generator or TemplateAnswerGenerator()
         self.no_answer_threshold = no_answer_threshold
         self.grounding_min_confidence = grounding_min_confidence
         self.citation_overlap_threshold = citation_overlap_threshold
+        self.allow_generation_fallback = allow_generation_fallback
 
-    def ask(self, question: str, top_k: int = 5, **retrieval_options) -> dict:
+    def ask(
+        self,
+        question: str,
+        top_k: int = 5,
+        retrieval_query: str | None = None,
+        **retrieval_options,
+    ) -> dict:
         started = time.perf_counter()
-        ranked, trace = self.retriever.search(question, top_k=top_k, **retrieval_options)
+        active_query = retrieval_query or question
+        ranked, trace = self.retriever.search(active_query, top_k=top_k, **retrieval_options)
+        trace["query_enrichment_used"] = active_query != question
         retrieval_ended = time.perf_counter()
         threshold = retrieval_options.get("min_score")
         threshold = self.no_answer_threshold if threshold is None else float(threshold)
@@ -32,10 +51,16 @@ class RagEngine:
         trace.setdefault("performance", {})
         trace["performance"]["retrieval_ms"] = round((retrieval_ended - started) * 1000, 2)
         confidence = self._confidence(ranked)
-        diagnostics = self._diagnostics(question, ranked, trace, threshold)
+        diagnostics = self._diagnostics(active_query, ranked, trace, threshold)
         refuse, refuse_reason = self._should_refuse(ranked, confidence, threshold)
         trace["refuse_reason"] = refuse_reason
         trace["refusal_reason"] = refuse_reason or None
+        trace.setdefault("pipeline", {})["decision"] = {
+            "status": "refused" if refuse else "answered",
+            "reason": refuse_reason or "evidence_accepted",
+            "threshold": threshold,
+            "confidence": round(float(confidence), 4),
+        }
         if refuse:
             if refuse_reason == "weak_grounding":
                 diagnostics.append(
@@ -54,6 +79,7 @@ class RagEngine:
                 threshold,
                 overlap_threshold=self.citation_overlap_threshold,
             )
+            trace["pipeline"]["citation_audit"] = {"coverage": 0, "grounding": 0, "status": "skipped"}
             trace["performance"]["total_ms"] = round((time.perf_counter() - started) * 1000, 2)
             return {
                 "answer": "答案：\n根据当前知识库资料，无法确定。\n\n依据：\n没有检索到足够相关的证据片段。\n\n不确定性：\n需要导入更多相关资料后再回答。",
@@ -76,12 +102,14 @@ class RagEngine:
         try:
             generated = self.answer_generator.generate(question, citations, trace)
         except Exception as exc:
+            if not self.allow_generation_fallback:
+                raise
             generated = TemplateAnswerGenerator().generate(question, citations, trace)
             generated["generation_trace"] = {
                 **generated.get("generation_trace", {}),
                 "answer_provider": "template",
                 "fallback_from": self.answer_generator.name,
-                "fallback_reason": str(exc),
+                "fallback_reason": redact_sensitive_text(exc),
                 "grounded": True,
             }
         generation_ended = time.perf_counter()
@@ -94,6 +122,11 @@ class RagEngine:
             threshold,
             overlap_threshold=self.citation_overlap_threshold,
         )
+        trace["pipeline"]["citation_audit"] = {
+            "coverage": audit.get("citation_audit", {}).get("coverage", 0),
+            "grounding": audit.get("citation_audit", {}).get("grounding", 0),
+            "status": "checked",
+        }
         return {
             "answer": generated["answer"],
             "citations": citations,
@@ -103,6 +136,122 @@ class RagEngine:
             "diagnostics": diagnostics,
             **audit,
         }
+
+    def stream(
+        self,
+        question: str,
+        top_k: int = 5,
+        retrieval_query: str | None = None,
+        **retrieval_options,
+    ):
+        """Stream a grounded answer while preserving the same refusal/audit gates as ask()."""
+        started = time.perf_counter()
+        active_query = retrieval_query or question
+        ranked, trace = self.retriever.search(active_query, top_k=top_k, **retrieval_options)
+        trace["conversation_context_used"] = active_query != question
+        retrieval_ended = time.perf_counter()
+        threshold = retrieval_options.get("min_score")
+        threshold = self.no_answer_threshold if threshold is None else float(threshold)
+        trace["no_answer_threshold"] = threshold
+        trace.setdefault("performance", {})["retrieval_ms"] = round((retrieval_ended - started) * 1000, 2)
+        confidence = self._confidence(ranked)
+        diagnostics = self._diagnostics(active_query, ranked, trace, threshold)
+        refuse, refuse_reason = self._should_refuse(ranked, confidence, threshold)
+        trace["refuse_reason"] = refuse_reason
+        trace["refusal_reason"] = refuse_reason or None
+        trace.setdefault("pipeline", {})["decision"] = {
+            "status": "refused" if refuse else "answered",
+            "reason": refuse_reason or "evidence_accepted",
+            "threshold": threshold,
+            "confidence": round(float(confidence), 4),
+        }
+        if refuse:
+            audit = audit_answer("", [], 0, threshold, overlap_threshold=self.citation_overlap_threshold)
+            trace["pipeline"]["citation_audit"] = {"coverage": 0, "grounding": 0, "status": "skipped"}
+            trace["performance"]["total_ms"] = round((time.perf_counter() - started) * 1000, 2)
+            response = {
+                "answer": "答案：\n根据当前知识库资料，无法确定。\n\n依据：\n没有检索到足够相关的证据片段。\n\n不确定性：\n需要导入更多相关资料后再回答。",
+                "citations": [],
+                "retrieval_trace": trace,
+                "generation_trace": {
+                    "answer_provider": self.answer_generator.name,
+                    "answer_model": "-",
+                    "grounded": True,
+                    "skipped": True,
+                    "reason": refuse_reason,
+                },
+                "confidence": 0,
+                "diagnostics": diagnostics,
+                **audit,
+            }
+            yield {"type": "retrieval.completed", "response": response}
+            yield {"type": "refusal", "response": response}
+            return
+
+        citations = [self._chunk_to_dict(item) for item in ranked]
+        yield {
+            "type": "retrieval.completed",
+            "response": {
+                "citations": citations,
+                "retrieval_trace": trace,
+                "confidence": round(float(confidence), 4),
+                "diagnostics": diagnostics,
+            },
+        }
+        generation_started = time.perf_counter()
+        fragments: list[str] = []
+        first_token_recorded = False
+        try:
+            for delta in self.answer_generator.stream(question, citations, trace):
+                if not delta:
+                    continue
+                fragments.append(delta)
+                if not first_token_recorded:
+                    trace["performance"]["first_token_ms"] = round((time.perf_counter() - started) * 1000, 2)
+                    first_token_recorded = True
+                yield {"type": "answer.delta", "delta": delta}
+        except Exception as exc:
+            if not self.allow_generation_fallback or fragments:
+                raise
+            fallback = TemplateAnswerGenerator().generate(question, citations, trace)
+            fallback_answer = fallback["answer"]
+            for start in range(0, len(fallback_answer), 24):
+                delta = fallback_answer[start : start + 24]
+                fragments.append(delta)
+                yield {"type": "answer.delta", "delta": delta}
+            generation_trace = {
+                **fallback.get("generation_trace", {}),
+                "fallback_from": self.answer_generator.name,
+                "fallback_reason": redact_sensitive_text(exc),
+            }
+        else:
+            generation_trace = {
+                "answer_provider": self.answer_generator.name,
+                "answer_model": getattr(getattr(self.answer_generator, "client", None), "model", "-"),
+                "grounded": True,
+                "citation_count": len(citations),
+                "streamed": True,
+            }
+        answer = "".join(fragments)
+        generation_ended = time.perf_counter()
+        trace["performance"]["generation_ms"] = round((generation_ended - generation_started) * 1000, 2)
+        trace["performance"]["total_ms"] = round((generation_ended - started) * 1000, 2)
+        audit = audit_answer(answer, citations, confidence, threshold, overlap_threshold=self.citation_overlap_threshold)
+        trace["pipeline"]["citation_audit"] = {
+            "coverage": audit.get("citation_audit", {}).get("coverage", 0),
+            "grounding": audit.get("citation_audit", {}).get("grounding", 0),
+            "status": "checked",
+        }
+        response = {
+            "answer": answer,
+            "citations": citations,
+            "retrieval_trace": trace,
+            "generation_trace": generation_trace,
+            "confidence": round(float(confidence), 4),
+            "diagnostics": diagnostics,
+            **audit,
+        }
+        yield {"type": "answer.completed", "response": response}
 
     def search(self, query: str, top_k: int = 5, **retrieval_options) -> dict:
         started = time.perf_counter()
@@ -213,7 +362,15 @@ class RagEngine:
             return True, "no_evidence"
         if confidence < threshold:
             return True, "below_threshold"
-        if not ranked[0].get("matched_terms") and confidence < self.grounding_min_confidence:
+        matched_terms = {str(term).lower() for term in ranked[0].get("matched_terms", [])}
+        substantive_terms = matched_terms - LOW_INFORMATION_MATCHES
+        mock_embeddings = isinstance(
+            getattr(self.retriever, "embedding_provider", None),
+            MockEmbeddingProvider,
+        )
+        if mock_embeddings and not substantive_terms:
+            return True, "weak_grounding"
+        if not matched_terms and confidence < self.grounding_min_confidence:
             return True, "weak_grounding"
         return False, ""
 
@@ -227,8 +384,11 @@ class RagEngine:
             "text": chunk.text,
             "page_number": chunk.page_number,
             "heading_path": chunk.heading_path,
-            "metadata": chunk.metadata,
-            "parent_context": self._parent_context(chunk),
+            "element_ids": chunk.element_ids,
+            "modality": chunk.modality,
+            "parent_element_id": chunk.parent_element_id,
+            "metadata": redact_private_metadata(chunk.metadata),
+            "parent_context": self._parent_context(chunk, int(item.get("parent_window", 1))),
             "score": round(float(item["score"]), 4),
             "bm25_score": round(float(item["bm25_score"]), 4),
             "vector_score": round(float(item["vector_score"]), 4),
@@ -259,7 +419,7 @@ class RagEngine:
         suffix = "..." if end < len(cleaned) else ""
         return f"{prefix}{cleaned[start:end]}{suffix}"
 
-    def _parent_context(self, chunk) -> dict:
+    def _parent_context(self, chunk, radius: int = 1) -> dict:
         siblings = sorted(
             [
                 item
@@ -271,12 +431,14 @@ class RagEngine:
         index = next((idx for idx, item in enumerate(siblings) if item.chunk_id == chunk.chunk_id), -1)
         if index < 0:
             return {"strategy": "parent_child", "text": chunk.text, "chunk_ids": [chunk.chunk_id]}
-        window = siblings[max(0, index - 1) : min(len(siblings), index + 2)]
+        radius = max(0, min(int(radius), 3))
+        window = siblings[max(0, index - radius) : min(len(siblings), index + radius + 1)]
         return {
             "strategy": "parent_child",
             "text": "\n\n".join(item.text for item in window),
             "chunk_ids": [item.chunk_id for item in window],
             "current_chunk_id": chunk.chunk_id,
+            "window": radius,
         }
 
     def _diagnostics(self, query: str, ranked: list[dict], trace: dict, threshold: float) -> list[dict]:

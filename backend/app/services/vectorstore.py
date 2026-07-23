@@ -4,6 +4,7 @@ import math
 import json
 import re
 from abc import ABC, abstractmethod
+from contextlib import contextmanager
 from pathlib import Path
 
 from app.models.domain import Chunk
@@ -21,6 +22,9 @@ class BaseVectorStore(ABC):
     @abstractmethod
     def delete_by_document_id(self, document_id: str) -> None:
         raise NotImplementedError
+
+    def health(self) -> bool:
+        return True
 
 
 class MemoryVectorStore(BaseVectorStore):
@@ -60,7 +64,14 @@ class MemoryVectorStore(BaseVectorStore):
 
 
 class ChromaVectorStore(BaseVectorStore):
-    def __init__(self, persist_path: str, collection_name: str = "personal_knowledge"):
+    def __init__(
+        self,
+        persist_path: str,
+        collection_name: str = "personal_knowledge",
+        expected_dimension: int = 0,
+        index_version: str = "",
+        embedding_model: str = "",
+    ):
         try:
             import chromadb
         except ImportError as exc:
@@ -68,7 +79,24 @@ class ChromaVectorStore(BaseVectorStore):
 
         Path(persist_path).mkdir(parents=True, exist_ok=True)
         self.client = chromadb.PersistentClient(path=persist_path)
-        self.collection = self.client.get_or_create_collection(name=collection_name)
+        metadata = {
+            "embedding_dimension": int(expected_dimension or 0),
+            "index_version": index_version or "unspecified",
+            "embedding_model": embedding_model or "unspecified",
+        }
+        self.collection = self.client.get_or_create_collection(name=collection_name, metadata=metadata)
+        self.expected_dimension = int(expected_dimension or 0)
+        stored_metadata = getattr(self.collection, "metadata", None) or {}
+        stored_dimension = int(stored_metadata.get("embedding_dimension") or 0)
+        stored_version = str(stored_metadata.get("index_version") or "")
+        if self.expected_dimension and stored_dimension and stored_dimension != self.expected_dimension:
+            raise ValueError(
+                f"Chroma collection embedding dimension mismatch: stored {stored_dimension}, expected {self.expected_dimension}"
+            )
+        if index_version and stored_version and stored_version not in {"unspecified", index_version}:
+            raise ValueError(
+                f"Chroma collection index version mismatch: stored {stored_version}, expected {index_version}"
+            )
         self.chunks: dict[str, Chunk] = {}
         self.embeddings: dict[str, list[float]] = {}
         self._load_existing()
@@ -76,6 +104,9 @@ class ChromaVectorStore(BaseVectorStore):
     def add_chunks(self, chunks: list[Chunk], embeddings: list[list[float]]) -> None:
         if len(chunks) != len(embeddings):
             raise ValueError("chunks and embeddings length mismatch")
+        if self.expected_dimension and any(len(item) != self.expected_dimension for item in embeddings):
+            actual = len(embeddings[0]) if embeddings else 0
+            raise ValueError(f"Chroma embedding dimension mismatch: expected {self.expected_dimension}, got {actual}")
         ids = [chunk.chunk_id for chunk in chunks]
         metadatas = [self._metadata(chunk) for chunk in chunks]
         documents = [chunk.text for chunk in chunks]
@@ -106,6 +137,9 @@ class ChromaVectorStore(BaseVectorStore):
         for chunk_id in ids:
             self.chunks.pop(chunk_id, None)
             self.embeddings.pop(chunk_id, None)
+
+    def health(self) -> bool:
+        return bool(self.client.heartbeat())
 
     def _metadata(self, chunk: Chunk) -> dict:
         return {
@@ -183,94 +217,190 @@ class PgVectorStore(BaseVectorStore):
             raise RuntimeError("Install psycopg[binary] and pgvector to use PgVectorStore") from exc
 
         self.psycopg = psycopg
+        self._dsn = dsn
+        self._register_vector = register_vector
         self.table_name = self._validate_identifier(table_name)
         self.dimension = dimension
-        self.conn = psycopg.connect(dsn)
-        register_vector(self.conn)
         self.chunks: dict[str, Chunk] = {}
         self.embeddings: dict[str, list[float]] = {}
         self._ensure_table()
+        self._load_existing()
 
     def add_chunks(self, chunks: list[Chunk], embeddings: list[list[float]]) -> None:
         if len(chunks) != len(embeddings):
             raise ValueError("chunks and embeddings length mismatch")
-        with self.conn.cursor() as cur:
-            for chunk, embedding in zip(chunks, embeddings):
-                cur.execute(
-                    f"""
-                    INSERT INTO {self.table_name}
-                    (chunk_id, document_id, file_name, chunk_index, page_number, heading_path, metadata, text, embedding)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (chunk_id) DO UPDATE SET
-                      text = EXCLUDED.text,
-                      embedding = EXCLUDED.embedding,
-                      metadata = EXCLUDED.metadata
-                    """,
-                    (
-                        chunk.chunk_id,
-                        chunk.document_id,
-                        chunk.file_name,
-                        chunk.chunk_index,
-                        chunk.page_number,
-                        json.dumps(chunk.heading_path, ensure_ascii=False),
-                        json.dumps(chunk.metadata, ensure_ascii=False),
-                        chunk.text,
-                        embedding,
-                    ),
-                )
-                self.chunks[chunk.chunk_id] = chunk
-                self.embeddings[chunk.chunk_id] = embedding
-        self.conn.commit()
+        with self._connection() as connection:
+            with connection.cursor() as cur:
+                for chunk, embedding in zip(chunks, embeddings):
+                    stored_metadata = {
+                        **chunk.metadata,
+                        "_chunk_element_ids": chunk.element_ids,
+                        "_chunk_modality": chunk.modality,
+                        "_chunk_parent_element_id": chunk.parent_element_id,
+                    }
+                    cur.execute(
+                        f"""
+                        INSERT INTO {self.table_name}
+                        (chunk_id, document_id, file_name, chunk_index, page_number, heading_path, metadata, text, embedding)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (chunk_id) DO UPDATE SET
+                          text = EXCLUDED.text,
+                          embedding = EXCLUDED.embedding,
+                          metadata = EXCLUDED.metadata
+                        """,
+                        (
+                            chunk.chunk_id,
+                            chunk.document_id,
+                            chunk.file_name,
+                            chunk.chunk_index,
+                            chunk.page_number,
+                            json.dumps(chunk.heading_path, ensure_ascii=False),
+                            json.dumps(stored_metadata, ensure_ascii=False),
+                            chunk.text,
+                            embedding,
+                        ),
+                    )
+                    self.chunks[chunk.chunk_id] = chunk
+                    self.embeddings[chunk.chunk_id] = embedding
+            connection.commit()
 
     def search(self, query_embedding: list[float], top_k: int = 5) -> list[dict]:
-        with self.conn.cursor() as cur:
-            cur.execute(
-                f"""
-                SELECT chunk_id, 1 - (embedding <=> %s) AS vector_score
-                FROM {self.table_name}
-                ORDER BY embedding <=> %s
-                LIMIT %s
-                """,
-                (query_embedding, query_embedding, top_k),
-            )
-            rows = cur.fetchall()
+        with self._connection() as connection:
+            with connection.cursor() as cur:
+                cur.execute(
+                    f"""
+                    SELECT chunk_id, document_id, file_name, chunk_index,
+                           page_number, heading_path, metadata, text,
+                           1 - (embedding <=> %s) AS vector_score
+                    FROM {self.table_name}
+                    ORDER BY embedding <=> %s
+                    LIMIT %s
+                    """,
+                    (query_embedding, query_embedding, top_k),
+                )
+                rows = cur.fetchall()
         return [
-            {"chunk": self.chunks[chunk_id], "vector_score": max(0.0, float(score or 0))}
-            for chunk_id, score in rows
-            if chunk_id in self.chunks
+            {
+                "chunk": self._chunk_from_row(row),
+                "vector_score": max(0.0, float(row[8] or 0)),
+            }
+            for row in rows
         ]
 
     def delete_by_document_id(self, document_id: str) -> None:
-        with self.conn.cursor() as cur:
-            cur.execute(f"DELETE FROM {self.table_name} WHERE document_id = %s", (document_id,))
-        self.conn.commit()
+        with self._connection() as connection:
+            with connection.cursor() as cur:
+                cur.execute(f"DELETE FROM {self.table_name} WHERE document_id = %s", (document_id,))
+            connection.commit()
         ids = [chunk_id for chunk_id, chunk in self.chunks.items() if chunk.document_id == document_id]
         for chunk_id in ids:
             self.chunks.pop(chunk_id, None)
             self.embeddings.pop(chunk_id, None)
 
+    def health(self) -> bool:
+        with self._connection() as connection:
+            with connection.cursor() as cur:
+                cur.execute("SELECT 1")
+                row = cur.fetchone()
+        return bool(row and int(row[0]) == 1)
+
     def _ensure_table(self) -> None:
-        with self.conn.cursor() as cur:
-            cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
-            cur.execute(
-                f"""
-                CREATE TABLE IF NOT EXISTS {self.table_name} (
-                  chunk_id TEXT PRIMARY KEY,
-                  document_id TEXT NOT NULL,
-                  file_name TEXT NOT NULL,
-                  chunk_index INTEGER NOT NULL,
-                  page_number INTEGER,
-                  heading_path JSONB,
-                  metadata JSONB,
-                  text TEXT NOT NULL,
-                  embedding vector({self.dimension}) NOT NULL
+        with self._connection() as connection:
+            with connection.cursor() as cur:
+                cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
+                cur.execute(
+                    f"""
+                    CREATE TABLE IF NOT EXISTS {self.table_name} (
+                      chunk_id TEXT PRIMARY KEY,
+                      document_id TEXT NOT NULL,
+                      file_name TEXT NOT NULL,
+                      chunk_index INTEGER NOT NULL,
+                      page_number INTEGER,
+                      heading_path JSONB,
+                      metadata JSONB,
+                      text TEXT NOT NULL,
+                      embedding vector({self.dimension}) NOT NULL
+                    )
+                    """
                 )
-                """
-            )
-            cur.execute(f"CREATE INDEX IF NOT EXISTS {self.table_name}_document_id_idx ON {self.table_name}(document_id)")
-        self.conn.commit()
+                cur.execute(
+                    f"CREATE INDEX IF NOT EXISTS {self.table_name}_document_id_idx "
+                    f"ON {self.table_name}(document_id)"
+                )
+            connection.commit()
+
+    def _load_existing(self) -> None:
+        with self._connection() as connection:
+            with connection.cursor() as cur:
+                cur.execute(
+                    f"""
+                    SELECT chunk_id, document_id, file_name, chunk_index,
+                           page_number, heading_path, metadata, text
+                    FROM {self.table_name}
+                    """
+                )
+                rows = cur.fetchall()
+        self.chunks = {
+            str(row[0]): self._chunk_from_row(row)
+            for row in rows
+        }
+
+    @contextmanager
+    def _connection(self):
+        """Use operation-scoped connections so a database restart is recoverable."""
+
+        if hasattr(self, "_dsn"):
+            connection = self.psycopg.connect(self._dsn)
+            self._register_vector(connection)
+            try:
+                yield connection
+            finally:
+                connection.close()
+            return
+
+        # Test doubles constructed with ``__new__`` can still inject ``conn``.
+        yield self.conn
 
     def _validate_identifier(self, identifier: str) -> str:
         if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", identifier):
             raise ValueError("PGVECTOR_TABLE must be a simple SQL identifier")
         return identifier
+
+    @staticmethod
+    def _chunk_from_row(row) -> Chunk:
+        heading_path = row[5] if isinstance(row[5], list) else []
+        metadata = row[6] if isinstance(row[6], dict) else {}
+        element_ids = metadata.get("_chunk_element_ids")
+        if not isinstance(element_ids, list):
+            element_ids = metadata.get("element_ids")
+        if not isinstance(element_ids, list):
+            element_ids = []
+        modality = str(
+            metadata.get("_chunk_modality")
+            or metadata.get("modality")
+            or "text"
+        )
+        parent_element_id = (
+            metadata.get("_chunk_parent_element_id")
+            or (element_ids[0] if element_ids else None)
+        )
+        public_metadata = {
+            key: value
+            for key, value in metadata.items()
+            if not str(key).startswith("_chunk_")
+        }
+        return Chunk(
+            chunk_id=str(row[0]),
+            document_id=str(row[1]),
+            file_name=str(row[2]),
+            chunk_index=int(row[3]),
+            page_number=int(row[4]) if row[4] is not None else None,
+            heading_path=[str(item) for item in heading_path],
+            element_ids=[str(item) for item in element_ids],
+            modality=modality,
+            parent_element_id=(
+                str(parent_element_id) if parent_element_id is not None else None
+            ),
+            metadata=public_metadata,
+            text=str(row[7]),
+        )

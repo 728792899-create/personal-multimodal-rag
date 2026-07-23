@@ -1,0 +1,4 @@
+fastapi==0.139.2
+uvicorn[standard]==0.35.0
+python-multipart==0.0.32
+raganything @ git+https://github.com/HKUDS/RAG-Anything.git@a8c27f7dbed6b5e8cab7924e9579ca60361106d7

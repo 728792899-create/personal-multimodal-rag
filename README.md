@@ -1,194 +1,367 @@
-# 个人多模态 RAG 知识库问答系统
+# Personal Multimodal RAG · Self-hosted Multimodal Evidence Platform
 
-面向个人和小团队知识管理的 RAG 问答系统，支持 PDF、Markdown、文本和图片资料上传，提供文档解析、chunk 切分、混合检索、引用回答、retrieval trace、可信度审计和轻量评测。
+**中文** · [English overview](README.en.md)
 
-项目重点不是做一个普通聊天框，而是把 RAG 链路里的关键工程问题拆开：文档解析、切分策略、BM25 召回、向量召回、混合排序、引用来源、拒答策略和检索质量调试。
+[![CI](https://github.com/728792899-create/personal-multimodal-rag/actions/workflows/ci.yml/badge.svg)](https://github.com/728792899-create/personal-multimodal-rag/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-0f766e.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-2563eb.svg)](backend/requirements.txt)
+[![Node 22+](https://img.shields.io/badge/Node-22%2B-0f766e.svg)](frontend/package.json)
+[![Offline First](https://img.shields.io/badge/default-offline%20%2F%20zero--key-7c3aed.svg)](.env.example)
 
-## 快速运行
+![多模态资料经过混合检索、证据门和引用审计形成可信回答](docs/assets/multimodal-rag-hero.png)
+
+**从 PDF、网页、图片与笔记，到可解释、可拒答、可量化回归的证据链。**
+
+[快速启动](#5-分钟离线启动) · [端到端案例](docs/case-study.md) · [产品巡游](docs/product-tour.md) · [现场验收](docs/production-validation.md) · [文档中心](docs/README.md) · [评测结果](docs/evaluation-results.md) · [安全模型](docs/security-model.md)
+
+面向单用户真实日常使用的自托管多模态证据平台。它不只展示“上传并问答”，还把 BM25、向量召回、融合去重、MMR、Rerank、拒答决策和引用覆盖率组织成可理解、可回归的证据链。
+
+默认使用 deterministic hash embedding、内存向量库和模板回答：**无需真实 API Key、不会调用付费 API**。PDF、DOCX、Markdown、文本、图片 OCR、URL 导入、持久会话、引用上下文、质量审计、反馈评测和专家参数均保留。
+
+**0.3 Multimodal Intelligence** 将文档拆成可审查的 text、heading、image、table、equation、code 元素；原件与内嵌资源进入内容寻址对象存储，chunk 保留元素 provenance。上下文感知 enrichment 和 Graph-lite 只导航到本地 evidence，再与 BM25/vector 通过 RRF 融合，不能绕过拒答或引用门。工作台已支持 24 小时临时图片提问、精确元素定位、Graph SVG/表格 Trace 和多模态质量面板。索引任务的协作取消会可靠收敛到终态，SQLite 与对象存储可执行非破坏性隔离恢复演练。默认内置解析与 template enrichment 仍然零下载；MinerU、Docling、PaddleOCR 和视觉 Provider 均为可选。设计取舍见 [RAG-Anything 固定提交对比审查](docs/comparative-review-rag-anything.md)。
+
+**0.4.0-rc.1 Production Local** 开始把“演示能力”和“受支持运行路径”明确分开：保留零 Key Demo，同时增加失败关闭的 Local Production 与 Production profile、Argon2id 会话认证、CSRF、登录限流、PostgreSQL metadata adapter、pgvector、S3/MinIO、ClamAV、Redis Streams、事务 outbox、DLQ 和带 checksum 的 SQLite→PostgreSQL 迁移。RC 不使用 `production-ready` 宣称；完成真实资料基准、恢复演练与 14 天持续运行门槛后才会发布 1.0。
+
+2026-07-23 的私有 Production 验收已索引 **21 组有许可证来源 / 200 份非 fixture 文档 / 5,159 个 768 维向量**，并真实通过 PostgreSQL + pgvector + MinIO 破坏性恢复及 API、worker、Redis、PostgreSQL、MinIO 五类故障注入。MinerU 高级解析真实任务通过；Ollama embedding 通过，但 `qwen3:8b` 三类生成接口在本机 180 秒超时。14 天不可回填观测已从首个健康样本开始；人工标注仍为 0/200、本人真实问题仍为 0/100，Sentry 因无 DSN 未验收。因此版本仍是 RC，完整证据与复现命令见[现场验收手册](docs/production-validation.md)。
+
+同一版本还补齐日常使用闭环：可以订阅服务端白名单内的本地目录、URL 列表和 RSS/Atom，以内容 hash、ETag、Last-Modified 和稳定 external ID 做增量同步；空结果或部分失败不会触发批量删除，条目连续两次完整同步仍消失才进入人工确认。回答、会话和知识卡片均可导出带引用 Markdown。实现与安全边界见[持续数据源与增量同步](docs/source-sync.md)。
+
+## 一分钟看懂
+
+![系统从资料输入到质量回归的完整地图](docs/assets/system-overview.svg)
+
+| 默认体验 | 可信度机制 | 工程证据 | 生产边界 |
+| --- | --- | --- | --- |
+| 零 Key、离线可运行 | 无证据拒答 | 174 个后端测试 | Argon2id session 与可选 Sentry |
+| 多知识库、DOCX 与图片提问 | 十阶段检索 Trace | 22 个前端测试 | Chroma / pgvector adapter |
+| 持久会话与流式回答 | 精确元素引用与 Graph provenance | 14 个 Browser E2E | Redis Streams / S3 / ClamAV |
+| 可恢复索引任务 | 反馈 → eval draft | 100 条黄金回归 case | Demo、Local Production、Production 明确分层 |
+
+这个仓库刻意同时展示三件事：**RAG 能力、工程可靠性、产品可信度**。如果只想快速体验，从[产品巡游](docs/product-tour.md)开始；如果要审查实现，阅读[架构](docs/architecture.md)和[检索原理](docs/retrieval-explained.md)；如果准备部署，直接查看[配置](docs/configuration.md)、[运维手册](docs/operations-runbook.md)与[生产适配](docs/production-adapters.md)。
+
+## 适合用来做什么
+
+- 在本地管理个人或小团队资料，并获得带引用回答。
+- 演示一个可解释、可测试、能安全拒答的 RAG 工程作品集。
+- 用固定黄金集回归 Recall@5、MRR、首条引用准确率和拒答准确率。
+- 在同一界面比较普通模式与专家模式，定位召回、排序、生成或引用问题。
+
+它目前不是多租户 SaaS，也没有宣称默认 hash embedding 具备生产语义检索质量。三个运行模式、失败关闭规则和迁移步骤见 [Production Local 运行手册](docs/production-local.md)；扩展边界见 [生产适配方案](docs/production-adapters.md) 与 [已知边界](docs/known-limitations.md)。
+
+## 能力地图
+
+| 领域 | 已实现 | 默认离线 | 可选增强 |
+| --- | --- | :---: | --- |
+| 输入 | PDF、DOCX、Markdown、TXT、图片，以及 PNG/JPEG/WEBP/GIF 图片提问 | ✓ | Tesseract OCR / 视觉 Provider |
+| 数据源 | 白名单目录、URL 列表、RSS/Atom 增量同步与人工删除确认 | ✓ | connector registry 可继续扩展 |
+| 处理 | SQLite 任务、租约恢复、去重、终态取消、版本兼容 | ✓ | Production 使用 Redis Streams + outbox + DLQ |
+| 检索 | 知识库隔离、BM25、vector、Graph-lite、RRF、MMR、rerank | ✓ | LightRAG 导航、local/OpenAI/Ollama embedding、Chroma、pgvector |
+| 回答 | 持久会话、SSE、模板/Responses/chat/Ollama adapter | ✓ | 外部 Provider 人工验证 |
+| 可信度 | no-answer gate、引用、相邻上下文、citation audit | ✓ | NLI/LLM judge 待规划 |
+| 质量 | 反馈、eval draft、黄金集、Recall@K、MRR、引用/拒答 | ✓ | 真实流量抽样待规划 |
+| 交付 | Nginx、FastAPI、三种 Compose profile、health/readiness、GitHub Actions | ✓ | SBOM、Trivy、CodeQL、容器签名 |
+| 安全 | 上传边界、SSRF、防泄漏日志、Argon2id session、CSRF | ✓ | OIDC/RBAC 顺延至 1.1 |
+
+## 5 分钟离线启动
+
+要求：Python 3.11+、Node.js 22+。OCR 可选依赖由 Docker 镜像自动提供。
 
 ```bash
-npm install
+git clone https://github.com/728792899-create/personal-multimodal-rag.git
+cd personal-multimodal-rag
+
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r backend/requirements.txt
+
+npm ci
+npm --prefix frontend ci
 cp .env.example .env
 npm run dev
 ```
 
-另开一个终端导入脱敏演示资料：
+另开终端导入仓库内脱敏示例资料：
 
 ```bash
+source .venv/bin/activate
 npm run demo:bootstrap
 ```
 
-打开 `http://127.0.0.1:5173`，选择样例资料提问，查看答案、引用片段、score、retrieval trace、fallback 和可信度审计。默认配置使用 mock/hash embedding 与 template answer，无需真实 API Key。
+打开 [http://127.0.0.1:5173](http://127.0.0.1:5173)。`.env.example` 已默认配置：
 
-快速验收：
+```text
+EMBEDDING_PROVIDER=mock
+VECTOR_STORE=memory
+ANSWER_PROVIDER=template
+QUERY_REWRITE_PROVIDER=none
+```
+
+因此没有任何 Key 也能完成上传、索引、检索、回答、引用、拒答和评测流程。
+
+## Docker Compose 一键启动
+
+Docker 路径不要求先创建 `.env`：
 
 ```bash
-npm run build
-npm run test
-npm run test:demo
+docker compose up --build --wait -d
+npm run demo:bootstrap
 ```
 
-## 演示资料
+- 工作台：[http://127.0.0.1:5173](http://127.0.0.1:5173)
+- 后端健康检查：[http://127.0.0.1:8010/health](http://127.0.0.1:8010/health)
+- Provider 就绪检查：[http://127.0.0.1:8010/ready](http://127.0.0.1:8010/ready)
 
-演示资料位于：
+前端使用生产 Nginx 镜像，并将 `/api` 反向代理到 FastAPI；前后端都配置了容器健康检查。停止服务：
 
-```text
-samples/demo-documents/
+```bash
+docker compose down
 ```
 
-推荐体验路径：
+![离线演示、持久单用户与小团队 Beta 的部署演进](docs/assets/deployment-modes.svg)
 
-```text
-导入资料 -> 提问 -> 查看引用上下文 -> 查看可信度审计 -> 点击负反馈生成评测草稿 -> 运行评测 -> 保存知识卡片
+### 三种运行模式
+
+| 模式 | 数据/检索 | Provider | 认证与失败策略 | 启动方式 |
+| --- | --- | --- | --- | --- |
+| `demo` | SQLite + 本地对象 + memory | mock + template | 默认关闭认证；零 Key | `docker compose up --build --wait -d` |
+| `local-production` | SQLite + 本地对象 + Chroma | Ollama `qwen3:8b` + `nomic-embed-text` | 禁止 template 回退；可启用 session auth | `docker compose -f docker-compose.yml -f compose.local-production.yml up --build --wait -d` |
+| `production` | PostgreSQL/pgvector + S3/MinIO + Redis Streams | Ollama 或 OpenAI-compatible | Argon2id session + CSRF；依赖异常时 readiness 503 | `docker compose -f compose.production.yml up --build --wait -d` |
+
+Production profile 需要先生成 `secrets/` 中的本地 secret files；不会把密码或 Key写入镜像、Compose environment 或浏览器。完整前置检查、迁移和回滚见 [Production Local 运行手册](docs/production-local.md)。
+
+要启用目录订阅，把宿主机目录通过 `SOURCE_DIRECTORY` 只读挂载；工作台只会看到配置好的根目录别名：
+
+```bash
+SOURCE_DIRECTORY="$HOME/Documents/knowledge" \
+docker compose -f docker-compose.yml -f compose.local-production.yml up --build --wait -d
 ```
 
-推荐提问：
+## 可复现验收
 
-```text
-这个 RAG 系统的核心工程亮点是什么？
-这个系统如何通过引用和拒答机制降低幻觉？
-这份资料有没有提到 Kubernetes 部署？
-AIGC 工作流资料里提到了哪些工程能力？
+所有命令都强制使用离线 provider：
+
+```bash
+npm test                 # 后端 pytest + 前端 Vitest
+npm run lint:docs        # 相对链接、图片 alt 与 SVG 可访问性
+npm run build            # vue-tsc + Vite production build
+npm run test:demo        # 端到端 API smoke
+npm run eval:retrieval   # 100 条固定黄金集 + 12 项阈值
+npm run eval:multimodal  # 44 条图像/表格/公式/版面专项
+npm run eval:graph       # 10 条 provenance-backed 多跳专项
+npm run test:restore-drill # SQLite + 对象存储隔离恢复契约
+npm run test:e2e         # Chromium 桌面 + 390px 级移动视图
+npm run verify:production # fail-closed Compose、认证/队列/对象、备份与 blocked release contract
 ```
 
-## 演示截图
+一次运行全部验收：
 
-### 普通知识库工作台
+```bash
+npm run verify
+```
 
-![个人多模态 RAG 工作台](docs/screenshots/01-workbench.jpg)
+当前本地验收证据见 [验证基线](docs/validation-baseline.md)。评测失败会生成可读报告到 `eval/reports/latest.md`；CI 会始终上传报告 artifact。
 
-### 引用回答与可信度审计
+真实语料与运行证据不会被 fixture 代替。`npm run benchmark:real` 只接受部署方提供的私有 evidence manifest；当前 1.0 状态和全部阻断项见[发布证据](docs/release-evidence-1.0.md)。
 
-![RAG 引用回答与可信度审计](docs/screenshots/02-grounded-answer.jpg)
+![100 条固定黄金集的基础、多模态与 Graph 指标](docs/assets/evaluation-scorecard.svg)
 
-截图使用仓库内 `samples/demo-documents/` 的公开样例资料和离线默认 Provider 生成，不包含私人知识库内容或外部模型密钥。
+| 检查 | 当前本地结果 | CI 门槛 |
+| --- | ---: | ---: |
+| 后端测试 | 152 passed、3 skipped + 2 PostgreSQL contract passed | 全部通过 |
+| 前端单元/组件 | 19 passed | 全部通过 |
+| Browser E2E | 14 passed | 桌面与移动全部通过 |
+| Recall@5 | 1.0000 | ≥ 0.90 |
+| MRR | 0.9888 | ≥ 0.75 |
+| 首条引用准确率 | 0.9775 | ≥ 0.75 |
+| 拒答准确率 | 1.0000 | ≥ 0.80 |
+| 回答接受准确率 | 1.0000 | ≥ 0.85 |
+| Modality Recall@5 / 表格 / Caption / 公式 | 全部 1.0000 | ≥ 0.85 / 0.90 |
+| Graph path precision / evidence coverage / 多跳 Recall@5 | 全部 1.0000 | ≥ 0.90 / 0.95 / 0.85 |
 
-## 架构概览
+> 上表是仓库内固定、脱敏、小规模黄金集的回归结果，用于发现代码退化，不代表开放域或真实业务语料上的绝对质量。
+
+完整的数据集构成、判定方式与限制见[固定黄金集评测结果](docs/evaluation-results.md)。
+
+## 核心体验
+
+### 界面图集
+
+| 工作台 | 可解释回答 | 窄屏拒答 |
+| --- | --- | --- |
+| ![普通模式三栏工作台](docs/screenshots/01-workbench-beta.png) | ![回答、引用与检索 Trace](docs/screenshots/02-grounded-trace.png) | ![390px 专家模式与无证据拒答](docs/screenshots/03-mobile-expert-refusal.png) |
+| 管理资料、提问与系统概览 | 检查 BM25、向量、排序和引用 | 无横向溢出，保留完整状态 |
+
+| 上传与 URL 导入 | 引用相邻上下文 | 质量与引用审计 |
+| --- | --- | --- |
+| ![上传、URL 表单和索引资料](docs/screenshots/04-ingestion-url.png) | ![展开引用及前后 chunk](docs/screenshots/05-citation-context.png) | ![检索质量、引用覆盖和系统指标](docs/screenshots/06-quality-dashboard.png) |
+| 两条入库路径状态独立 | 从片段返回完整证据 | 诊断召回、排序和覆盖 |
+
+| 反馈生成 eval draft | 504 错误与重试 |
+| --- | --- |
+| ![负反馈和自动生成的评测草稿](docs/screenshots/07-feedback-eval-draft.png) | ![保留最后成功结果的 504 错误与重试入口](docs/screenshots/08-error-retry.png) |
+| 失败进入人工审查闭环 | 请求 ID、错误说明和恢复动作 |
+
+| 图片提问与持久会话 | Graph 证据工作台 |
+| --- | --- |
+| ![图片证据入口、持久多模态会话和回答状态](docs/screenshots/09-multimodal-query-trace.jpg) | ![Graph SVG 与带原文证据的键盘表格](docs/screenshots/10-graph-evidence-workbench.jpg) |
+| 临时 Query Asset 进入类型化 SSE | 43 节点、72 条带 provenance 的边 |
+
+| 精确元素引用 | 390px 多模态专家模式 |
+| --- | --- |
+| ![引用跳转到高亮的 heading 元素](docs/screenshots/11-precise-element-citation.jpg) | ![390px 下图片提问与专家检索参数](docs/screenshots/12-mobile-multimodal-expert.jpg) |
+| 从 citation 回到 IR 元素与相邻上下文 | 无横向溢出并保留完整控制层级 |
+
+完整的逐步说明见[端到端案例](docs/case-study.md)与[产品巡游](docs/product-tour.md)。
+
+### 普通模式
+
+- 创建/切换知识库，上传 PDF、DOCX、Markdown、文本、PNG/JPEG，或导入公开 URL。
+- 在任务中心查看排队、分块、嵌入、写入、失败、取消与重试状态。
+- 选择知识库或指定文档范围，在持久会话中获得流式、证据约束回答。
+- 查看引用片段、相邻上下文、置信度和引用覆盖率。
+- 对无证据问题明确拒答，不把向量噪声包装成结论。
+- 负反馈一键生成 eval draft。
+- 可添加最多 4 张临时图片，离线 OCR/元数据或视觉 Provider 会在检索前扩展查询。
+
+### 专家模式
+
+- 调整 `search_mode`、profile、Top K、candidate K、向量权重、MMR λ 与最低分。
+- 比较 BM25-only、Vector-only、Hybrid、Hybrid + Rerank。
+- 查看十阶段 Trace：查询增强 → BM25 → 向量 → 融合 → Graph → 父级上下文 → MMR → Rerank → 回答/拒答 → 引用审计。
+- 查看 fallback、query rewrite、耗时、文档质量、操作日志和评测草稿。
+
+设计评审工作文件：[Figma · Personal Multimodal RAG Beta](https://www.figma.com/design/r2oFc38SGqh8QPvFykEEfq)。前端实现以同一组语义 token、间距、圆角、焦点和状态规范为准。
+
+## 架构
+
+![系统分层、数据流、拒答与评测闭环](docs/assets/system-overview.svg)
+
+![Browser、Nginx、中间件、领域路由、服务和 provider 的请求生命周期](docs/assets/request-lifecycle.svg)
+
+<details>
+<summary>展开 Mermaid 实现链路</summary>
 
 ```mermaid
 flowchart LR
-  U["Vue 3 工作台"] -->|"REST"| API["FastAPI API"]
-  API --> ING["解析 / 切分 / 去重"]
-  API --> RAG["RAG 编排器"]
-  ING --> REG["SQLite 文档注册表"]
-  ING --> IDX["BM25 + Vector Store"]
-  RAG --> RET["混合召回 + MMR + Rerank"]
+  UI["Vue 工作台"] --> API["FastAPI 领域路由"]
+  API --> INGEST["异步上传 / URL / OCR / 去重"]
+  INGEST --> JOBS["SQLite Index Jobs"]
+  INGEST --> REG["SQLite Registry"]
+  INGEST --> INDEX["BM25 + Vector Adapter"]
+  API --> ENGINE["RAG Engine"]
+  ENGINE --> RET["BM25 + Vector + MMR + Rerank"]
   RET --> GATE["No-answer Gate"]
-  GATE --> GEN["Template / Responses Answer"]
+  GATE --> GEN["Template / Responses"]
   GEN --> AUDIT["Citation Audit"]
-  AUDIT --> U
+  AUDIT --> UI
+  UI --> FEEDBACK["Feedback → Eval Draft"]
+  FEEDBACK --> GOLDEN["Golden Regression"]
 ```
 
-完整的资料入库边界、问答时序、Provider 降级和反馈评测闭环见 [架构说明](docs/architecture.md)。
+</details>
 
-## 功能
+前端已经从单体 `App.vue` 拆成页面、领域组件、`useWorkbench` composable 与 `api/{client,documents,retrieval,quality}`；后端原 `routes.py` 现在只做路由组合，文档、检索、质量路由分别维护。详见[代码导览](docs/code-tour.md)、[架构说明](docs/architecture.md)与[SQLite 数据模型](docs/data-model.md)。
 
-- 上传 PDF、Markdown、文本、图片文件。
-- 支持 URL 导入网页资料，并进入同一套解析、切分、索引和质量评分流程。
-- 上传文件按 SHA-256 去重，避免重复资料生成重复 chunk。
-- 支持文档索引状态和重建索引，便于 OCR 或 embedding 配置变化后重新入库。
-- 自动解析文本并按 chunk size + overlap 切分。
-- 图片文件接入 OCR adapter，安装 tesseract + pytesseract 后可提取图片文字。
-- 建立 BM25 关键词索引。
-- 通过 `BaseEmbeddingProvider` / `MockEmbeddingProvider` 建立轻量 hash embedding 向量索引。
-- 支持 OpenAI-compatible embedding provider。
-- 通过 `BaseVectorStore` 隔离 Memory / Chroma / pgvector 三种向量存储。
-- 使用混合检索排序：`0.62 * normalized BM25 + 0.38 * vector similarity`。
-- 支持 Query Rewrite、Multi-query Retrieval、MMR 去冗余和多条件 No-answer Gate。
-- 支持本地 keyword rerank，前端展示 rerank_score。
-- 预留 cross-encoder reranker，可通过 `RERANKER=cross-encoder` 接入 BGE reranker。
-- 支持 template / Responses 两种答案生成器。
-- 问答结果展示引用来源、页码或片段编号、score、bm25_score、vector_score。
-- 输出 retrieval trace，方便调试召回链路。
-- 输出 query intent、document boost、parent-child context 和检索/生成耗时。
-- 支持答案可信度分级、引用覆盖率、引用与所指证据的词项校验、unsupported claims 和引用上下文。
-- 支持答案改写为项目说明、要点列表、学习笔记和 FAQ。
-- 支持知识卡片沉淀和资料缺口分析。
-- 支持用户反馈生成 eval draft，并在前端运行评测草稿。
-- 支持系统指标面板，统计质量分、平均置信度、拒答、fallback 和负反馈。
-- 提供轻量评测接口和脚本，支持 Recall@K、MRR、引用准确率。
-- 提供检索 profile 对比脚本，可比较 BM25-only、Vector-only、Hybrid、Hybrid+Rerank。
+### 十阶段检索
 
-## 安全与可信度
+![BM25、向量、融合、MMR、重排、拒答和引用审计](docs/assets/retrieval-pipeline.svg)
 
-- `GROUNDING_MIN_CONFIDENCE=0.15`：无直接关键词命中时，低于该置信度会拒绝生成。
-- `CITATION_OVERLAP_THRESHOLD=0.34`：引用句与其实际引用证据的最低词项重合度。
-- `MAX_UPLOAD_BYTES=20971520`：单个上传文件大小上限，默认 20 MB。
-- `RAG_ALLOW_PRIVATE_URLS=0`：默认禁止 URL 导入访问回环、内网、链路本地及其他特殊地址；只有明确需要导入可信内网资料时才应开启。
+十阶段视图依次显示查询增强、BM25、向量、融合、Graph、父级上下文、MMR、Rerank、拒答决策和引用审计；Graph 路径另有可缩放 SVG 与等价键盘表格。计算与诊断方法见[检索与可信回答](docs/retrieval-explained.md)。
 
-上传接口仅允许 `.txt`、`.md`、`.markdown`、`.pdf`、`.png`、`.jpg`、`.jpeg`，会清理路径成分、为落盘文件生成唯一名称，并在解析或索引失败时删除临时文件。URL 导入会在初始请求、每次重定向和最终响应三个阶段执行地址校验。
+## 安全与稳定性
 
-## 搜索与调试
+- 上传扩展名白名单、20 MB 上限、空文件拒绝、路径清理、唯一落盘名、PDF/图片 magic-byte 和 DOCX ZIP-bomb 校验。
+- 查询图片最多 4 张/单张 10 MB，实际解码校验 PNG/JPEG/WEBP/非动画 GIF、像素上限、知识库边界和 24 小时过期级联删除。
+- URL 仅允许 HTTP(S)，禁止嵌入凭据，初始/重定向/最终地址都执行 SSRF 校验，并限制内容类型、字节数和超时。
+- API 支持可选 Bearer Token、进程内限流、`Retry-After` 和请求 ID。
+- 前端请求有超时、取消、Abort 语义、可读错误、请求 ID 与重试入口。
+- 日志会清理 Authorization、token、password、secret、URL query/fragment。
+- Sentry 仅在显式提供 DSN 且安装可选依赖时启用；默认关闭 PII 与 request body。
+- Production URL/Feed 只由无 secret、无数据卷的隔离 fetch worker 抓取；每一跳重新验证 DNS，并把 socket 固定到已验证公网 IP。
+- `/metrics` 只输出低基数 Prometheus label；可选 OTLP、Sentry scrubber 和 Grafana 均禁止正文、问题、Cookie、Key 与 URL query。
+- SQLite 任务以租约恢复进程中断工作，最多三次自动尝试；协作取消和过期的 `cancelling` 租约都会收敛为 `cancelled`，内容哈希与索引版本组成幂等键。
+- `memory` 向量库重启时会从 SQLite 文档注册表重建缺失索引；维度/模型/索引版本不兼容的文档被标记 `needs_rebuild`，不混用向量。
+- `scripts/verify_local_restore.py` 使用 SQLite Backup API 在临时目录检查完整性、外键、schema，以及引用对象的安全路径、大小和 SHA-256；完整恢复步骤见[运维手册](docs/operations-runbook.md)。
 
-工作台支持两种运行模式：
+安全策略与漏洞报告见 [SECURITY.md](SECURITY.md)。
 
-- `问答`：检索证据后进入证据约束回答生成。
-- `搜索`：只返回证据片段和完整 retrieval trace，便于调试召回质量。
+![浏览器、API、不可信输入、外部 provider 和存储的安全信任边界](docs/assets/security-boundaries.svg)
 
-检索策略支持在前端直接调整：
+具体威胁、已实现控制和剩余风险见[安全威胁模型](docs/security-model.md)。
 
-- 搜索模式：`hybrid`、`keyword`、`semantic`
-- 检索 profile：`balanced`、`precision`、`recall`
-- 文档范围：全部文档或指定文档集合
-- Top K、candidate K、BM25/Vector 权重、MMR lambda、最低分阈值
-- Query Rewrite 开关
+## OpenAI 可选接法
 
-后端会在 trace 中返回每次检索的阶段数据：`raw_candidates`、`deduped_candidates`、`mmr_selected`、`returned`、`matched_terms`、`score_breakdown`、`fallbacks`、`rewrite_status`、`vector_status` 和 `rerank_status`。
+默认运行不需要 OpenAI。若显式选择真实 provider：
 
-## 普通模式与专家模式
+- Responses 使用 `POST /v1/responses` 和 `store:false`；流式消费 `response.output_text.delta`、`response.completed` 与 `error`，会话事实保存在本地 SQLite。
+- Embedding 使用批量 `input` 与 `encoding_format=float`；`dimensions` 只在配置非零且模型支持时发送。
+- 网络客户端有超时且错误文本经过脱敏；只有 local/test 显式允许模板回退，production 默认以安全 `503` 失败。
 
-- 普通模式：默认入口，隐藏 BM25、Vector、MMR、candidate_k 等工程参数，只保留上传、选择资料、提问、查看答案和引用。
-- 专家模式：保留完整检索参数、策略对比、Trace、Fallback 和文档调试能力，适合检索调参和问题定位。
+配置示例见 `.env.example`。实现按 [OpenAI Streaming Responses](https://developers.openai.com/api/docs/guides/streaming-responses)、[Conversation state](https://developers.openai.com/api/docs/guides/conversation-state) 和 [Embeddings API](https://developers.openai.com/api/reference/resources/embeddings/methods/create) 校对。
 
-当系统发现证据不足、范围过窄或检索链路降级时，会返回 diagnostics，并在前端展示可执行修复动作，例如切换全部资料、降低严格度、扩大搜索范围、切换混合检索、查看检索过程或重建索引。
-
-## 技术栈
-
-- 前端：Vue 3、TypeScript、Vite
-- 后端：FastAPI、Python、PyMuPDF、pytest
-- 检索：BM25、Hash Embedding、OpenAI-compatible Embedding、Local Sentence Transformers、Cross-Encoder Rerank
-- 存储：Memory、Chroma、pgvector
-- 生成：Template Answer、OpenAI Responses-compatible adapter
-
-## 目录结构
+## 目录
 
 ```text
-personal-multimodal-rag/
-  backend/
-    app/
-      api/routes.py
-      core/store.py
-      models/
-      services/
-    tests/
-  frontend/
-    src/
-  samples/demo-documents/
-  scripts/bootstrap_demo_documents.py
-  scripts/run_eval.py
-  docs/
+backend/app/
+  api/routes.py              # 路由组合根
+  api/routers/               # documents / ingestion / KB / conversations / providers / quality
+  middleware/                # auth / rate limit / request id
+  services/                  # ingest / retrieval / answer / audit / adapters
+frontend/
+  src/pages/                 # WorkbenchPage
+  src/components/            # knowledge / query / answer / inspector / trace
+  src/composables/           # useWorkbench + context
+  src/api/                   # client + 领域 API + types
+  e2e/                       # Playwright 关键路径
+eval/                        # cases + thresholds
+samples/demo-documents/      # 公开脱敏样例
+docs/                        # 架构、部署、排障、发布与证据
 ```
 
-## 环境变量
+## CI 与发布
 
-复制 `.env.example`：
+GitHub Actions 按职责拆分：
 
-```bash
-cp .env.example .env
-```
+- `ci.yml`：文档、后端、前端构建/单测/E2E、黄金集、多模态/Graph/parser 安全契约和默认 Compose 健康检查。
+- `security.yml`：CodeQL、Python/npm 依赖审计、Trivy、SPDX SBOM 与 Production contract。
+- `release-images.yml`：仅对 release/tag 构建固定镜像，生成 provenance/SBOM，并使用 GitHub OIDC 做 keyless Cosign 签名与 build attestation。
+- 高级 parser 和真实 Provider 继续使用显式手动 workflow，普通 PR 不下载模型、不调用付费 API。
 
-默认不需要真实模型 Key。需要接入真实模型时，再按 `.env.example` 配置 OpenAI-compatible embedding、answer provider、Chroma 或 pgvector。
+`0.4.0-rc` 的固定 fixture 回归与基础设施 contract 可由 CI 自动复现；真实语料、14 天 soak 与完整恢复演练必须由部署负责人提交私有 evidence manifest。`GET /api/system/readiness-report` 会明确返回每一道通过/阻断门，不能由 fixture 自动把版本标记为 1.0。badge 反映默认分支最近一次 `ci.yml` 状态；发布前仍需逐项执行 [Release Checklist](docs/release-checklist.md)。
 
-## 已知边界
+![用户反馈、黄金集、报告和 CI 的质量循环](docs/assets/evaluation-loop.svg)
 
-- 默认 hash/mock embedding 只用于本地演示，不代表生产向量质量。
-- 图片 OCR 依赖本机 tesseract，可选启用。
-- 大规模索引、权限隔离、多租户和严格评测集仍需进一步建设。
-- 真实 LLM、Chroma、pgvector 是增强能力，不是默认演示依赖。
+## 更多文档
 
-更多说明见：
+| 我想要…… | 从这里开始 | 继续深入 |
+| --- | --- | --- |
+| 看完整使用案例 | [端到端案例](docs/case-study.md) | [产品巡游](docs/product-tour.md) |
+| 快速理解产品 | [产品巡游](docs/product-tour.md) | [演示脚本](docs/demo-script.md) |
+| 审查代码结构 | [代码导览](docs/code-tour.md) | [数据模型](docs/data-model.md) |
+| 审查检索质量 | [检索原理](docs/retrieval-explained.md) | [测试与评测](docs/testing-and-evaluation.md) |
+| 查看固定成绩 | [评测结果](docs/evaluation-results.md) | [验证基线](docs/validation-baseline.md) |
+| 集成后端 | [API 使用指南](docs/api-reference.md) | [架构说明](docs/architecture.md) |
+| 切换 provider | [配置指南](docs/configuration.md) | [生产适配方案](docs/production-adapters.md) |
+| 运行和排障 | [运维手册](docs/operations-runbook.md) | [故障排查](docs/troubleshooting.md) |
+| 评估上线条件 | [已知边界](docs/known-limitations.md) | [Release Checklist](docs/release-checklist.md) |
+| 查看真实证据 | [发布证据与阻断门](docs/release-evidence-1.0.md) | [验证基线](docs/validation-baseline.md) |
+| 参与开发 | [贡献指南](CONTRIBUTING.md) | [路线图](docs/roadmap.md) |
+| 解决常见疑问 | [FAQ](docs/faq.md) | [安全策略](SECURITY.md) |
+| 审查威胁边界 | [安全模型](docs/security-model.md) | [生产适配](docs/production-adapters.md) |
 
-- [架构说明](docs/architecture.md)
-- [演示脚本](docs/demo-script.md)
-- [已知边界](docs/known-limitations.md)
-- [项目复盘](docs/project-retrospective.md)
+## 关键设计取舍
+
+- **离线优先，不是离线限定。** 默认路径保证任何审查者都能复现，真实模型通过 adapter 接入。
+- **拒答优先于流畅。** 没有证据时给出缺口，比生成看似完整的答案更符合知识工具定位。
+- **Trace 服务于决策。** 不展示无组织的 debug JSON，而是按检索因果顺序组织信息。
+- **回归指标互相制衡。** Recall 防漏召回，MRR 防排序退化，引用防错来源，拒答防无依据扩张。
+- **服务端决定 workspace。** 0.4 RC 已建立默认 workspace/owner/session/membership 边界；仍是单管理员单实例，不把它包装成多租户或 RBAC。
+- **真实截图与概念配图分工。** 截图证明产品状态，SVG/主视觉解释系统关系，两者都不能代替自动化测试。
+
+## 参与与安全
+
+欢迎提交可复现的 bug、评测 case、可访问性改进和 adapter 增强。开始前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。安全问题不要公开披露或附带真实资料，请使用 GitHub Private Security Advisory，流程见 [SECURITY.md](SECURITY.md)。
+
+## License
+
+[MIT](LICENSE)

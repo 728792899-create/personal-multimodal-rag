@@ -2,7 +2,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from app.api import routes
+from app.api.routers import documents
 from app.main import app
 
 
@@ -11,7 +11,7 @@ SAMPLE = ROOT / "samples" / "demo-documents" / "02-rag-workbench-technical.md"
 
 
 def test_demo_documents_ingest_and_ask(monkeypatch, tmp_path):
-    monkeypatch.setattr(routes, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(documents, "DATA_DIR", tmp_path)
     client = TestClient(app)
 
     health = client.get("/health")
