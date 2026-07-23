@@ -1,4 +1,4 @@
-# Personal Multimodal RAG · 证据工作台
+# Personal Multimodal RAG · Self-hosted Multimodal Evidence Platform
 
 **中文** · [English overview](README.en.md)
 
@@ -14,11 +14,13 @@
 
 [快速启动](#5-分钟离线启动) · [端到端案例](docs/case-study.md) · [产品巡游](docs/product-tour.md) · [文档中心](docs/README.md) · [代码导览](docs/code-tour.md) · [评测结果](docs/evaluation-results.md) · [安全模型](docs/security-model.md)
 
-面向单用户/小团队 Beta 的本地优先多模态 RAG 工作台。它不只展示“上传并问答”，还把 BM25、向量召回、融合去重、MMR、Rerank、拒答决策和引用覆盖率组织成可理解、可回归的证据链。
+面向单用户真实日常使用的自托管多模态证据平台。它不只展示“上传并问答”，还把 BM25、向量召回、融合去重、MMR、Rerank、拒答决策和引用覆盖率组织成可理解、可回归的证据链。
 
 默认使用 deterministic hash embedding、内存向量库和模板回答：**无需真实 API Key、不会调用付费 API**。PDF、DOCX、Markdown、文本、图片 OCR、URL 导入、持久会话、引用上下文、质量审计、反馈评测和专家参数均保留。
 
 **0.3 Multimodal Intelligence** 将文档拆成可审查的 text、heading、image、table、equation、code 元素；原件与内嵌资源进入内容寻址对象存储，chunk 保留元素 provenance。上下文感知 enrichment 和 Graph-lite 只导航到本地 evidence，再与 BM25/vector 通过 RRF 融合，不能绕过拒答或引用门。工作台已支持 24 小时临时图片提问、精确元素定位、Graph SVG/表格 Trace 和多模态质量面板。索引任务的协作取消会可靠收敛到终态，SQLite 与对象存储可执行非破坏性隔离恢复演练。默认内置解析与 template enrichment 仍然零下载；MinerU、Docling、PaddleOCR 和视觉 Provider 均为可选。设计取舍见 [RAG-Anything 固定提交对比审查](docs/comparative-review-rag-anything.md)。
+
+**0.4.0-rc.1 Production Local** 开始把“演示能力”和“受支持运行路径”明确分开：保留零 Key Demo，同时增加失败关闭的 Local Production 与 Production profile、Argon2id 会话认证、CSRF、登录限流、PostgreSQL metadata adapter、pgvector、S3/MinIO、ClamAV、Redis Streams、事务 outbox、DLQ 和带 checksum 的 SQLite→PostgreSQL 迁移。RC 不使用 `production-ready` 宣称；完成真实资料基准、恢复演练与 14 天持续运行门槛后才会发布 1.0。
 
 ## 一分钟看懂
 
@@ -26,10 +28,10 @@
 
 | 默认体验 | 可信度机制 | 工程证据 | 生产边界 |
 | --- | --- | --- | --- |
-| 零 Key、离线可运行 | 无证据拒答 | 110 个后端测试 | 可选认证与 Sentry |
-| 多知识库、DOCX 与图片提问 | 十阶段检索 Trace | 15 个前端测试 | Chroma / pgvector adapter |
-| 持久会话与流式回答 | 精确元素引用与 Graph provenance | 8 个 Browser E2E | 外部任务队列/对象存储方案 |
-| 可恢复索引任务 | 反馈 → eval draft | 100 条黄金回归 case | 本地 Demo 永不依赖外部服务 |
+| 零 Key、离线可运行 | 无证据拒答 | 124 个后端测试 | Argon2id session 与可选 Sentry |
+| 多知识库、DOCX 与图片提问 | 十阶段检索 Trace | 17 个前端测试 | Chroma / pgvector adapter |
+| 持久会话与流式回答 | 精确元素引用与 Graph provenance | 12 个 Browser E2E | Redis Streams / S3 / ClamAV |
+| 可恢复索引任务 | 反馈 → eval draft | 100 条黄金回归 case | Demo、Local Production、Production 明确分层 |
 
 这个仓库刻意同时展示三件事：**RAG 能力、工程可靠性、产品可信度**。如果只想快速体验，从[产品巡游](docs/product-tour.md)开始；如果要审查实现，阅读[架构](docs/architecture.md)和[检索原理](docs/retrieval-explained.md)；如果准备部署，直接查看[配置](docs/configuration.md)、[运维手册](docs/operations-runbook.md)与[生产适配](docs/production-adapters.md)。
 
@@ -40,7 +42,7 @@
 - 用固定黄金集回归 Recall@5、MRR、首条引用准确率和拒答准确率。
 - 在同一界面比较普通模式与专家模式，定位召回、排序、生成或引用问题。
 
-它目前不是多租户 SaaS，也没有宣称默认 hash embedding 具备生产语义检索质量。生产扩展边界见 [生产适配方案](docs/production-adapters.md) 与 [已知边界](docs/known-limitations.md)。
+它目前不是多租户 SaaS，也没有宣称默认 hash embedding 具备生产语义检索质量。三个运行模式、失败关闭规则和迁移步骤见 [Production Local 运行手册](docs/production-local.md)；扩展边界见 [生产适配方案](docs/production-adapters.md) 与 [已知边界](docs/known-limitations.md)。
 
 ## 能力地图
 
@@ -112,7 +114,15 @@ docker compose down
 
 ![离线演示、持久单用户与小团队 Beta 的部署演进](docs/assets/deployment-modes.svg)
 
-默认 Compose 对应 Level 1。Level 2/3 不是隐藏开关：它们需要明确的索引迁移、持久服务、认证和运维步骤，详见[配置指南](docs/configuration.md)与[生产适配方案](docs/production-adapters.md)。
+### 三种运行模式
+
+| 模式 | 数据/检索 | Provider | 认证与失败策略 | 启动方式 |
+| --- | --- | --- | --- | --- |
+| `demo` | SQLite + 本地对象 + memory | mock + template | 默认关闭认证；零 Key | `docker compose up --build --wait -d` |
+| `local-production` | SQLite + 本地对象 + Chroma | Ollama `qwen3:8b` + `nomic-embed-text` | 禁止 template 回退；可启用 session auth | `docker compose -f docker-compose.yml -f compose.local-production.yml up --build --wait -d` |
+| `production` | PostgreSQL/pgvector + S3/MinIO + Redis Streams | Ollama 或 OpenAI-compatible | Argon2id session + CSRF；依赖异常时 readiness 503 | `docker compose -f compose.production.yml up --build --wait -d` |
+
+Production profile 需要先生成 `secrets/` 中的本地 secret files；不会把密码或 Key写入镜像、Compose environment 或浏览器。完整前置检查、迁移和回滚见 [Production Local 运行手册](docs/production-local.md)。
 
 ## 可复现验收
 
@@ -142,9 +152,9 @@ npm run verify
 
 | 检查 | 当前本地结果 | CI 门槛 |
 | --- | ---: | ---: |
-| 后端测试 | 110 passed | 全部通过 |
-| 前端单元/组件 | 15 passed | 全部通过 |
-| Browser E2E | 8 passed | 桌面与移动全部通过 |
+| 后端测试 | 124 passed + 2 PostgreSQL contract passed | 全部通过 |
+| 前端单元/组件 | 17 passed | 全部通过 |
+| Browser E2E | 12 passed | 桌面与移动全部通过 |
 | Recall@5 | 1.0000 | ≥ 0.90 |
 | MRR | 0.9888 | ≥ 0.75 |
 | 首条引用准确率 | 0.9775 | ≥ 0.75 |

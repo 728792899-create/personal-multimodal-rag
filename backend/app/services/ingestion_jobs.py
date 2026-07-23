@@ -30,6 +30,7 @@ class IngestionWorker:
         parser_client=None,
         enrichment_service=None,
         graph_store=None,
+        job_signal_queue=None,
     ):
         self.registry = registry
         self.processor = processor
@@ -40,6 +41,7 @@ class IngestionWorker:
         self.parser_client = parser_client
         self.enrichment_service = enrichment_service
         self.graph_store = graph_store
+        self.job_signal_queue = job_signal_queue
         self.worker_id = f"local-{uuid.uuid4().hex[:10]}"
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -60,7 +62,21 @@ class IngestionWorker:
 
     def _loop(self) -> None:
         while not self._stop.is_set():
-            if not self.run_once():
+            message = None
+            if self.job_signal_queue is not None:
+                try:
+                    message = self.job_signal_queue.wait(
+                        max(self.settings.ingestion_poll_seconds, 0.1)
+                    )
+                except Exception:
+                    self._stop.wait(self.settings.ingestion_poll_seconds)
+            processed = self.run_once()
+            if message is not None:
+                try:
+                    self.job_signal_queue.acknowledge(message.message_id)
+                except Exception:
+                    pass
+            if not processed and self.job_signal_queue is None:
                 self._stop.wait(self.settings.ingestion_poll_seconds)
 
     def run_once(self) -> bool:

@@ -1,5 +1,10 @@
 import type { RequestOptions } from './types'
 
+let csrfToken = ''
+
+export function setCsrfToken(value: string) {
+  csrfToken = value
+}
 
 export class ApiError extends Error {
   status: number
@@ -58,6 +63,10 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}, option
   try {
     const headers = new Headers(init.headers)
     headers.set('Accept', 'application/json')
+    const method = String(init.method || 'GET').toUpperCase()
+    if (csrfToken && !['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+      headers.set('X-CSRF-Token', csrfToken)
+    }
     const response = await fetch(path, {
       ...init,
       headers,

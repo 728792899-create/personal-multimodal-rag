@@ -22,6 +22,9 @@ class BaseVectorStore(ABC):
     def delete_by_document_id(self, document_id: str) -> None:
         raise NotImplementedError
 
+    def health(self) -> bool:
+        return True
+
 
 class MemoryVectorStore(BaseVectorStore):
     def __init__(self):
@@ -133,6 +136,9 @@ class ChromaVectorStore(BaseVectorStore):
         for chunk_id in ids:
             self.chunks.pop(chunk_id, None)
             self.embeddings.pop(chunk_id, None)
+
+    def health(self) -> bool:
+        return bool(self.client.heartbeat())
 
     def _metadata(self, chunk: Chunk) -> dict:
         return {
@@ -275,6 +281,12 @@ class PgVectorStore(BaseVectorStore):
         for chunk_id in ids:
             self.chunks.pop(chunk_id, None)
             self.embeddings.pop(chunk_id, None)
+
+    def health(self) -> bool:
+        with self.conn.cursor() as cur:
+            cur.execute("SELECT 1")
+            row = cur.fetchone()
+        return bool(row and int(row[0]) == 1)
 
     def _ensure_table(self) -> None:
         with self.conn.cursor() as cur:

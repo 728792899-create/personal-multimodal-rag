@@ -15,7 +15,7 @@ from app.services.safe_logging import sanitize_url_for_log
 
 
 router = APIRouter(tags=["ingestion"])
-INGESTION_DIR = Path(__file__).resolve().parents[4] / "data" / "ingestions"
+INGESTION_DIR = Path(settings.staging_path).expanduser() / "ingestions"
 
 
 def _public_job(job: dict) -> dict:
@@ -125,6 +125,11 @@ def enqueue_url(payload: IngestionUrlRequest):
 @router.get("/index-jobs")
 def list_index_jobs(limit: int = 50):
     return {"jobs": registry.list_index_jobs(limit)}
+
+
+@router.get("/index-jobs/dead-letters")
+def list_dead_letter_jobs(limit: int = 50):
+    return {"dead_letters": registry.list_dead_letter_jobs(limit)}
 
 
 @router.get("/index-jobs/{job_id}")

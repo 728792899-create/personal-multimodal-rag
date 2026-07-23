@@ -6,6 +6,12 @@
 
 ### Added
 
+- 0.4 Production Local 三模式配置：零 Key Demo、Ollama + Chroma Local Production，以及 PostgreSQL/pgvector + S3 + Redis Streams Production Compose。
+- Argon2id 管理员登录、HttpOnly session、CSRF、会话撤销、独立登录限流，以及服务端默认 workspace/owner/membership 边界。
+- PostgreSQL metadata adapter、S3 内容寻址对象存储、ClamAV 入库扫描、事务 outbox、Redis Streams consumer group 和失败任务 DLQ。
+- 原子 SQLite→PostgreSQL 迁移 CLI：自动备份、ID 保留、逐表 checksum 对账和失败回滚。
+- 失败关闭的运行配置校验与 live readiness；生产依赖异常不再静默降级到 template。
+- 非 root/read-only Production 镜像、secret-file 配置与 [Production Local 运行手册](docs/production-local.md)。
 - 0.3 多模态统一 IR：text、heading、image、table、equation、code 元素，保留页码、顺序、bbox、标题路径、结构化表格和精确引用 ID。
 - 内容寻址本地对象存储、原件受控下载、PDF/DOCX 内嵌图片物化、引用计数与删除/失败回滚。
 - SQLite schema v4：`assets`、`document_elements`、`parser_runs`、`enrichment_cache`，旧文档明确标记原件可用性。

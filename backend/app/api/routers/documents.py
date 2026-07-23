@@ -28,8 +28,7 @@ from app.services.url_importer import fetch_url
 
 
 router = APIRouter(tags=["documents"])
-DATA_DIR = Path(__file__).resolve().parents[4] / "data" / "uploads"
-DATA_DIR.mkdir(parents=True, exist_ok=True)
+DATA_DIR = Path(settings.staging_path).expanduser() / "uploads"
 
 
 @router.get("/documents")

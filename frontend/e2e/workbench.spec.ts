@@ -14,7 +14,7 @@ async function installOfflineApi(page: Page) {
   let jobs: Array<Record<string, unknown>> = []
   let queryAssets: Array<Record<string, unknown>> = []
 
-  await page.route('http://127.0.0.1:4173/api/**', async (route) => {
+  await page.route(/^https?:\/\/[^/]+\/api\//, async (route) => {
     const request = route.request()
     const url = new URL(request.url())
     const path = url.pathname
@@ -25,6 +25,9 @@ async function installOfflineApi(page: Page) {
       body: JSON.stringify(body),
     })
 
+    if (path === '/api/auth/session') {
+      return json({ session: { required: false, authenticated: false, user_id: '', workspace_id: '', role: '', csrf_token: '', expires_at: '' } })
+    }
     if (path === '/api/query-assets' && method === 'POST') {
       const asset = { id: 'query-1', filename: 'diagram.png', media_type: 'image/png', size_bytes: 96, width: 32, height: 24, expires_at: '2099-01-01T00:00:00', preview_url: '/api/assets/query-1' }
       queryAssets = [asset]
@@ -244,4 +247,90 @@ test('image question, graph controls and accessible graph evidence stay connecte
   await page.getByRole('tab', { name: '图谱' }).click()
   await expect(page.getByRole('heading', { name: '证据图谱' })).toBeVisible()
   await expect(page.getByRole('table')).toContainText('Alpha uses Beta')
+})
+
+test('session bootstrap failure exposes a retry and recovers the workbench', async ({ page }) => {
+  await installOfflineApi(page)
+  let attempts = 0
+  await page.route('**/api/auth/session', async (route) => {
+    attempts += 1
+    if (attempts === 1) {
+      await route.abort('connectionfailed')
+      return
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        session: {
+          required: false,
+          authenticated: false,
+          user_id: '',
+          workspace_id: '',
+          role: '',
+          csrf_token: '',
+          expires_at: '',
+        },
+      }),
+    })
+  })
+  await page.goto('/')
+
+  await expect(page.getByRole('heading', { name: '无法确认工作区会话' })).toBeVisible()
+  await page.getByRole('button', { name: '重试连接' }).click()
+
+  await expect(page.getByTestId('file-input')).toBeAttached()
+  expect(attempts).toBe(2)
+})
+
+test('session authentication gates the workbench and logout revokes access', async ({ page }) => {
+  await installOfflineApi(page)
+  let authenticated = false
+  let csrfSeen = false
+  await page.route('**/api/auth/session', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        session: {
+          required: true,
+          authenticated,
+          user_id: authenticated ? 'owner' : '',
+          workspace_id: authenticated ? 'default' : '',
+          role: authenticated ? 'owner' : '',
+          csrf_token: authenticated ? 'csrf-test' : '',
+          expires_at: authenticated ? '2099-01-01T00:00:00' : '',
+        },
+      }),
+    })
+  })
+  await page.route('**/api/auth/login', async (route) => {
+    authenticated = route.request().postDataJSON().password === 'correct password'
+    await route.fulfill({
+      status: authenticated ? 200 : 401,
+      contentType: 'application/json',
+      body: JSON.stringify(authenticated
+        ? { session: { required: true, authenticated: true, user_id: 'owner', workspace_id: 'default', role: 'owner', csrf_token: 'csrf-test', expires_at: '2099-01-01T00:00:00' } }
+        : { detail: 'Invalid administrator credentials' }),
+    })
+  })
+  await page.route('**/api/auth/logout', async (route) => {
+    csrfSeen = route.request().headers()['x-csrf-token'] === 'csrf-test'
+    authenticated = false
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ logged_out: true }),
+    })
+  })
+  await page.goto('/')
+
+  await expect(page.getByRole('heading', { name: 'Personal Multimodal RAG' })).toBeVisible()
+  await page.getByLabel('管理员密码').fill('correct password')
+  await page.getByRole('button', { name: '登录工作台' }).click()
+  await expect(page.getByTestId('file-input')).toBeAttached()
+
+  await page.getByRole('button', { name: '退出登录' }).click()
+  await expect(page.getByRole('button', { name: '登录工作台' })).toBeVisible()
+  expect(csrfSeen).toBe(true)
 })

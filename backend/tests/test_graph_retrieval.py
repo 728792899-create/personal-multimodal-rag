@@ -40,7 +40,7 @@ def test_schema_v5_graph_edges_always_retain_evidence_provenance(tmp_path: Path)
     result = graph.build_document(document)
     snapshot = graph.snapshot("default")
 
-    assert registry.schema_version == 5
+    assert registry.schema_version == DocumentRegistry.CURRENT_SCHEMA_VERSION
     assert result["node_count"] >= 4
     assert result["edge_count"] >= 3
     assert any(edge["relation"] == "uses" for edge in snapshot["edges"])
@@ -242,7 +242,7 @@ def test_v4_registry_is_backed_up_and_migrated_to_v5(tmp_path: Path):
 
     migrated = DocumentRegistry(str(path))
 
-    assert migrated.schema_version == 5
+    assert migrated.schema_version == DocumentRegistry.CURRENT_SCHEMA_VERSION
     assert migrated.get_document(document.document_id) is not None
     assert list(tmp_path.glob("v4.sqlite3.bak-*"))
     assert NativeGraphStore(migrated).snapshot("default")["summary"]["node_count"] == 0

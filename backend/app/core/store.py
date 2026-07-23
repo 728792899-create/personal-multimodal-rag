@@ -23,7 +23,13 @@ from app.services.responses_client import ResponsesClient
 from app.services.index_hydration import hydrate_retriever
 from app.services.vectorstore import ChromaVectorStore, MemoryVectorStore, PgVectorStore
 from app.services.ingestion_jobs import IngestionWorker
-from app.services.object_store import LocalObjectStore
+from app.services.object_store import (
+    ClamAVScanner,
+    LocalObjectStore,
+    S3ObjectStore,
+    ScannedObjectStore,
+)
+from app.services.auth import AuthService
 from app.services.parser_worker import ParserWorkerClient
 from app.services.provider_clients import (
     OllamaChatClient,
@@ -42,6 +48,7 @@ from app.services.multimodal_enrichment import (
     TemplateMultimodalEnricher,
 )
 from app.services.query_assets import QueryAssetService
+from app.services.job_queue import OutboxDispatcher, RedisJobQueue
 
 
 def create_embedding_provider():
@@ -95,7 +102,9 @@ def create_reranker():
         try:
             return CrossEncoderReranker(settings.reranker_model)
         except Exception:
-            return KeywordReranker()
+            if settings.provider_fallback_allowed:
+                return KeywordReranker()
+            raise
     if reranker in {"none", "off"}:
         return NoopReranker()
     raise ValueError(f"Unsupported RERANKER: {settings.reranker}")
@@ -217,14 +226,64 @@ def create_multimodal_enricher():
     raise ValueError(f"Unsupported ENRICHMENT_PROVIDER: {settings.enrichment_provider}")
 
 
+def create_object_store():
+    if settings.object_store_backend.lower() == "local":
+        store = LocalObjectStore(settings.object_store_path)
+    elif settings.object_store_backend.lower() == "s3":
+        store = S3ObjectStore(
+            endpoint_url=settings.s3_endpoint_url,
+            bucket=settings.s3_bucket,
+            access_key=settings.s3_access_key,
+            secret_key=settings.s3_secret_key,
+            region=settings.s3_region,
+            cache_root=settings.s3_cache_path,
+        )
+    else:
+        raise ValueError(f"Unsupported OBJECT_STORE_BACKEND: {settings.object_store_backend}")
+    if settings.clamav_host:
+        return ScannedObjectStore(
+            store,
+            ClamAVScanner(settings.clamav_host, settings.clamav_port),
+        )
+    return store
+
+
 processor = DocumentProcessor()
-registry = DocumentRegistry(settings.document_registry_path)
-object_store = LocalObjectStore(settings.object_store_path)
+registry = DocumentRegistry(
+    settings.metadata_dsn
+    if settings.metadata_backend.lower() == "postgres"
+    else settings.document_registry_path
+)
+object_store = create_object_store()
+auth_service = (
+    AuthService(
+        registry,
+        password_hash=settings.admin_password_hash,
+        session_secret=settings.session_secret,
+        session_ttl_seconds=settings.session_ttl_seconds,
+        cookie_secure=settings.session_cookie_secure,
+    )
+    if settings.auth_mode.lower() == "session"
+    else None
+)
 parser_worker_client = ParserWorkerClient(
     settings.parser_worker_url,
     timeout_seconds=settings.parser_timeout_seconds,
 )
 graph_store = NativeGraphStore(registry)
+job_signal_queue = (
+    RedisJobQueue(
+        settings.redis_url,
+        consumer_name=f"worker-{__import__('uuid').uuid4().hex[:10]}",
+    )
+    if settings.job_queue_backend.lower() == "redis"
+    else None
+)
+outbox_dispatcher = (
+    OutboxDispatcher(registry, job_signal_queue)
+    if job_signal_queue is not None
+    else None
+)
 
 
 def _load_asset(asset_id: str) -> tuple[bytes, str] | None:
@@ -232,12 +291,12 @@ def _load_asset(asset_id: str) -> tuple[bytes, str] | None:
     if not asset:
         return None
     try:
-        path = object_store.path_for(asset["object_key"])
+        payload = object_store.read_bytes(asset["object_key"])
     except ValueError:
         return None
-    if not path.is_file():
+    except FileNotFoundError:
         return None
-    return path.read_bytes(), str(asset.get("media_type") or "application/octet-stream")
+    return payload, str(asset.get("media_type") or "application/octet-stream")
 
 
 enrichment_service = MultimodalEnrichmentService(
@@ -297,4 +356,5 @@ ingestion_worker = IngestionWorker(
     parser_client=parser_worker_client,
     enrichment_service=enrichment_service,
     graph_store=graph_store,
+    job_signal_queue=job_signal_queue,
 )

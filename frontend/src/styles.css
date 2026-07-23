@@ -155,6 +155,77 @@ textarea {
   padding: var(--space-5);
 }
 
+.app-loading,
+.login-page,
+.app-session-error {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: var(--space-5);
+}
+
+.app-session-error section {
+  width: min(100%, 520px);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  padding: clamp(24px, 6vw, 42px);
+  box-shadow: var(--shadow);
+}
+
+.app-session-error section > p:not(.kicker) {
+  margin: var(--space-3) 0 var(--space-5);
+  color: var(--text-secondary);
+}
+
+.login-card {
+  width: min(100%, 430px);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  padding: clamp(24px, 6vw, 42px);
+  box-shadow: var(--shadow);
+}
+
+.login-card .brand-mark {
+  margin-bottom: var(--space-4);
+}
+
+.login-copy,
+.login-note {
+  margin-top: var(--space-3);
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.login-card form {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-6);
+}
+
+.login-card label {
+  font-weight: 750;
+}
+
+.login-error {
+  border-radius: var(--radius-sm);
+  background: var(--bg-danger);
+  color: var(--danger);
+  padding: 9px 11px;
+}
+
+.login-note {
+  font-size: 12px;
+}
+
+.session-logout {
+  position: fixed;
+  z-index: 20;
+  top: 36px;
+  right: 36px;
+}
+
 .app-header {
   display: grid;
   grid-template-columns: minmax(280px, 1fr) auto minmax(360px, 1fr);

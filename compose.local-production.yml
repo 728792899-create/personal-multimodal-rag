@@ -1,0 +1,31 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile.local-production
+    environment:
+      RAG_RUNTIME_MODE: local-production
+      APP_ENVIRONMENT: local-production
+      PROVIDER_FALLBACK_ALLOWED: "0"
+      EMBEDDING_PROVIDER: ollama
+      EMBEDDING_MODEL: nomic-embed-text
+      EMBEDDING_DIMENSION: "768"
+      VECTOR_STORE: chroma
+      CHROMA_PATH: /app/data/chroma
+      RERANKER: cross-encoder
+      RERANKER_MODEL: BAAI/bge-reranker-base
+      HF_HOME: /app/data/models
+      ANSWER_PROVIDER: ollama
+      ENRICHMENT_PROVIDER: template
+      QUERY_REWRITE_PROVIDER: none
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-qwen3:8b}
+      OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}
+      AUTH_MODE: ${AUTH_MODE:-disabled}
+    volumes:
+      - local_production_data:/app/data
+    extra_hosts:
+      - host.docker.internal:host-gateway
+
+volumes:
+  local_production_data:

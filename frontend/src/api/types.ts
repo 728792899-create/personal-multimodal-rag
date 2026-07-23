@@ -549,6 +549,16 @@ export interface RequestOptions {
   timeoutMs?: number
 }
 
+export interface AuthSession {
+  required: boolean
+  authenticated: boolean
+  user_id: string
+  workspace_id: string
+  role: string
+  csrf_token: string
+  expires_at: string
+}
+
 export interface KnowledgeBase {
   id: string
   name: string

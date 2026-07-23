@@ -34,10 +34,14 @@ def test_restore_drill_uses_isolated_snapshot_and_verifies_objects(tmp_path: Pat
     database_before = hashlib.sha256(database.read_bytes()).hexdigest()
     object_before = hashlib.sha256(stored.path.read_bytes()).hexdigest()
 
-    report = run_restore_drill(database, objects, expected_schema=5)
+    report = run_restore_drill(
+        database,
+        objects,
+        expected_schema=DocumentRegistry.CURRENT_SCHEMA_VERSION,
+    )
 
     assert report["status"] == "passed"
-    assert report["schema_version"] == 5
+    assert report["schema_version"] == DocumentRegistry.CURRENT_SCHEMA_VERSION
     assert report["table_counts"]["assets"] == 1
     assert report["referenced_objects"] == 1
     assert report["copied_object_files"] == 1
@@ -62,4 +66,8 @@ def test_restore_drill_rejects_incomplete_or_unsafe_object_snapshots(
         stored.path.unlink()
 
     with pytest.raises(RestoreDrillError, match=expected_error):
-        run_restore_drill(database, objects, expected_schema=5)
+        run_restore_drill(
+            database,
+            objects,
+            expected_schema=DocumentRegistry.CURRENT_SCHEMA_VERSION,
+        )

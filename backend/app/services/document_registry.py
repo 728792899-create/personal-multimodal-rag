@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import sqlite3
 import threading
@@ -11,15 +12,52 @@ from pathlib import Path
 from typing import Iterator
 
 from app.models.domain import Document, DocumentElement
-from app.services.safe_logging import redact_private_metadata
+from app.services.safe_logging import redact_private_metadata, redact_sensitive_text
 
 
 DEFAULT_KNOWLEDGE_BASE_ID = "default"
 DEFAULT_KNOWLEDGE_BASE_NAME = "默认知识库"
+DEFAULT_WORKSPACE_ID = "default"
+DEFAULT_WORKSPACE_NAME = "个人工作区"
 
 
 def _utcnow() -> str:
     return datetime.utcnow().isoformat(timespec="microseconds")
+
+
+class _PostgresConnection:
+    def __init__(self, connection):
+        self.connection = connection
+
+    def execute(self, query: str, params: tuple = ()):
+        normalized = query.replace("?", "%s")
+        normalized = normalized.replace("BEGIN IMMEDIATE", "BEGIN")
+        normalized = normalized.replace("MAX(progress, 5)", "GREATEST(progress, 5)")
+        stripped = normalized.strip()
+        if stripped.upper().startswith("INSERT OR IGNORE INTO"):
+            normalized = re.sub(
+                r"^\s*INSERT\s+OR\s+IGNORE\s+INTO",
+                "INSERT INTO",
+                normalized,
+                count=1,
+                flags=re.IGNORECASE,
+            )
+            normalized = normalized.rstrip().rstrip(";") + " ON CONFLICT DO NOTHING"
+        return self.connection.execute(normalized, params)
+
+    def executescript(self, script: str) -> None:
+        for statement in script.split(";"):
+            if statement.strip():
+                self.execute(statement)
+
+    def commit(self) -> None:
+        self.connection.commit()
+
+    def rollback(self) -> None:
+        self.connection.rollback()
+
+    def close(self) -> None:
+        self.connection.close()
 
 
 class DocumentRegistry:
@@ -30,13 +68,17 @@ class DocumentRegistry:
     SQLite URI plus a keeper connection to preserve test compatibility.
     """
 
-    CURRENT_SCHEMA_VERSION = 5
+    CURRENT_SCHEMA_VERSION = 6
 
     def __init__(self, db_path: str):
         self.db_path = db_path
+        self.dialect = "postgres" if db_path.startswith(("postgresql://", "postgres://")) else "sqlite"
         self._lock = threading.RLock()
         self._keeper: sqlite3.Connection | None = None
-        if db_path == ":memory:":
+        if self.dialect == "postgres":
+            self._connect_target = db_path
+            self._connect_uri = False
+        elif db_path == ":memory:":
             self._connect_target = f"file:rag-{uuid.uuid4().hex}?mode=memory&cache=shared"
             self._connect_uri = True
             self._keeper = self._new_connection()
@@ -48,7 +90,16 @@ class DocumentRegistry:
             self._backup_before_migration(path)
         self._ensure_schema()
 
-    def _new_connection(self) -> sqlite3.Connection:
+    def _new_connection(self):
+        if self.dialect == "postgres":
+            try:
+                import psycopg
+                from psycopg.rows import dict_row
+            except ImportError as exc:
+                raise RuntimeError(
+                    "Install psycopg[binary] to use the PostgreSQL metadata registry"
+                ) from exc
+            return _PostgresConnection(psycopg.connect(self._connect_target, row_factory=dict_row))
         connection = sqlite3.connect(
             self._connect_target,
             uri=self._connect_uri,
@@ -95,6 +146,102 @@ class DocumentRegistry:
         with self._connection() as connection:
             row = connection.execute("SELECT MAX(version) AS version FROM schema_migrations").fetchone()
         return int(row["version"] or 0)
+
+    def health(self) -> bool:
+        with self._connection() as connection:
+            row = connection.execute("SELECT 1 AS healthy").fetchone()
+        return bool(row and int(row["healthy"]) == 1)
+
+    # Identity and workspace -----------------------------------------------------
+
+    def get_workspace(self, workspace_id: str = DEFAULT_WORKSPACE_ID) -> dict | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM workspaces WHERE workspace_id = ?",
+                (workspace_id,),
+            ).fetchone()
+        if not row:
+            return None
+        return {
+            "id": row["workspace_id"],
+            "name": row["name"],
+            "is_default": bool(row["is_default"]),
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    def create_session(
+        self,
+        *,
+        token_hash: str,
+        csrf_token: str,
+        user_id: str,
+        workspace_id: str,
+        expires_at: str,
+    ) -> dict:
+        created_at = _utcnow()
+        with self._connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO sessions
+                  (token_hash, csrf_token, user_id, workspace_id, expires_at,
+                   created_at, last_seen_at, revoked_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, '')
+                """,
+                (
+                    token_hash,
+                    csrf_token,
+                    user_id,
+                    workspace_id,
+                    expires_at,
+                    created_at,
+                    created_at,
+                ),
+            )
+        return self.get_session(token_hash, touch=False) or {}
+
+    def get_session(self, token_hash: str, *, touch: bool = True) -> dict | None:
+        now = _utcnow()
+        with self._connection() as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM sessions
+                WHERE token_hash = ? AND revoked_at = '' AND expires_at > ?
+                """,
+                (token_hash, now),
+            ).fetchone()
+            if row and touch:
+                connection.execute(
+                    "UPDATE sessions SET last_seen_at = ? WHERE token_hash = ?",
+                    (now, token_hash),
+                )
+        if not row:
+            return None
+        return {
+            "token_hash": row["token_hash"],
+            "csrf_token": row["csrf_token"],
+            "user_id": row["user_id"],
+            "workspace_id": row["workspace_id"],
+            "expires_at": row["expires_at"],
+            "created_at": row["created_at"],
+            "last_seen_at": now if touch else row["last_seen_at"],
+        }
+
+    def revoke_session(self, token_hash: str) -> bool:
+        with self._connection() as connection:
+            cursor = connection.execute(
+                "UPDATE sessions SET revoked_at = ? WHERE token_hash = ? AND revoked_at = ''",
+                (_utcnow(), token_hash),
+            )
+        return cursor.rowcount > 0
+
+    def purge_expired_sessions(self) -> int:
+        with self._connection() as connection:
+            cursor = connection.execute(
+                "DELETE FROM sessions WHERE expires_at <= ? OR revoked_at != ''",
+                (_utcnow(),),
+            )
+        return cursor.rowcount
 
     # Documents -----------------------------------------------------------------
 
@@ -641,6 +788,12 @@ class DocumentRegistry:
                     created_at, created_at, created_at,
                 ),
             )
+            self._enqueue_outbox_event(
+                connection,
+                event_type="index_job.queued",
+                aggregate_id=job_id,
+                payload={"job_id": job_id},
+            )
             row = connection.execute("SELECT * FROM index_jobs WHERE job_id = ?", (job_id,)).fetchone()
         return self._job_payload(row, include_payload=True)
 
@@ -662,14 +815,14 @@ class DocumentRegistry:
         lease = (datetime.utcnow() + timedelta(seconds=max(0, lease_seconds))).isoformat(timespec="microseconds")
         with self._lock, self._connection() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute(
-                """
+            claim_query = """
                 SELECT job_id FROM index_jobs
                 WHERE status = 'queued' AND cancel_requested = 0 AND next_attempt_at <= ?
                 ORDER BY created_at ASC LIMIT 1
-                """,
-                (now,),
-            ).fetchone()
+            """
+            if self.dialect == "postgres":
+                claim_query += " FOR UPDATE SKIP LOCKED"
+            row = connection.execute(claim_query, (now,)).fetchone()
             if not row:
                 return None
             cursor = connection.execute(
@@ -722,6 +875,7 @@ class DocumentRegistry:
         delay = min(2 ** max(current["attempts"] - 1, 0), 30)
         next_attempt = (datetime.utcnow() + timedelta(seconds=delay)).isoformat(timespec="microseconds")
         completed_at = _utcnow() if status in {"failed", "cancelled"} else ""
+        safe_error = redact_sensitive_text(error_message)
         with self._connection() as connection:
             connection.execute(
                 """
@@ -729,8 +883,32 @@ class DocumentRegistry:
                     worker_id = '', lease_expires_at = '', next_attempt_at = ?,
                     completed_at = ?, updated_at = ? WHERE job_id = ?
                 """,
-                (status, status, error_code[:80], error_message[:500], next_attempt, completed_at, _utcnow(), job_id),
+                (status, status, error_code[:80], safe_error[:500], next_attempt, completed_at, _utcnow(), job_id),
             )
+            if status == "queued":
+                self._enqueue_outbox_event(
+                    connection,
+                    event_type="index_job.retry_scheduled",
+                    aggregate_id=job_id,
+                    payload={"job_id": job_id, "available_at": next_attempt},
+                    available_at=next_attempt,
+                )
+            elif status == "failed":
+                connection.execute(
+                    """
+                    INSERT INTO dead_letter_jobs
+                      (dead_letter_id, job_id, payload, error_code, error_message, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        str(uuid.uuid4()),
+                        job_id,
+                        json.dumps(current.get("payload") or {}, ensure_ascii=False),
+                        error_code[:80],
+                        safe_error[:500],
+                        _utcnow(),
+                    ),
+                )
         return self.get_index_job(job_id)
 
     def retry_index_job(self, job_id: str) -> dict | None:
@@ -746,6 +924,13 @@ class DocumentRegistry:
                 """,
                 (now, now, job_id),
             )
+            if cursor.rowcount:
+                self._enqueue_outbox_event(
+                    connection,
+                    event_type="index_job.retry_requested",
+                    aggregate_id=job_id,
+                    payload={"job_id": job_id},
+                )
         return self.get_index_job(job_id) if cursor.rowcount else None
 
     def request_index_job_cancel(self, job_id: str) -> dict | None:
@@ -810,6 +995,73 @@ class DocumentRegistry:
     def make_index_job_available(self, job_id: str) -> None:
         with self._connection() as connection:
             connection.execute("UPDATE index_jobs SET next_attempt_at = ? WHERE job_id = ?", (_utcnow(), job_id))
+
+    def list_pending_outbox_events(self, limit: int = 100) -> list[dict]:
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM outbox_events
+                WHERE status = 'pending' AND available_at <= ?
+                ORDER BY created_at ASC LIMIT ?
+                """,
+                (_utcnow(), max(1, min(limit, 500))),
+            ).fetchall()
+        return [
+            {
+                "id": row["event_id"],
+                "event_type": row["event_type"],
+                "aggregate_id": row["aggregate_id"],
+                "payload": json.loads(row["payload"]),
+                "attempts": int(row["attempts"]),
+                "available_at": row["available_at"],
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ]
+
+    def mark_outbox_published(self, event_id: str) -> None:
+        with self._connection() as connection:
+            connection.execute(
+                """
+                UPDATE outbox_events
+                SET status = 'published', published_at = ?, error_message = ''
+                WHERE event_id = ?
+                """,
+                (_utcnow(), event_id),
+            )
+
+    def mark_outbox_failed(self, event_id: str, error_message: str) -> None:
+        with self._connection() as connection:
+            connection.execute(
+                """
+                UPDATE outbox_events
+                SET attempts = attempts + 1, error_message = ?, available_at = ?
+                WHERE event_id = ?
+                """,
+                (
+                    error_message[:500],
+                    (datetime.utcnow() + timedelta(seconds=5)).isoformat(timespec="microseconds"),
+                    event_id,
+                ),
+            )
+
+    def list_dead_letter_jobs(self, limit: int = 50) -> list[dict]:
+        with self._connection() as connection:
+            rows = connection.execute(
+                "SELECT * FROM dead_letter_jobs ORDER BY created_at DESC LIMIT ?",
+                (max(1, min(limit, 200)),),
+            ).fetchall()
+        return [
+            {
+                "id": row["dead_letter_id"],
+                "job_id": row["job_id"],
+                "payload": json.loads(row["payload"]),
+                "error_code": row["error_code"],
+                "error_message": row["error_message"],
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ]
 
     # Existing quality/history APIs --------------------------------------------
 
@@ -929,6 +1181,8 @@ class DocumentRegistry:
     # Schema and serialization helpers -----------------------------------------
 
     def _backup_before_migration(self, path: Path) -> None:
+        if self.dialect != "sqlite":
+            return
         if not path.exists() or path.stat().st_size == 0:
             return
         try:
@@ -956,8 +1210,44 @@ class DocumentRegistry:
                   version INTEGER PRIMARY KEY,
                   applied_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS workspaces (
+                  workspace_id TEXT PRIMARY KEY,
+                  name TEXT NOT NULL,
+                  is_default INTEGER NOT NULL DEFAULT 0,
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS users (
+                  user_id TEXT PRIMARY KEY,
+                  workspace_id TEXT NOT NULL,
+                  role TEXT NOT NULL,
+                  display_name TEXT NOT NULL,
+                  created_at TEXT NOT NULL,
+                  FOREIGN KEY (workspace_id) REFERENCES workspaces(workspace_id)
+                );
+                CREATE TABLE IF NOT EXISTS memberships (
+                  workspace_id TEXT NOT NULL,
+                  user_id TEXT NOT NULL,
+                  role TEXT NOT NULL,
+                  created_at TEXT NOT NULL,
+                  PRIMARY KEY (workspace_id, user_id),
+                  FOREIGN KEY (workspace_id) REFERENCES workspaces(workspace_id) ON DELETE CASCADE,
+                  FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+                );
+                CREATE TABLE IF NOT EXISTS sessions (
+                  token_hash TEXT PRIMARY KEY,
+                  csrf_token TEXT NOT NULL,
+                  user_id TEXT NOT NULL,
+                  workspace_id TEXT NOT NULL,
+                  expires_at TEXT NOT NULL,
+                  created_at TEXT NOT NULL,
+                  last_seen_at TEXT NOT NULL,
+                  revoked_at TEXT NOT NULL DEFAULT '',
+                  FOREIGN KEY (workspace_id) REFERENCES workspaces(workspace_id) ON DELETE CASCADE
+                );
                 CREATE TABLE IF NOT EXISTS knowledge_bases (
                   knowledge_base_id TEXT PRIMARY KEY,
+                  workspace_id TEXT NOT NULL DEFAULT 'default',
                   name TEXT NOT NULL,
                   description TEXT NOT NULL DEFAULT '',
                   is_default INTEGER NOT NULL DEFAULT 0,
@@ -966,6 +1256,7 @@ class DocumentRegistry:
                 );
                 CREATE TABLE IF NOT EXISTS documents (
                   document_id TEXT PRIMARY KEY,
+                  workspace_id TEXT NOT NULL DEFAULT 'default',
                   knowledge_base_id TEXT NOT NULL DEFAULT 'default',
                   content_hash TEXT NOT NULL DEFAULT '',
                   index_version TEXT NOT NULL DEFAULT 'hybrid-v1',
@@ -1014,6 +1305,7 @@ class DocumentRegistry:
                 );
                 CREATE TABLE IF NOT EXISTS index_jobs (
                   job_id TEXT PRIMARY KEY,
+                  workspace_id TEXT NOT NULL DEFAULT 'default',
                   source_type TEXT NOT NULL,
                   source_name TEXT NOT NULL,
                   payload TEXT NOT NULL,
@@ -1132,8 +1424,31 @@ class DocumentRegistry:
                   FOREIGN KEY (document_id) REFERENCES documents(document_id) ON DELETE CASCADE,
                   FOREIGN KEY (entity_node_id) REFERENCES graph_nodes(node_id) ON DELETE CASCADE
                 );
+                CREATE TABLE IF NOT EXISTS outbox_events (
+                  event_id TEXT PRIMARY KEY,
+                  event_type TEXT NOT NULL,
+                  aggregate_id TEXT NOT NULL,
+                  payload TEXT NOT NULL,
+                  status TEXT NOT NULL DEFAULT 'pending',
+                  attempts INTEGER NOT NULL DEFAULT 0,
+                  available_at TEXT NOT NULL,
+                  created_at TEXT NOT NULL,
+                  published_at TEXT NOT NULL DEFAULT '',
+                  error_message TEXT NOT NULL DEFAULT ''
+                );
+                CREATE TABLE IF NOT EXISTS dead_letter_jobs (
+                  dead_letter_id TEXT PRIMARY KEY,
+                  job_id TEXT NOT NULL,
+                  payload TEXT NOT NULL,
+                  error_code TEXT NOT NULL,
+                  error_message TEXT NOT NULL,
+                  created_at TEXT NOT NULL
+                );
                 """
             )
+            self._add_column_if_missing(connection, "knowledge_bases", "workspace_id", "TEXT NOT NULL DEFAULT 'default'")
+            self._add_column_if_missing(connection, "documents", "workspace_id", "TEXT NOT NULL DEFAULT 'default'")
+            self._add_column_if_missing(connection, "index_jobs", "workspace_id", "TEXT NOT NULL DEFAULT 'default'")
             self._add_column_if_missing(connection, "documents", "knowledge_base_id", "TEXT NOT NULL DEFAULT 'default'")
             self._add_column_if_missing(connection, "documents", "content_hash", "TEXT NOT NULL DEFAULT ''")
             self._add_column_if_missing(connection, "documents", "index_version", "TEXT NOT NULL DEFAULT 'hybrid-v1'")
@@ -1154,17 +1469,53 @@ class DocumentRegistry:
                 CREATE INDEX IF NOT EXISTS idx_graph_edges_nodes ON graph_edges(source_node_id, target_node_id);
                 CREATE INDEX IF NOT EXISTS idx_graph_edges_document ON graph_edges(document_id, relation);
                 CREATE INDEX IF NOT EXISTS idx_entity_mentions_element ON entity_mentions(document_id, element_id);
+                CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at, revoked_at);
+                CREATE INDEX IF NOT EXISTS idx_outbox_pending ON outbox_events(status, available_at);
+                CREATE INDEX IF NOT EXISTS idx_dead_letter_jobs_job ON dead_letter_jobs(job_id, created_at);
                 """
             )
             now = _utcnow()
             connection.execute(
                 """
+                INSERT INTO workspaces
+                  (workspace_id, name, is_default, created_at, updated_at)
+                VALUES (?, ?, 1, ?, ?)
+                ON CONFLICT(workspace_id) DO NOTHING
+                """,
+                (DEFAULT_WORKSPACE_ID, DEFAULT_WORKSPACE_NAME, now, now),
+            )
+            connection.execute(
+                """
+                INSERT INTO users
+                  (user_id, workspace_id, role, display_name, created_at)
+                VALUES ('owner', ?, 'owner', 'Owner', ?)
+                ON CONFLICT(user_id) DO NOTHING
+                """,
+                (DEFAULT_WORKSPACE_ID, now),
+            )
+            connection.execute(
+                """
+                INSERT INTO memberships
+                  (workspace_id, user_id, role, created_at)
+                VALUES (?, 'owner', 'owner', ?)
+                ON CONFLICT(workspace_id, user_id) DO NOTHING
+                """,
+                (DEFAULT_WORKSPACE_ID, now),
+            )
+            connection.execute(
+                """
                 INSERT INTO knowledge_bases
-                  (knowledge_base_id, name, description, is_default, created_at, updated_at)
-                VALUES (?, ?, '自动迁移的本地默认空间', 1, ?, ?)
+                  (knowledge_base_id, workspace_id, name, description, is_default, created_at, updated_at)
+                VALUES (?, ?, ?, '自动迁移的本地默认空间', 1, ?, ?)
                 ON CONFLICT(knowledge_base_id) DO NOTHING
                 """,
-                (DEFAULT_KNOWLEDGE_BASE_ID, DEFAULT_KNOWLEDGE_BASE_NAME, now, now),
+                (
+                    DEFAULT_KNOWLEDGE_BASE_ID,
+                    DEFAULT_WORKSPACE_ID,
+                    DEFAULT_KNOWLEDGE_BASE_NAME,
+                    now,
+                    now,
+                ),
             )
             rows = connection.execute("SELECT document_id, payload FROM documents").fetchall()
             for row in rows:
@@ -1191,7 +1542,10 @@ class DocumentRegistry:
                 (self.CURRENT_SCHEMA_VERSION, now),
             )
 
-    def _add_column_if_missing(self, connection: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+    def _add_column_if_missing(self, connection, table: str, column: str, definition: str) -> None:
+        if self.dialect == "postgres":
+            connection.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {definition}")
+            return
         columns = {row["name"] for row in connection.execute(f"PRAGMA table_info({table})").fetchall()}
         if column not in columns:
             connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
@@ -1216,6 +1570,35 @@ class DocumentRegistry:
                     element.model_dump_json(),
                 ),
             )
+
+    def _enqueue_outbox_event(
+        self,
+        connection,
+        *,
+        event_type: str,
+        aggregate_id: str,
+        payload: dict,
+        available_at: str | None = None,
+    ) -> str:
+        event_id = str(uuid.uuid4())
+        now = _utcnow()
+        connection.execute(
+            """
+            INSERT INTO outbox_events
+              (event_id, event_type, aggregate_id, payload, status, attempts,
+               available_at, created_at, published_at, error_message)
+            VALUES (?, ?, ?, ?, 'pending', 0, ?, ?, '', '')
+            """,
+            (
+                event_id,
+                event_type[:120],
+                aggregate_id[:240],
+                json.dumps(payload, ensure_ascii=False),
+                available_at or now,
+                now,
+            ),
+        )
+        return event_id
 
     def _assert_knowledge_base(self, connection: sqlite3.Connection, knowledge_base_id: str) -> None:
         row = connection.execute(
