@@ -97,6 +97,14 @@ def fetch_url(url: str, title: str = "", timeout: float = 12, max_bytes: int = 2
         raw = response.read(max_bytes + 1)
     if len(raw) > max_bytes:
         raise ValueError(f"URL content is too large; max {max_bytes} bytes")
+    return imported_url_from_payload(url, raw, content_type, title=title)
+
+
+def imported_url_from_payload(url: str, raw: bytes, content_type: str, *, title: str = "") -> ImportedUrl:
+    parsed = _validate_public_url(url)
+    media_type = content_type.split(";", 1)[0].strip().lower()
+    if media_type and media_type not in ALLOWED_CONTENT_TYPES:
+        raise ValueError(f"Unsupported URL content type: {media_type}")
     encoding = _encoding_from_content_type(content_type)
     body = raw.decode(encoding, errors="ignore")
     if "html" in content_type.lower() or "<html" in body[:500].lower():

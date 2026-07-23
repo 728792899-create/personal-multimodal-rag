@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
+from app.services.production_metrics import production_metrics
 from app.services.safe_logging import redact_sensitive_text
 
 
@@ -22,6 +24,7 @@ class SourceSyncService:
         self.retriever = retriever
 
     def sync(self, source_id: str) -> dict:
+        started_at = time.perf_counter()
         source = self.registry.get_source(source_id)
         if not source:
             raise ValueError("Source not found")
@@ -155,7 +158,7 @@ class SourceSyncService:
             status = "partial" if partial else "succeeded"
             if failed and not result.candidates:
                 status = "failed"
-            return self.registry.complete_sync_run(
+            completed = self.registry.complete_sync_run(
                 run["id"],
                 status=status,
                 discovered=discovered,
@@ -167,8 +170,16 @@ class SourceSyncService:
                 empty_result=empty_result,
                 error_message=error_message,
             ) or run
+            production_metrics.record_source_sync(completed, source_type=source["type"])
+            production_metrics.observe(
+                "rag_source_sync_duration_seconds",
+                time.perf_counter() - started_at,
+                source_type=source["type"],
+                status=str(completed.get("status") or "unknown"),
+            )
+            return completed
         except Exception as exc:
-            return self.registry.complete_sync_run(
+            completed = self.registry.complete_sync_run(
                 run["id"],
                 status="failed",
                 discovered=discovered,
@@ -180,6 +191,14 @@ class SourceSyncService:
                 empty_result=empty_result,
                 error_message=redact_sensitive_text(exc),
             ) or run
+            production_metrics.record_source_sync(completed, source_type=source["type"])
+            production_metrics.observe(
+                "rag_source_sync_duration_seconds",
+                time.perf_counter() - started_at,
+                source_type=source["type"],
+                status="failed",
+            )
+            return completed
 
     def retry(self, run_id: str) -> dict:
         run = self.registry.get_sync_run(run_id)

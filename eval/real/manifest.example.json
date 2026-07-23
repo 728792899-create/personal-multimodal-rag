@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "updated_at": "",
+  "corpus": {
+    "licensed_materials": 0,
+    "non_fixture_documents": 0,
+    "annotated_questions": 0,
+    "licenses": []
+  },
+  "usage": {
+    "real_questions": 0
+  },
+  "operations": {
+    "soak_days": 0,
+    "restore_drill_passed": false,
+    "no_data_loss_defect": false
+  },
+  "quality": {
+    "recall_at_5": 0,
+    "mrr": 0,
+    "citation_accuracy": 0,
+    "citation_coverage": 0,
+    "refusal_accuracy": 0,
+    "answer_acceptance": 0
+  }
+}

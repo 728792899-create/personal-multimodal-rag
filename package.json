@@ -23,7 +23,12 @@
     "lint:secrets": "python3 scripts/check_secrets.py",
     "build": "npm --prefix frontend run build",
     "preview": "npm --prefix frontend run preview",
-    "verify": "npm run lint:docs && npm run lint:secrets && npm test && npm run build && npm run test:demo && npm run eval:retrieval && npm run eval:multimodal && npm run eval:graph && npm run test:asset-security && npm run test:restore-drill && npm run test:e2e"
+    "verify": "npm run lint:docs && npm run lint:secrets && npm test && npm run build && npm run test:demo && npm run eval:retrieval && npm run eval:multimodal && npm run eval:graph && npm run test:asset-security && npm run test:restore-drill && npm run test:e2e",
+    "verify:production": "python3 scripts/check_production_compose.py && DOCUMENT_REGISTRY_PATH=:memory: EMBEDDING_PROVIDER=mock VECTOR_STORE=memory ANSWER_PROVIDER=template QUERY_REWRITE_PROVIDER=none python3 -m pytest -q backend/tests/test_runtime_profiles.py backend/tests/test_production_observability.py backend/tests/test_production_backup.py backend/tests/test_pinned_fetch.py backend/tests/test_auth_sessions.py backend/tests/test_durable_job_queue.py backend/tests/test_object_store_adapters.py backend/tests/test_source_sync.py && python3 scripts/run_real_benchmark.py --contract-only && python3 scripts/chaos_compose.py",
+    "benchmark:real": "python3 scripts/run_real_benchmark.py",
+    "chaos:compose": "python3 scripts/chaos_compose.py",
+    "backup:production": "python3 scripts/production_backup.py",
+    "restore:production": "python3 scripts/production_restore.py"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"

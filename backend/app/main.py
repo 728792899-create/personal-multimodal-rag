@@ -1,13 +1,14 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router
 from app.config import settings
 from app.middleware.request_guards import RequestGuardMiddleware
-from app.services.observability import configure_sentry
+from app.services.observability import configure_opentelemetry, configure_sentry
+from app.services.production_metrics import production_metrics
 from app.core.store import (
     auth_service,
     ingestion_worker,
@@ -16,6 +17,7 @@ from app.core.store import (
     registry,
     object_store,
     job_signal_queue,
+    fetch_worker_client,
     retriever,
 )
 from app.api.routers.auth import build_auth_router
@@ -57,6 +59,13 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+configure_opentelemetry(
+    app,
+    endpoint=settings.otel_exporter_otlp_endpoint,
+    service_name=settings.otel_service_name,
+    sample_ratio=settings.otel_traces_sample_ratio,
+)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -72,6 +81,7 @@ app.add_middleware(
     rate_limit_window_seconds=settings.rate_limit_window_seconds,
     login_rate_limit_requests=settings.login_rate_limit_requests,
     login_rate_limit_window_seconds=settings.login_rate_limit_window_seconds,
+    metrics=production_metrics,
 )
 
 app.include_router(router, prefix="/api")
@@ -83,6 +93,14 @@ def health():
     return {"status": "ok"}
 
 
+@app.get("/metrics", include_in_schema=False)
+def prometheus_metrics():
+    return PlainTextResponse(
+        production_metrics.render(registry=registry),
+        media_type="text/plain; version=0.0.4; charset=utf-8",
+    )
+
+
 @app.get("/ready")
 def ready():
     providers = provider_status()
@@ -92,6 +110,7 @@ def ready():
         object_store=object_store,
         queue=job_signal_queue,
         vector_store=retriever.vector_store,
+        fetch_worker=fetch_worker_client,
     )
     runtime = build_readiness_report(
         settings,

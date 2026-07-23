@@ -8,9 +8,11 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
 from app.api.common import retrieval_options
+from app.config import settings
 from app.core.store import query_asset_service, rag_engine, registry
 from app.models.schemas import ConversationCreate, ConversationMessageRequest, ConversationUpdate
 from app.services.safe_logging import redact_sensitive_text
+from app.services.production_metrics import production_metrics
 
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
@@ -158,6 +160,7 @@ def stream_conversation_message(conversation_id: str, payload: ConversationMessa
                     yield encode(event_type, {"delta": item["delta"]})
                 elif event_type == "refusal":
                     response = item["response"]
+                    production_metrics.record_answer(response, provider=settings.answer_provider)
                     response.setdefault("retrieval_trace", {})["query_attachments"] = query_attachments
                     registry.save_conversation_message(
                         conversation_id,
@@ -170,6 +173,7 @@ def stream_conversation_message(conversation_id: str, payload: ConversationMessa
                     yield encode(event_type, {"response": response})
                 elif event_type == "answer.completed":
                     response = item["response"]
+                    production_metrics.record_answer(response, provider=settings.answer_provider)
                     response.setdefault("retrieval_trace", {})["query_attachments"] = query_attachments
                     registry.save_conversation_message(
                         conversation_id,
@@ -185,6 +189,10 @@ def stream_conversation_message(conversation_id: str, payload: ConversationMessa
         except GeneratorExit:
             raise
         except Exception as exc:
+            production_metrics.record_provider_error(
+                provider=settings.answer_provider,
+                operation="stream",
+            )
             message = redact_sensitive_text(exc)
             registry.save_conversation_message(
                 conversation_id,

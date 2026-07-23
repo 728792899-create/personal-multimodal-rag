@@ -41,7 +41,7 @@ curl --fail http://127.0.0.1:5173/api/documents
 - 首 token 延迟、stream cancel、Provider error、index version mismatch；
 - 文档、chunk、反馈与 eval draft 数量。
 
-内置 `/api/metrics` 是 Beta 业务摘要，不是 Prometheus endpoint。生产环境应通过 OpenTelemetry/metrics backend 输出聚合指标，避免把原始问题或文档正文作为 label。
+`/api/metrics` 是产品内质量摘要；根路径 `/metrics` 是 Prometheus exposition endpoint。可选 observability profile 提供 Prometheus、OTLP Collector 与预配置 Grafana。路径 label 会把资源 ID 规范化为 `:id`，且不包含 query；问题、正文、Cookie、Key 和私有 URL 参数不得成为 label 或 trace attribute。
 
 ### 安全日志原则
 
@@ -79,14 +79,22 @@ tar -czf personal-rag-data-backup.tgz data/
 python3 scripts/verify_local_restore.py \
   --database /path/to/restored/data/registry.sqlite3 \
   --objects /path/to/restored/data/objects \
-  --expected-schema 5
+  --expected-schema 7
 ```
 
 命令使用 SQLite Backup API 再创建一次临时一致快照，并用 `PRAGMA query_only=ON` 禁止对输入数据库执行 SQL 写入；它验证 `integrity_check`、外键、schema，并只复制数据库引用的对象，核对安全路径、字节数和 SHA-256。输出不包含原始文件名、对象 key、问题或正文。任何失败都应阻止切换，先修复或选择另一份备份。该命令不验证 Chroma/pgvector，也不能代替旧应用版本的抽样问答。
 
 ### 生产 Beta
 
-备份必须覆盖数据库、对象存储、向量索引版本、迁移版本和 secret 配置引用。至少每季度演练一次恢复，并记录 RPO/RTO 的真实结果。
+备份必须覆盖数据库、对象存储、向量索引版本、迁移版本和 secret 配置引用。Redis 不是事实来源，恢复后由 PostgreSQL outbox 重建待投递任务。
+
+```bash
+RAG_BACKUP_OUTPUT=/secure/backups/$(date +%F) npm run backup:production
+RAG_BACKUP_BUNDLE=/secure/backups/2026-07-23 npm run restore:production -- --verify-only
+RAG_BACKUP_BUNDLE=/secure/backups/2026-07-23 npm run restore:production -- --confirm RESTORE
+```
+
+备份命令先读取 readiness，再短暂停止 frontend/backend/worker，避免 PostgreSQL dump 与 S3 对象归档期间继续写入；数据库、Redis、MinIO 保持运行，完成或失败后都会尝试恢复应用服务。对象通过 boto3 逐个流入 tar，不依赖 MinIO Server 镜像中并不存在的 `tar` 命令。manifest 记录 PostgreSQL dump、MinIO archive 和解析后 Compose 配置的字节数与 SHA-256。恢复默认只允许 `--verify-only`；替换目标数据必须输入字面确认。恢复后重新检查 `/ready`、对象 hash、表计数、向量维度、索引版本和随机引用跳转。至少每季度演练一次，并记录 RPO/RTO 的真实结果。
 
 ## 常见事件
 
@@ -119,7 +127,7 @@ python3 scripts/verify_local_restore.py \
 
 1. 按拒绝原因区分超时、内容类型、大小、DNS 和私网地址。
 2. 不要为了恢复成功率全局打开 `RAG_ALLOW_PRIVATE_URLS`。
-3. 高风险生产环境把抓取迁移到隔离 egress 服务，并固定解析结果与连接目标。
+3. Production profile 已强制使用隔离 `fetch-worker`；检查其健康、DNS pinning/跳转重校验和响应大小限制，不要让 API 容器直接抓取。
 4. 检查目标站点 robots/使用条款和访问频率。
 
 ### 拒答率突然变化
@@ -161,14 +169,11 @@ curl --fail http://127.0.0.1:5173/api/documents
 
 生产镜像使用不可变 tag/digest。数据库迁移采用向前兼容顺序：先部署兼容 schema，再部署应用，再清理旧字段。索引版本升级先回填、评测、切换，保留旧索引直至观察窗口结束。
 
-## 升级到小团队 Beta 前
+## 升级到 1.0 / 小团队版本前
 
 - OIDC/OAuth2 身份网关与服务端 workspace context；
-- PostgreSQL schema、行级授权和迁移；
-- S3-compatible 对象存储、AV 扫描和生命周期；
-- 队列、幂等 worker、retry/DLQ；
+- 运行真实语料基准、14 天 soak 和完整恢复/故障注入；
 - Redis 或网关分布式限流；
-- Sentry scrubber、metrics、trace 和告警；
 - 容量、故障注入、备份恢复与删除演练。
 
 详细目标结构见[生产适配方案](production-adapters.md)。

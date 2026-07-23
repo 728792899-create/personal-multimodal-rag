@@ -69,6 +69,8 @@ def validate_runtime_settings(settings: Settings) -> None:
             errors.append("JOB_QUEUE_BACKEND=redis and REDIS_URL are required")
         if settings.auth_mode.lower() != "session":
             errors.append("AUTH_MODE=session is required")
+        if not settings.fetch_worker_url:
+            errors.append("FETCH_WORKER_URL is required to isolate production URL fetching")
 
     if errors:
         raise ValueError("; ".join(errors))
@@ -116,6 +118,10 @@ def build_readiness_report(settings: Settings, *, checks: dict | None = None) ->
             "configured": settings.embedding_provider.lower()
             in {"mock", "local", "sentence-transformers", "sentence_transformers", "huggingface"}
             or bool(settings.openai_api_key or settings.openai_base_url or settings.ollama_base_url),
+        },
+        "fetch_worker": {
+            "provider": "isolated" if settings.fetch_worker_url else "in-process",
+            "configured": settings.runtime_mode.lower() != "production" or bool(settings.fetch_worker_url),
         },
     }
     for name, value in (checks or {}).items():
@@ -230,6 +236,7 @@ def collect_runtime_checks(
     object_store,
     queue,
     vector_store,
+    fetch_worker=None,
 ) -> dict[str, bool]:
     def safe(callable_) -> bool:
         try:
@@ -243,6 +250,8 @@ def collect_runtime_checks(
         "queue": safe(queue.health) if queue is not None else settings.job_queue_backend.lower() == "sqlite",
         "vector": safe(vector_store.health),
     }
+    if settings.runtime_mode.lower() == "production":
+        checks["fetch_worker"] = safe(fetch_worker.health) if fetch_worker is not None else False
     if settings.runtime_mode.lower() != "demo":
         checks.update(probe_provider_health(settings))
     return checks

@@ -16,7 +16,16 @@ from app.api.common import (
     index_document,
 )
 from app.config import settings
-from app.core.store import enrichment_service, graph_store, object_store, processor, query_asset_service, registry, retriever
+from app.core.store import (
+    enrichment_service,
+    fetch_worker_client,
+    graph_store,
+    object_store,
+    processor,
+    query_asset_service,
+    registry,
+    retriever,
+)
 from app.models.domain import Document
 from app.models.schemas import UrlImportRequest
 from app.services.document_quality import assess_document_quality, lifecycle_event, summarize_document
@@ -266,7 +275,8 @@ def import_url(payload: UrlImportRequest):
         if not registry.get_knowledge_base(payload.knowledge_base_id):
             raise HTTPException(status_code=404, detail="Knowledge base not found")
         fetch_started = datetime.utcnow()
-        imported = fetch_url(
+        active_fetcher = fetch_worker_client.fetch_url if fetch_worker_client else fetch_url
+        imported = active_fetcher(
             payload.url,
             title=payload.title,
             timeout=settings.url_import_timeout_seconds,

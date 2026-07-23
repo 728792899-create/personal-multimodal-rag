@@ -10,7 +10,7 @@
 | Local Production | 单用户长期私有使用 | Ollama、持久磁盘 | Ollama/Chroma 异常时 readiness 失败 |
 | Production | 独立 worker 与外部数据服务 | PostgreSQL/pgvector、Redis、S3/MinIO、ClamAV、Ollama 或 OpenAI-compatible | 任一关键依赖异常时 HTTP 503，不降级为 template |
 
-`GET /api/system/readiness-report` 返回配置状态、组件健康状态、schema 版本和仍未完成的 1.0 发布门槛。`GET /ready` 只在必要组件可用时返回 200；降级状态返回 503，供 Compose 和反向代理摘除实例。
+`GET /api/system/readiness-report` 返回配置状态、组件健康状态、schema 版本和逐项 1.0 发布门槛。证据文件缺失时 1.0 状态明确为 `blocked`。`GET /ready` 只在必要组件可用时返回 200；降级状态返回 503，供 Compose 和反向代理摘除实例。
 
 ## Local Production
 
@@ -39,6 +39,7 @@ python scripts/hash_admin_password.py > secrets/admin_password_hash
 - MinIO/S3 access key 与 secret key；
 - Argon2id 管理员密码 hash；
 - 随机、稳定、至少 32 字符的 session secret。
+- 启用 observability profile 时的 Grafana 管理员用户名与密码。
 
 启动：
 
@@ -49,7 +50,30 @@ curl --fail http://127.0.0.1:5173/healthz
 curl --fail http://127.0.0.1:5173/api/system/readiness-report
 ```
 
-容器以非 root/read-only 配置运行；上传对象先经过 ClamAV，再以 SHA-256 内容地址写入 S3。索引任务先与 PostgreSQL outbox 原子提交，再投递到 Redis Streams consumer group；重复消息仍由数据库幂等键保护，终态失败进入 DLQ。
+容器以非 root/read-only 配置运行；上传对象先经过 ClamAV，再以 SHA-256 内容地址写入 S3。索引任务先与 PostgreSQL outbox 原子提交，再投递到 Redis Streams consumer group；重复消息仍由数据库幂等键保护，终态失败进入 DLQ。URL/Feed 抓取由独立 `fetch-worker` 完成：该容器没有应用 secret 或数据卷，每一跳都重新校验地址并将连接固定到已验证的公网 IP。
+
+可选启动 Prometheus、OpenTelemetry Collector 与预配置 Grafana：
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318/v1/traces \
+docker compose -f compose.production.yml --profile observability up --build --wait -d
+docker compose -f compose.production.yml exec -T backend \
+  python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8010/metrics').status)"
+```
+
+Grafana 默认监听 `http://127.0.0.1:3000`，凭据从 secret file 读取。指标 label 只包含方法、规范化路径、状态、provider 和任务类型；不得加入问题、正文、Cookie、Key 或 URL query。
+
+## 生产验证命令
+
+```bash
+npm run verify:production
+npm run benchmark:real        # 需要 RAG_REAL_BENCHMARK_MANIFEST
+npm run chaos:compose         # 默认只输出 dry-run 计划
+RAG_BACKUP_OUTPUT=/secure/backups/$(date +%F) npm run backup:production
+RAG_BACKUP_BUNDLE=/secure/backups/2026-07-23 npm run restore:production -- --verify-only
+```
+
+真实故障注入还要求 `RAG_CHAOS_CONFIRM=I_UNDERSTAND` 与 `--execute`。真实恢复替换数据，必须显式传入 `--confirm RESTORE`。
 
 ## SQLite → PostgreSQL
 
@@ -79,3 +103,4 @@ python scripts/migrate_registry_to_postgres.py \
 - 生产 Compose 只提供单实例拓扑，没有 Kubernetes、高可用、OIDC 或团队 RBAC。
 - OpenAI-compatible、真实 Ollama、外部 S3 和 Sentry 需要部署方在自己的环境执行在线验收；CI 不使用付费 API。
 - 1.0 仍要求至少 14 天真实部署、200 份非 fixture 文档、100 次真实问题和一次无数据丢失的完整恢复演练。
+- 机器可读门槛和当前阻断原因见[1.0 发布证据](release-evidence-1.0.md)。

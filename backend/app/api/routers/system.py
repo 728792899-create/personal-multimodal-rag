@@ -3,8 +3,9 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from app.config import settings
-from app.core.store import job_signal_queue, object_store, registry, retriever
+from app.core.store import fetch_worker_client, job_signal_queue, object_store, registry, retriever
 from app.services.runtime_readiness import build_readiness_report, collect_runtime_checks
+from app.services.release_readiness import build_release_readiness
 
 
 router = APIRouter(prefix="/system", tags=["system"])
@@ -20,16 +21,9 @@ def readiness_report():
             object_store=object_store,
             queue=job_signal_queue,
             vector_store=retriever.vector_store,
+            fetch_worker=fetch_worker_client,
         ),
     )
     report["schema_version"] = registry.schema_version
-    report["release"] = {
-        "version": "0.4.0-rc.1",
-        "production_ready_claim": False,
-        "remaining_gates": [
-            "real-provider acceptance",
-            "production backup restore",
-            "14-day soak",
-        ],
-    }
+    report["release"] = build_release_readiness(settings.release_evidence_path)
     return report

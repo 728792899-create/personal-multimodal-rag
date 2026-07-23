@@ -46,6 +46,7 @@ def test_production_profile_fails_closed_without_durable_adapters():
     assert "OBJECT_STORE_BACKEND=s3" in message
     assert "JOB_QUEUE_BACKEND=redis" in message
     assert "AUTH_MODE=session" in message
+    assert "FETCH_WORKER_URL" in message
 
 
 def test_production_profile_accepts_complete_configuration():
@@ -69,6 +70,7 @@ def test_production_profile_accepts_complete_configuration():
         auth_mode="session",
         admin_password_hash="$argon2id$valid-for-shape-check",
         session_secret="a" * 32,
+        fetch_worker_url="http://fetch-worker:8091",
     )
 
     validate_runtime_settings(settings)

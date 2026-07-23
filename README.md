@@ -30,7 +30,7 @@
 
 | 默认体验 | 可信度机制 | 工程证据 | 生产边界 |
 | --- | --- | --- | --- |
-| 零 Key、离线可运行 | 无证据拒答 | 136 个后端测试 | Argon2id session 与可选 Sentry |
+| 零 Key、离线可运行 | 无证据拒答 | 152 个后端测试 | Argon2id session 与可选 Sentry |
 | 多知识库、DOCX 与图片提问 | 十阶段检索 Trace | 19 个前端测试 | Chroma / pgvector adapter |
 | 持久会话与流式回答 | 精确元素引用与 Graph provenance | 14 个 Browser E2E | Redis Streams / S3 / ClamAV |
 | 可恢复索引任务 | 反馈 → eval draft | 100 条黄金回归 case | Demo、Local Production、Production 明确分层 |
@@ -52,12 +52,12 @@
 | --- | --- | :---: | --- |
 | 输入 | PDF、DOCX、Markdown、TXT、图片，以及 PNG/JPEG/WEBP/GIF 图片提问 | ✓ | Tesseract OCR / 视觉 Provider |
 | 数据源 | 白名单目录、URL 列表、RSS/Atom 增量同步与人工删除确认 | ✓ | connector registry 可继续扩展 |
-| 处理 | SQLite 任务、租约恢复、去重、终态取消、版本兼容 | ✓ | 分布式队列待接入 |
+| 处理 | SQLite 任务、租约恢复、去重、终态取消、版本兼容 | ✓ | Production 使用 Redis Streams + outbox + DLQ |
 | 检索 | 知识库隔离、BM25、vector、Graph-lite、RRF、MMR、rerank | ✓ | LightRAG 导航、local/OpenAI/Ollama embedding、Chroma、pgvector |
 | 回答 | 持久会话、SSE、模板/Responses/chat/Ollama adapter | ✓ | 外部 Provider 人工验证 |
 | 可信度 | no-answer gate、引用、相邻上下文、citation audit | ✓ | NLI/LLM judge 待规划 |
 | 质量 | 反馈、eval draft、黄金集、Recall@K、MRR、引用/拒答 | ✓ | 真实流量抽样待规划 |
-| 交付 | Nginx、FastAPI、Compose、healthcheck、GitHub Actions | ✓ | 云端基础设施由部署方接入 |
+| 交付 | Nginx、FastAPI、三种 Compose profile、health/readiness、GitHub Actions | ✓ | SBOM、Trivy、CodeQL、容器签名 |
 | 安全 | 上传边界、SSRF、防泄漏日志、Argon2id session、CSRF | ✓ | OIDC/RBAC 顺延至 1.1 |
 
 ## 5 分钟离线启动
@@ -148,6 +148,7 @@ npm run eval:multimodal  # 44 条图像/表格/公式/版面专项
 npm run eval:graph       # 10 条 provenance-backed 多跳专项
 npm run test:restore-drill # SQLite + 对象存储隔离恢复契约
 npm run test:e2e         # Chromium 桌面 + 390px 级移动视图
+npm run verify:production # fail-closed Compose、认证/队列/对象、备份与 blocked release contract
 ```
 
 一次运行全部验收：
@@ -158,11 +159,13 @@ npm run verify
 
 当前本地验收证据见 [验证基线](docs/validation-baseline.md)。评测失败会生成可读报告到 `eval/reports/latest.md`；CI 会始终上传报告 artifact。
 
+真实语料与运行证据不会被 fixture 代替。`npm run benchmark:real` 只接受部署方提供的私有 evidence manifest；当前 1.0 状态和全部阻断项见[发布证据](docs/release-evidence-1.0.md)。
+
 ![100 条固定黄金集的基础、多模态与 Graph 指标](docs/assets/evaluation-scorecard.svg)
 
 | 检查 | 当前本地结果 | CI 门槛 |
 | --- | ---: | ---: |
-| 后端测试 | 136 passed + 2 PostgreSQL contract passed | 全部通过 |
+| 后端测试 | 152 passed、3 skipped + 2 PostgreSQL contract passed | 全部通过 |
 | 前端单元/组件 | 19 passed | 全部通过 |
 | Browser E2E | 14 passed | 桌面与移动全部通过 |
 | Recall@5 | 1.0000 | ≥ 0.90 |
@@ -272,6 +275,8 @@ flowchart LR
 - 前端请求有超时、取消、Abort 语义、可读错误、请求 ID 与重试入口。
 - 日志会清理 Authorization、token、password、secret、URL query/fragment。
 - Sentry 仅在显式提供 DSN 且安装可选依赖时启用；默认关闭 PII 与 request body。
+- Production URL/Feed 只由无 secret、无数据卷的隔离 fetch worker 抓取；每一跳重新验证 DNS，并把 socket 固定到已验证公网 IP。
+- `/metrics` 只输出低基数 Prometheus label；可选 OTLP、Sentry scrubber 和 Grafana 均禁止正文、问题、Cookie、Key 与 URL query。
 - SQLite 任务以租约恢复进程中断工作，最多三次自动尝试；协作取消和过期的 `cancelling` 租约都会收敛为 `cancelled`，内容哈希与索引版本组成幂等键。
 - `memory` 向量库重启时会从 SQLite 文档注册表重建缺失索引；维度/模型/索引版本不兼容的文档被标记 `needs_rebuild`，不混用向量。
 - `scripts/verify_local_restore.py` 使用 SQLite Backup API 在临时目录检查完整性、外键、schema，以及引用对象的安全路径、大小和 SHA-256；完整恢复步骤见[运维手册](docs/operations-runbook.md)。
@@ -313,15 +318,14 @@ docs/                        # 架构、部署、排障、发布与证据
 
 ## CI 与发布
 
-GitHub Actions 分五个 job：
+GitHub Actions 按职责拆分：
 
-1. 文档相对链接、图片 alt 与 SVG 可访问性检查。
-2. 后端测试（强制 mock/memory/template）。
-3. 前端单元测试、构建和 Chromium E2E。
-4. 黄金集阈值回归，并上传 Markdown/JSON 报告。
-5. Docker Compose 构建、健康等待和前端代理 API 验证。
+- `ci.yml`：文档、后端、前端构建/单测/E2E、黄金集、多模态/Graph/parser 安全契约和默认 Compose 健康检查。
+- `security.yml`：CodeQL、Python/npm 依赖审计、Trivy、SPDX SBOM 与 Production contract。
+- `release-images.yml`：仅对 release/tag 构建固定镜像，生成 provenance/SBOM，并使用 GitHub OIDC 做 keyless Cosign 签名与 build attestation。
+- 高级 parser 和真实 Provider 继续使用显式手动 workflow，普通 PR 不下载模型、不调用付费 API。
 
-远端 GitHub Actions 已实际验证这些 job；badge 反映默认分支最近一次 workflow 状态。发布前仍需逐项执行 [Release Checklist](docs/release-checklist.md)，并抽查评测和 Playwright artifact。
+`0.4.0-rc` 的固定 fixture 回归与基础设施 contract 可由 CI 自动复现；真实语料、14 天 soak 与完整恢复演练必须由部署负责人提交私有 evidence manifest。`GET /api/system/readiness-report` 会明确返回每一道通过/阻断门，不能由 fixture 自动把版本标记为 1.0。badge 反映默认分支最近一次 `ci.yml` 状态；发布前仍需逐项执行 [Release Checklist](docs/release-checklist.md)。
 
 ![用户反馈、黄金集、报告和 CI 的质量循环](docs/assets/evaluation-loop.svg)
 
@@ -338,7 +342,7 @@ GitHub Actions 分五个 job：
 | 切换 provider | [配置指南](docs/configuration.md) | [生产适配方案](docs/production-adapters.md) |
 | 运行和排障 | [运维手册](docs/operations-runbook.md) | [故障排查](docs/troubleshooting.md) |
 | 评估上线条件 | [已知边界](docs/known-limitations.md) | [Release Checklist](docs/release-checklist.md) |
-| 查看真实证据 | [验证基线](docs/validation-baseline.md) | [项目复盘](docs/project-retrospective.md) |
+| 查看真实证据 | [发布证据与阻断门](docs/release-evidence-1.0.md) | [验证基线](docs/validation-baseline.md) |
 | 参与开发 | [贡献指南](CONTRIBUTING.md) | [路线图](docs/roadmap.md) |
 | 解决常见疑问 | [FAQ](docs/faq.md) | [安全策略](SECURITY.md) |
 | 审查威胁边界 | [安全模型](docs/security-model.md) | [生产适配](docs/production-adapters.md) |

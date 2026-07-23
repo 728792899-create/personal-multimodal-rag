@@ -6,13 +6,13 @@
 
 | 关注点 | 本地 Beta | 生产建议 | 状态 |
 | --- | --- | --- | --- |
-| 身份 | 可选 Bearer token | OIDC/OAuth2 网关 + 短期会话 | 网关未部署 |
-| 工作区 | 多 KB 数据范围；无授权租户 | `workspace_id` 贯穿 KB/document/chunk/conversation/job/eval，服务端强制过滤 | 需 schema/认证迁移 |
-| 索引任务 | SQLite 事实源 + 单实例 worker + lease/retry/cancel | 外部队列 + 幂等 worker + retry/DLQ | 本地已实现；外部队列未部署 |
-| 向量 | memory / 可选 Chroma/pgvector adapter | pgvector + 维度/模型版本分区 | adapter 已有，外部库未验收 |
-| 文件 | 本地 `data/uploads` | S3-compatible object store + presigned upload + AV scan | 未部署对象存储 |
+| 身份 | Demo 可关闭；Local 可启用 session | Argon2id 管理员、HttpOnly cookie、CSRF、撤销 | 单管理员已实现；OIDC/RBAC 顺延 |
+| 工作区 | 服务端解析默认 workspace/owner/membership | `workspace_id` 贯穿 repository | 单 workspace 已实现；多租户未宣称 |
+| 索引任务 | SQLite 事实源 + lease/retry/cancel | Redis Streams consumer group + outbox + DLQ | adapter/契约已实现；真实容量待验收 |
+| 向量 | memory / Chroma | pgvector + 维度/模型版本门 | adapter/契约已实现；真实容量待验收 |
+| 文件 | 内容寻址本地对象 | S3/MinIO 暂存 → ClamAV → 可用 | adapter/Compose 已实现；真实恢复待验收 |
 | 限流 | 单进程滑动窗口 | Redis/网关按 user/workspace 限流 | 未部署 Redis |
-| 可观测性 | request ID、操作日志、metrics API | OpenTelemetry + Sentry + metrics backend | Sentry hook 可选，项目未连接 |
+| 可观测性 | request ID、脱敏日志、Prometheus `/metrics` | OTLP + Grafana + 可选 Sentry | adapter/dashboard 已实现；告警目标由部署方配置 |
 
 ## 认证与工作区边界
 
@@ -70,13 +70,15 @@ flowchart LR
 
 ## 可观测性
 
-已提供 request ID、脱敏日志、操作事件、`/metrics` 业务摘要和可选 Sentry 初始化。生产还应补：
+已提供 request ID、脱敏日志、低基数 Prometheus `/metrics`、可选 OTLP/Sentry 初始化和 Grafana dashboard。当前覆盖：
 
 - HTTP/索引任务 latency、error、retry、queue depth；
 - 检索 zero-hit、fallback、refusal、citation coverage 分布；
 - embedding/rerank provider cost 与限额；
-- workspace 级别配额，但日志不记录原文、Key、完整 URL query；
-- Sentry scrubber 与低采样 tracing，验证事件不带 document text。
+- source sync、first-token、索引重试/DLQ、Provider error/cost（无 cost metadata 时明确为 0）；
+- Sentry/OTLP scrubber，禁止正文、问题、Cookie、Key 和完整 URL query。
+
+部署方仍需配置持久 metrics backend、告警路由与 retention，并用合成敏感数据执行一次 telemetry 泄漏抽查。
 
 ## 人工部署步骤
 

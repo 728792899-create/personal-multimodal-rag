@@ -121,6 +121,28 @@ Docker 实栈重新构建后，`/ready` 返回 schema version 5 与 `mock / memo
 
 高级 `parser-worker` 本地真实构建已启动，但 Debian 镜像站在下载 28.3 MB `libreoffice-core` 时长时间无进度，限定窗口后主动终止，因此未声称高级 profile 或本地模型解析通过。Dockerfile 随后增加 apt cache、5 次 retry、60 秒下载 timeout，并从完整 `libreoffice` meta package 收窄到 writer/calc/impress；手动 `Advanced parser smoke` workflow 会在 GitHub-hosted runner 检查真实镜像/能力，在带 `rag-parser` 标签的 self-hosted runner 执行可选本地模型解析。默认 Compose 和内置 parser 的结果不受这项外部下载阻塞影响。
 
+## 0.4 Production Local RC 仓库内验收
+
+2026-07-23 在 `codex/release-evidence-1-0` 完成仓库内 contract 与离线回归。宿主机默认 `python3` 没有安装 pytest，因此 Python 测试在按仓库依赖构建的 Python 3.11 容器中运行；Provider 仍固定为 `mock + memory + template`，没有付费调用。
+
+| 项目 | 真实结果 |
+| --- | --- |
+| 后端 pytest | 152 passed、3 skipped；含 session/CSRF、Redis/outbox/DLQ、S3 生命周期、数据源同步、fetch IP pinning、Prometheus/telemetry scrubber、备份与 release gate |
+| PostgreSQL 实栈 contract | 2 passed；真实 pgvector PostgreSQL 容器验证任务状态和 SQLite→PostgreSQL ID/checksum 对账 |
+| 前端 Vitest | 7 files / 19 tests passed |
+| `npm run build` | 通过；JS 157.08 kB（gzip 53.90），CSS 31.97 kB（gzip 6.33） |
+| Playwright | 14 passed；desktop + mobile，含 session 登录/登出、source sync 与错误恢复 |
+| 固定黄金集 | 100 cases；12 项阈值全部通过 |
+| 生产 contract | fail-closed 配置、固定镜像、只读应用容器通过；真实 evidence 样例保持 0/13 gates blocked |
+| 生产镜像 | Python 3.11 production 依赖完整构建；非 root + read-only smoke 的 `/ready` 和 `/metrics` 通过 |
+| S3 归档 smoke | 固定 MinIO + boto3 实际导出 1 个对象、清空 bucket、恢复并逐字节读回 `production-evidence` |
+
+固定集保持 Recall@5 1.0000、MRR 0.9888、首条引用准确率 0.9775、拒答与可回答接受率 1.0000；44 条多模态和 10 条 Graph 专项全部通过。默认 Compose 重建后前后端 healthy，`/ready` 返回 schema version 7，release readiness 在没有部署方私有证据时诚实返回 `blocked`。
+
+`npm run chaos:compose` 的本次结果是安全 dry-run；`npm run restore:production` 只对不存在的 bundle 验证了 fail-fast 路径。没有执行真实破坏性恢复或故障注入，不能把脚本契约记作生产演练完成。完整阻断项见 [1.0 发布证据](release-evidence-1.0.md)。
+
+内置 Browser 打开重建后的真实 Compose 页面，普通模式、专家参数和 source/conversation 区均正常。旧持久文档的 `hybrid-v1` 与当前 `multimodal-v1` 不兼容时，页面如实显示 `needs_rebuild` 和 0 chunks；实际点击“重建全部索引”后恢复为 7 chunks，再次提问得到“回答已生成”、4 条引用和包含 BM25、向量、Graph、MMR、Rerank、引用覆盖率的十阶段 Trace。以 Browser 视口 override 实测 CSS viewport 388px，`scrollWidth === clientWidth === 388`。停止后端后页面显示“请求失败（504）”和“重试连接”；服务恢复后点击重试返回 Provider ready，错误消失且窄屏无溢出。
+
 ## 远端 CI
 
 0.1 加固分支的 GitHub Actions 已实际跑通。0.2 PR #2 首个功能提交的 push 与 pull_request 两套 backend、docs、frontend、retrieval-eval、docker-compose 共 10 项检查全部通过；后续修复提交仍以对应提交 checks 为准，本地结果不能代替远端 CI。

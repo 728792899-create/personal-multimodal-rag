@@ -1,0 +1,64 @@
+{
+  "annotations": {"list": []},
+  "editable": false,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "API request rate",
+      "targets": [{"expr": "sum(rate(rag_http_requests_total[5m]))", "legendFormat": "requests/s"}],
+      "gridPos": {"h": 6, "w": 6, "x": 0, "y": 0}
+    },
+    {
+      "type": "stat",
+      "title": "Queue depth",
+      "targets": [{"expr": "sum(rag_index_queue_jobs{status=~\"queued|running|cancelling\"})", "legendFormat": "active jobs"}],
+      "gridPos": {"h": 6, "w": 6, "x": 6, "y": 0}
+    },
+    {
+      "type": "stat",
+      "title": "Dead letters",
+      "targets": [{"expr": "rag_dead_letter_jobs", "legendFormat": "DLQ"}],
+      "gridPos": {"h": 6, "w": 6, "x": 12, "y": 0}
+    },
+    {
+      "type": "stat",
+      "title": "Refusal rate",
+      "targets": [{"expr": "sum(rate(rag_answers_total{outcome=\"refused\"}[15m])) / clamp_min(sum(rate(rag_answers_total[15m])), 0.000001)", "legendFormat": "refused"}],
+      "gridPos": {"h": 6, "w": 6, "x": 18, "y": 0}
+    },
+    {
+      "type": "timeseries",
+      "title": "API p95 latency",
+      "targets": [{"expr": "histogram_quantile(0.95, sum by (le, path) (rate(rag_http_request_duration_seconds_bucket[5m])))", "legendFormat": "{{path}}"}],
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6}
+    },
+    {
+      "type": "timeseries",
+      "title": "Retrieval and first-token p95",
+      "targets": [
+        {"expr": "histogram_quantile(0.95, sum by (le) (rate(rag_retrieval_duration_seconds_bucket[5m])))", "legendFormat": "retrieval"},
+        {"expr": "histogram_quantile(0.95, sum by (le) (rate(rag_first_token_duration_seconds_bucket[5m])))", "legendFormat": "first token"}
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6}
+    },
+    {
+      "type": "timeseries",
+      "title": "Source sync outcomes",
+      "targets": [{"expr": "sum by (status, source_type) (rate(rag_source_sync_runs_total[15m]))", "legendFormat": "{{source_type}} / {{status}}"}],
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 14}
+    },
+    {
+      "type": "timeseries",
+      "title": "Provider errors",
+      "targets": [{"expr": "sum by (provider, operation) (rate(rag_provider_errors_total[15m]))", "legendFormat": "{{provider}} / {{operation}}"}],
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 14}
+    }
+  ],
+  "schemaVersion": 41,
+  "tags": ["rag", "production-local"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "title": "Personal Multimodal RAG · Production Local",
+  "uid": "personal-multimodal-rag",
+  "version": 1
+}

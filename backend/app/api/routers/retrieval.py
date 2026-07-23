@@ -7,6 +7,7 @@ from app.core.store import query_asset_service, rag_engine, registry, retriever
 from app.config import settings
 from app.models.schemas import AskRequest, SearchCompareRequest, SearchRequest
 from app.services.knowledge_tools import analyze_knowledge_gaps, build_citation_context
+from app.services.production_metrics import production_metrics
 from app.services.query_assets import QueryAssetError
 
 
@@ -54,6 +55,10 @@ def ask(payload: AskRequest):
     except QueryAssetError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     except Exception as exc:
+        production_metrics.record_provider_error(
+            provider=settings.answer_provider,
+            operation="ask",
+        )
         if not settings.provider_fallback_allowed and settings.answer_provider.lower() not in {"template", "local", "none"}:
             raise HTTPException(
                 status_code=503,
@@ -74,6 +79,7 @@ def ask(payload: AskRequest):
     )
     response["history_id"] = history["id"]
     response["created_at"] = history["created_at"]
+    production_metrics.record_answer(response, provider=settings.answer_provider)
     registry.log_operation(
         "ask",
         f"完成问答：{payload.question[:40]}",

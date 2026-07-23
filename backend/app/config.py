@@ -105,6 +105,7 @@ class Settings:
     upload_processing_timeout_seconds: float = float(os.getenv("UPLOAD_PROCESSING_TIMEOUT_SECONDS", "90"))
     url_import_timeout_seconds: float = float(os.getenv("URL_IMPORT_TIMEOUT_SECONDS", "12"))
     url_import_max_bytes: int = int(os.getenv("URL_IMPORT_MAX_BYTES", "2000000"))
+    fetch_worker_url: str = os.getenv("FETCH_WORKER_URL", "")
     api_auth_token: str = _env_or_file("API_AUTH_TOKEN")
     auth_mode: str = os.getenv("AUTH_MODE", "disabled")
     admin_password_hash: str = _env_or_file("ADMIN_PASSWORD_HASH")
@@ -129,6 +130,10 @@ class Settings:
     sentry_dsn: str = os.getenv("SENTRY_DSN", "")
     sentry_environment: str = os.getenv("SENTRY_ENVIRONMENT", "local")
     sentry_traces_sample_rate: float = float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.05"))
+    otel_exporter_otlp_endpoint: str = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+    otel_service_name: str = os.getenv("OTEL_SERVICE_NAME", "personal-multimodal-rag")
+    otel_traces_sample_ratio: float = float(os.getenv("OTEL_TRACES_SAMPLE_RATIO", "0.05"))
+    release_evidence_path: str = os.getenv("RELEASE_EVIDENCE_PATH", "./data/release-evidence.json")
     allow_private_urls: bool = os.getenv("RAG_ALLOW_PRIVATE_URLS", "0").strip().lower() in {
         "1",
         "true",

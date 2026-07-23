@@ -36,6 +36,9 @@ x-backend-environment: &backend-environment
   QUERY_REWRITE_PROVIDER: none
   INDEX_VERSION: production-v1
   EMBEDDED_WORKER: "0"
+  FETCH_WORKER_URL: http://fetch-worker:8091
+  OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+  OTEL_SERVICE_NAME: personal-multimodal-rag
 
 x-backend-secrets: &backend-secrets
   - metadata_dsn
@@ -46,6 +49,30 @@ x-backend-secrets: &backend-secrets
   - session_secret
 
 services:
+  fetch-worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile.production
+    command: ["python", "-m", "uvicorn", "fetch_worker.main:app", "--host", "0.0.0.0", "--port", "8091"]
+    environment:
+      APP_ENVIRONMENT: production
+      RAG_RUNTIME_MODE: demo
+      RAG_ALLOW_PRIVATE_URLS: "0"
+      URL_IMPORT_TIMEOUT_SECONDS: "12"
+      URL_IMPORT_MAX_BYTES: "2000000"
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8091/health', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+    restart: unless-stopped
+
   postgres:
     image: pgvector/pgvector:0.8.0-pg17
     environment:
@@ -145,6 +172,8 @@ services:
         condition: service_completed_successfully
       clamav:
         condition: service_healthy
+      fetch-worker:
+        condition: service_healthy
     read_only: true
     volumes:
       - ${SOURCE_DIRECTORY:-./data/sources}:/sources:ro
@@ -200,11 +229,63 @@ services:
       - no-new-privileges:true
     restart: unless-stopped
 
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    profiles: ["observability"]
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.path=/prometheus"]
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.130.1
+    profiles: ["observability"]
+    command: ["--config=/etc/otelcol/config.yml"]
+    volumes:
+      - ./observability/otel-collector.yml:/etc/otelcol/config.yml:ro
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:12.0.2
+    profiles: ["observability"]
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_SECURITY_ADMIN_USER__FILE: /run/secrets/grafana_admin_user
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
+    secrets:
+      - grafana_admin_user
+      - grafana_admin_password
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   redis_data:
   minio_data:
   clamav_data:
+  prometheus_data:
+  grafana_data:
 
 secrets:
   postgres_password:
@@ -223,3 +304,7 @@ secrets:
     file: ${ADMIN_PASSWORD_HASH_FILE:-./secrets/admin_password_hash}
   session_secret:
     file: ${SESSION_SECRET_FILE:-./secrets/session_secret}
+  grafana_admin_user:
+    file: ${GRAFANA_ADMIN_USER_FILE:-./secrets/grafana_admin_user}
+  grafana_admin_password:
+    file: ${GRAFANA_ADMIN_PASSWORD_FILE:-./secrets/grafana_admin_password}

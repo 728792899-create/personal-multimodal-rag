@@ -57,6 +57,8 @@ from app.services.source_connectors import (
     UrlListConnector,
 )
 from app.services.source_sync import SourceSyncService
+from app.services.fetch_worker_client import FetchWorkerClient
+from app.services.url_importer import fetch_url
 
 
 def create_embedding_provider():
@@ -293,6 +295,15 @@ outbox_dispatcher = (
     else None
 )
 source_root_resolver = SourceRootResolver(settings.source_roots)
+fetch_worker_client = (
+    FetchWorkerClient(
+        settings.fetch_worker_url,
+        timeout_seconds=max(settings.url_import_timeout_seconds + 5, 15),
+    )
+    if settings.fetch_worker_url
+    else None
+)
+url_fetcher = fetch_worker_client.fetch_url if fetch_worker_client else fetch_url
 connector_registry = ConnectorRegistry(
     [
         DirectoryConnector(
@@ -304,11 +315,14 @@ connector_registry = ConnectorRegistry(
             timeout=settings.url_import_timeout_seconds,
             max_bytes=settings.url_import_max_bytes,
             max_items=settings.source_sync_max_items,
+            fetcher=url_fetcher,
         ),
         FeedConnector(
             timeout=settings.url_import_timeout_seconds,
             max_bytes=settings.url_import_max_bytes,
             max_items=settings.source_sync_max_items,
+            fetcher=url_fetcher,
+            feed_fetcher=fetch_worker_client.fetch_feed if fetch_worker_client else None,
         ),
     ]
 )
@@ -385,6 +399,7 @@ ingestion_worker = IngestionWorker(
     enrichment_service=enrichment_service,
     graph_store=graph_store,
     job_signal_queue=job_signal_queue,
+    fetcher=url_fetcher,
 )
 source_sync_service = SourceSyncService(
     registry,

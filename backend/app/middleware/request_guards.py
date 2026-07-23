@@ -34,6 +34,7 @@ class RequestGuardMiddleware:
         rate_limit_window_seconds: int = 60,
         login_rate_limit_requests: int = 8,
         login_rate_limit_window_seconds: int = 300,
+        metrics=None,
     ):
         self.app = app
         self.auth_token = auth_token
@@ -42,6 +43,7 @@ class RequestGuardMiddleware:
         self.rate_limit_window_seconds = max(1, int(rate_limit_window_seconds))
         self.login_rate_limit_requests = max(0, int(login_rate_limit_requests))
         self.login_rate_limit_window_seconds = max(1, int(login_rate_limit_window_seconds))
+        self.metrics = metrics
         self._requests: dict[str, deque[float]] = defaultdict(deque)
         self._login_requests: dict[str, deque[float]] = defaultdict(deque)
         self._lock = threading.Lock()
@@ -51,6 +53,8 @@ class RequestGuardMiddleware:
             await self.app(scope, receive, send)
             return
 
+        started_at = time.perf_counter()
+        response_status = 500
         headers = {key.lower(): value for key, value in scope.get("headers", [])}
         supplied_request_id = headers.get(b"x-request-id", b"").decode("latin-1")
         request_id = supplied_request_id if _REQUEST_ID.fullmatch(supplied_request_id) else uuid.uuid4().hex
@@ -71,21 +75,25 @@ class RequestGuardMiddleware:
                     self.login_rate_limit_window_seconds,
                 )
                 if login_retry_after is not None:
-                    await self._json_response(
+                    await self._guard_response(
+                        scope,
                         send,
                         429,
                         "Too many login attempts",
                         request_id,
+                        started_at,
                         extra_headers=[(b"retry-after", str(login_retry_after).encode("ascii"))],
                     )
                     return
             retry_after = self._retry_after(scope)
             if retry_after is not None:
-                await self._json_response(
+                await self._guard_response(
+                    scope,
                     send,
                     429,
                     "Rate limit exceeded",
                     request_id,
+                    started_at,
                     extra_headers=[(b"retry-after", str(retry_after).encode("ascii"))],
                 )
                 return
@@ -94,10 +102,14 @@ class RequestGuardMiddleware:
             )
             if path not in _PUBLIC_AUTH_PATHS:
                 if self.auth_service and not (identity or bearer_authorized):
-                    await self._json_response(send, 401, "Authentication required", request_id)
+                    await self._guard_response(
+                        scope, send, 401, "Authentication required", request_id, started_at
+                    )
                     return
                 if not self.auth_service and self.auth_token and not bearer_authorized:
-                    await self._json_response(send, 401, "Authentication required", request_id)
+                    await self._guard_response(
+                        scope, send, 401, "Authentication required", request_id, started_at
+                    )
                     return
                 if (
                     identity
@@ -107,17 +119,49 @@ class RequestGuardMiddleware:
                         headers.get(b"x-csrf-token", b"").decode("latin-1"),
                     )
                 ):
-                    await self._json_response(send, 403, "CSRF token required", request_id)
+                    await self._guard_response(
+                        scope, send, 403, "CSRF token required", request_id, started_at
+                    )
                     return
 
         async def send_with_request_id(message: dict):
+            nonlocal response_status
             if message["type"] == "http.response.start":
+                response_status = int(message.get("status") or 500)
                 response_headers = list(message.get("headers", []))
                 response_headers.append((b"x-request-id", request_id.encode("ascii")))
                 message = {**message, "headers": response_headers}
             await send(message)
 
-        await self.app(scope, receive, send_with_request_id)
+        try:
+            await self.app(scope, receive, send_with_request_id)
+        finally:
+            if self.metrics is not None:
+                self.metrics.observe_http(
+                    method=method,
+                    path=path,
+                    status=response_status,
+                    seconds=time.perf_counter() - started_at,
+                )
+
+    async def _guard_response(
+        self,
+        scope,
+        send,
+        status: int,
+        detail: str,
+        request_id: str,
+        started_at: float,
+        extra_headers: list[tuple[bytes, bytes]] | None = None,
+    ) -> None:
+        await self._json_response(send, status, detail, request_id, extra_headers)
+        if self.metrics is not None:
+            self.metrics.observe_http(
+                method=scope.get("method", "GET"),
+                path=scope.get("path", ""),
+                status=status,
+                seconds=time.perf_counter() - started_at,
+            )
 
     def _authorized(self, authorization: bytes) -> bool:
         supplied = authorization.decode("latin-1")

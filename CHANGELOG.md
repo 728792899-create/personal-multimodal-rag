@@ -15,6 +15,11 @@
 - 白名单本地目录、URL 列表和 RSS/Atom connector registry；内容 hash、ETag/Last-Modified、稳定 external ID 与持久 `sync_runs` 增量闭环。
 - 空结果/部分失败删除保护、连续两次缺失候选、人工确认级联删除和重启后可重试的中断同步。
 - 带引用的回答、持久会话和知识卡片 Markdown 导出。
+- Prometheus 低基数指标、可选 OTLP/HTTP 与 Sentry scrubber、预配置 Grafana dashboard。
+- 无凭据/无数据卷隔离 fetch worker、逐跳 DNS pinning、重定向重校验和大小限制。
+- PostgreSQL + MinIO 备份、manifest SHA-256 校验、显式确认恢复和 Compose 故障注入工具。
+- 机器可读 1.0 release readiness gate、真实语料证据模板和拒绝伪造结果的 `benchmark:real`。
+- CodeQL、依赖审计、Trivy、SPDX SBOM、GitHub provenance 与 keyless Cosign 镜像签名工作流。
 - 0.3 多模态统一 IR：text、heading、image、table、equation、code 元素，保留页码、顺序、bbox、标题路径、结构化表格和精确引用 ID。
 - 内容寻址本地对象存储、原件受控下载、PDF/DOCX 内嵌图片物化、引用计数与删除/失败回滚。
 - SQLite schema v4：`assets`、`document_elements`、`parser_runs`、`enrichment_cache`，旧文档明确标记原件可用性。

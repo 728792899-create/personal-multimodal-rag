@@ -44,19 +44,28 @@
 
 退出条件：对象/元素迁移与删除、解析 fallback/取消、图谱 provenance、图片提问、100 条固定集及 Browser 普通/专家/窄屏验收均有真实自动化或人工证据。
 
-## 后续版本：0.4 Small-team Beta
+## 当前候选版：0.4 Production Local RC
 
-目标：建立真正的身份、工作区和异步任务边界。
+目标：交付一个受支持的单管理员自托管运行路径，并用公开 contract 与私有真实证据明确区分 RC 和 1.0。
 
-- [ ] OIDC/OAuth2 与可信 workspace claims。
-- [ ] PostgreSQL + pgvector schema migration 与行级授权。
-- [ ] S3-compatible 对象存储、签名上传和病毒扫描。
-- [ ] Redis/队列 worker、幂等键、retry 与 DLQ。
-- [ ] workspace 配额、审计事件和管理员恢复流程。
-- [ ] OpenTelemetry traces、metrics backend 与 Sentry 告警。
-- [ ] 多副本限流、并发和容量测试。
+- [x] Argon2id 管理员会话、CSRF、撤销与服务端 workspace context。
+- [x] PostgreSQL metadata/pgvector adapter、SQLite 迁移与 checksum 对账。
+- [x] S3-compatible 暂存对象、ClamAV gate 与级联删除契约。
+- [x] Redis Streams、事务 outbox、幂等 worker、retry 与 DLQ。
+- [x] 白名单目录、URL 列表、RSS/Atom 增量同步与安全删除候选。
+- [x] 隔离 fetch worker、逐跳 DNS 验证、IP pinning、大小与超时上限。
+- [x] Prometheus、可选 OTLP/Sentry、Grafana dashboard、CodeQL/Trivy/SBOM/签名 workflow。
+- [x] 备份/恢复、故障注入和真实语料 evidence 命令；默认保持安全 dry-run/blocked。
+- [ ] 在参考硬件完成容量、恢复和 14 天 soak；以私有 evidence manifest 通过全部 1.0 gate。
 
-退出条件：跨 workspace 越权测试、备份恢复、删除、故障注入与回滚演练通过。
+退出条件：200 份非 fixture 文档、200 条人工标注、100 次真实问题、完整恢复演练、14 天真实部署、无数据丢失级缺陷，并达到 `docs/release-evidence-1.0.md` 的质量阈值。
+
+## 后续版本：1.1 Small-team
+
+- [ ] OIDC/OAuth2、RBAC 与真正的多 workspace 授权隔离。
+- [ ] 多副本共享限流、并发/容量基线与高可用部署。
+- [ ] Kubernetes、外部 secret manager 与托管对象/队列适配。
+- [ ] Bilibili、Notion、Drive 等需稳定认证边界的 connector。
 
 ## 研究方向
 

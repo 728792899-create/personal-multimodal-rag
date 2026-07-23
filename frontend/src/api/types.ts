@@ -559,6 +559,55 @@ export interface AuthSession {
   expires_at: string
 }
 
+export interface WorkspaceContext {
+  workspace_id: string
+  user_id: string
+  role: 'owner' | 'member'
+}
+
+export interface StorageStatus {
+  provider: string
+  configured: boolean
+  healthy: boolean
+}
+
+export interface QueueStatus {
+  provider: string
+  configured: boolean
+  healthy: boolean
+  depth: number
+  dead_letters: number
+}
+
+export interface ReleaseGate {
+  id: string
+  label: string
+  passed: boolean
+  observed: boolean | number | string
+  required: boolean | number | string
+}
+
+export interface ReleaseReadiness {
+  target_version: string
+  candidate_version: string
+  ready: boolean
+  status: 'ready' | 'blocked'
+  passed_gates: number
+  total_gates: number
+  gates: ReleaseGate[]
+  errors: string[]
+  evidence_updated_at: string
+  production_ready_claim: false
+}
+
+export interface DeadLetterJob {
+  id: string
+  job_id: string
+  error_code: string
+  error_message: string
+  created_at: string
+}
+
 export type SourceType = 'local_directory' | 'url_list' | 'rss_atom'
 
 export interface Source {

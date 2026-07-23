@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import time
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -11,6 +12,7 @@ from app.services.url_importer import fetch_url
 from app.services.object_store import LocalObjectStore
 from app.services.parser_worker import ParserJobCancelled, document_from_content_list
 from app.services.multimodal_assets import materialize_document_assets
+from app.services.production_metrics import production_metrics
 
 
 class JobCancelled(Exception):
@@ -86,15 +88,25 @@ class IngestionWorker:
         )
         if not job:
             return False
+        started_at = time.perf_counter()
+        final_status = "succeeded"
         try:
             self._process(job)
         except JobCancelled:
+            final_status = "cancelled"
             self.registry.complete_index_job_cancellation(job["id"])
             self._mark_source_item(job, "", "cancelled")
             self._cleanup_source_asset(job)
         except Exception as exc:
+            final_status = "failed"
             self.registry.fail_index_job(job["id"], "INGESTION_FAILED", redact_sensitive_text(exc))
             self._mark_source_item(job, "", "failed")
+        current = self.registry.get_index_job(job["id"]) or job
+        production_metrics.record_job(
+            status=final_status,
+            seconds=time.perf_counter() - started_at,
+            attempts=int(current.get("attempts") or job.get("attempts") or 1),
+        )
         return True
 
     def _process(self, job: dict) -> None:

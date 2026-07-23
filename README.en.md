@@ -28,7 +28,7 @@ The default path remains deterministic and offline: hash embeddings, an in-memor
 | Ordinary and expert modes | Stage-by-stage retrieval Trace | pytest, Vitest and Playwright |
 | Precise element citations and context | Citation and graph provenance audit | Fixed 100-case offline golden set |
 | Feedback to evaluation draft | Request IDs, timeout, cancel and retry | Health checks and multi-lane CI |
-| Durable local index jobs and source sync | Lease recovery, DLQ boundaries and restore drill | 136 backend / 19 frontend / 14 E2E tests |
+| Durable local index jobs and source sync | Lease recovery, DLQ boundaries and restore drill | 152 backend / 19 frontend / 14 E2E tests |
 
 ![System map from ingestion to evidence-constrained answers and evaluation](docs/assets/system-overview.svg)
 
@@ -90,6 +90,10 @@ npm run demo:bootstrap
 
 See the [Production Local runbook](docs/production-local.md) and [incremental source guide](docs/source-sync.md). The browser may select only server-configured directory aliases; empty or partial syncs cannot trigger mass deletion.
 
+Production URL and feed retrieval is delegated to a credential-free, read-only
+fetch worker. Every redirect is revalidated, the socket is pinned to a
+previously validated public IP, and response size/time limits are enforced.
+
 ## Architecture and request lifecycle
 
 ![Browser, Nginx, middleware, domain routers, services and provider adapters in one request lifecycle](docs/assets/request-lifecycle.svg)
@@ -120,13 +124,37 @@ Run all acceptance checks with offline providers enforced:
 npm run verify
 ```
 
-Or run `npm test`, `npm run lint:docs`, `npm run lint:secrets`, `npm run build`, `npm run test:demo`, `npm run eval:retrieval`, `npm run test:restore-drill`, and `npm run test:e2e` separately.
+Production contracts are separate from fixture quality:
+
+```bash
+npm run verify:production   # fail-closed Compose, auth, queue, object and backup contracts
+npm run benchmark:real      # requires a private operator-supplied evidence manifest
+npm run chaos:compose       # safe dry-run unless an explicit destructive confirmation is supplied
+npm run backup:production
+npm run restore:production  # verifies only unless --confirm RESTORE is supplied to the script
+```
+
+The current 1.0 status is intentionally blocked until the licensed real corpus,
+200 non-fixture documents, 200 annotations, 100 real questions, full restore,
+14-day soak and quality thresholds have evidence. See the
+[1.0 release-evidence report](docs/release-evidence-1.0.md); the same gate list
+is exposed by `GET /api/system/readiness-report`.
 
 ## Security and production boundary
 
 ![Trust boundaries between the browser, API, untrusted input, providers and storage](docs/assets/security-boundaries.svg)
 
 Implemented controls cover upload type/size/signature checks, SSRF-aware URL validation across redirects, Argon2id session authentication, HttpOnly/Secure/SameSite cookies, CSRF, login rate limiting, timeouts, terminal cooperative cancellation, request IDs and sensitive-log redaction. Production object ingestion uses staged content-addressed keys and an optional ClamAV gate. `scripts/verify_local_restore.py` creates an isolated SQLite snapshot and checks integrity, foreign keys, schema, safe object paths, byte sizes and SHA-256 without changing business rows in the input database.
+
+`/metrics` exposes bounded Prometheus labels for HTTP, retrieval, first-token,
+provider, citation, queue, DLQ and source-sync behavior. An optional Compose
+profile provisions Prometheus, an OpenTelemetry Collector and Grafana. Sentry
+and OTLP exporters are opt-in, and scrubbers remove bodies, questions,
+credentials, cookies and private URL queries from telemetry.
+
+Security automation adds CodeQL, dependency audit, Trivy and an SPDX SBOM.
+Release images are produced only by the release workflow with provenance,
+GitHub build attestation and keyless Cosign signing.
 
 This repository does **not** claim multi-tenant isolation or a completed 1.0 production gate. The default workspace, owner, session and membership boundary is server-resolved, but 0.4 remains a single-admin deployment. OIDC/RBAC, HA, Kubernetes and multi-tenant authorization are deferred. The boundaries and migration steps are explicit in the [Production Local runbook](docs/production-local.md), [security model](docs/security-model.md), and [production adapter plan](docs/production-adapters.md).
 

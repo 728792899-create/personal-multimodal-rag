@@ -185,3 +185,52 @@ class KnowledgeCardRequest(BaseModel):
     answer: str = Field(..., min_length=1)
     citations: list[ChunkOut] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
+
+
+class WorkspaceContext(BaseModel):
+    workspace_id: str
+    user_id: str
+    role: Literal["owner", "member"] = "owner"
+
+
+class StorageStatus(BaseModel):
+    provider: str
+    configured: bool
+    healthy: bool
+
+
+class QueueStatus(BaseModel):
+    provider: str
+    configured: bool
+    healthy: bool
+    depth: int = 0
+    dead_letters: int = 0
+
+
+class ReleaseGate(BaseModel):
+    id: str
+    label: str
+    passed: bool
+    observed: bool | int | float | str
+    required: bool | int | float | str
+
+
+class ReleaseReadiness(BaseModel):
+    target_version: str
+    candidate_version: str
+    ready: bool
+    status: Literal["ready", "blocked"]
+    passed_gates: int
+    total_gates: int
+    gates: list[ReleaseGate]
+    errors: list[str] = Field(default_factory=list)
+    evidence_updated_at: str = ""
+    production_ready_claim: bool = False
+
+
+class DeadLetterJob(BaseModel):
+    id: str
+    job_id: str
+    error_code: str = ""
+    error_message: str = ""
+    created_at: str
