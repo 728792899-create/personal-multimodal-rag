@@ -30,6 +30,9 @@ def main() -> int:
             raise SystemExit(f"{name} must drop all Linux capabilities")
         if "no-new-privileges:true" not in service.get("security_opt", []):
             raise SystemExit(f"{name} must set no-new-privileges")
+    worker_healthcheck = json.dumps(services["worker"].get("healthcheck", {}))
+    if "worker-heartbeat" not in worker_healthcheck:
+        raise SystemExit("worker healthcheck must validate its ingestion-loop heartbeat")
     environment = services["backend"].get("environment", {})
     expected = {
         "RAG_RUNTIME_MODE": "production",
@@ -47,6 +50,18 @@ def main() -> int:
         image = str(service.get("image") or "")
         if image.endswith(":latest"):
             raise SystemExit(f"{name} uses a mutable latest tag")
+    postgres_mounts = services["postgres"].get("volumes", [])
+    if not any(
+        str(mount.get("target") or "")
+        == "/docker-entrypoint-initdb.d/001-pgvector.sql"
+        and bool(mount.get("read_only"))
+        for mount in postgres_mounts
+        if isinstance(mount, dict)
+    ):
+        raise SystemExit("postgres must initialize the vector extension from a read-only script")
+    nginx = Path("frontend/nginx.conf").read_text(encoding="utf-8")
+    if "location = /ready" not in nginx or "backend:8010/ready" not in nginx:
+        raise SystemExit("frontend must proxy the public readiness endpoint to backend")
     print("Production Compose contract passed: fail-closed config, pinned images, read-only app containers.")
     return 0
 

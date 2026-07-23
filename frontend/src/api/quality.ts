@@ -2,6 +2,8 @@ import { apiRequest, jsonBody } from './client'
 import type {
   ChunkResult,
   EvalDraft,
+  EvalReviewPayload,
+  EvalReviewSummary,
   EvaluationResult,
   FeedbackPayload,
   FeedbackResponse,
@@ -48,6 +50,17 @@ export async function createEvalCase(question: string, expectedKeywords: string[
     ...jsonBody({ question, expected_keywords: expectedKeywords, expected_answer: expectedAnswer, note }),
   }, options)
   return data.case
+}
+
+export async function reviewEvalCase(caseId: string, payload: EvalReviewPayload, options: RequestOptions = {}): Promise<{ case: EvalDraft; summary: EvalReviewSummary }> {
+  return apiRequest(`/api/eval/cases/${encodeURIComponent(caseId)}`, {
+    method: 'PATCH',
+    ...jsonBody(payload),
+  }, options)
+}
+
+export function getEvalReviewSummary(options: RequestOptions = {}): Promise<EvalReviewSummary> {
+  return apiRequest('/api/eval/review-summary', {}, options)
 }
 
 export function runEvalDrafts(limit = 30, options: RequestOptions = {}): Promise<{ case_count: number; results: EvaluationResult[] }> {

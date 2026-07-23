@@ -6,6 +6,8 @@ import {
   createEvalCase,
   deleteDocument,
   getChunkContext,
+  getEvalReviewSummary,
+  getRealUsageSummary,
   getKnowledgeOverview,
   getSystemMetrics,
   listDocuments,
@@ -15,6 +17,7 @@ import {
   listOperations,
   rebuildAllDocuments,
   rebuildDocument,
+  reviewEvalCase,
   rewriteAnswer,
   runEvalDrafts,
   saveKnowledgeCard,
@@ -29,6 +32,7 @@ import {
   type DocumentElementType,
   type DocumentMeta,
   type EvalDraft,
+  type EvalReviewSummary,
   type EvaluationResult,
   type FeedbackStats,
   type HistoryItem,
@@ -36,6 +40,7 @@ import {
   type KnowledgeOverview,
   type OperationLog,
   type RetrievalOptions,
+  type RealUsageSummary,
   type RewriteResponse,
   type RewriteStyle,
   type SearchCompareResponse,
@@ -88,6 +93,12 @@ export function useWorkbench() {
   const evalQuestion = ref('')
   const evalKeywords = ref('')
   const evalResults = ref<EvaluationResult[]>([])
+  const evalReviewSummary = ref<EvalReviewSummary | null>(null)
+  const evalReviewerId = ref('')
+  const evalReviewingId = ref('')
+  const evalReviewMessage = ref('')
+  const realUsageConsent = ref(false)
+  const realUsageSummary = ref<RealUsageSummary | null>(null)
 
   const appMode = ref<AppMode>('user')
   const workMode = ref<WorkMode>('answer')
@@ -192,18 +203,22 @@ export function useWorkbench() {
   }
 
   async function refreshActivity() {
-    const [nextHistory, nextOperations, nextCards, nextDrafts, nextMetrics] = await Promise.all([
+    const [nextHistory, nextOperations, nextCards, nextDrafts, nextMetrics, nextReviewSummary, nextUsageSummary] = await Promise.all([
       listHistory(),
       listOperations(20),
       listKnowledgeCards(20),
-      listEvalDrafts(20),
+      listEvalDrafts(220),
       getSystemMetrics(),
+      getEvalReviewSummary(),
+      getRealUsageSummary(),
     ])
     history.value = nextHistory
     operations.value = nextOperations
     cards.value = nextCards
     evalDrafts.value = nextDrafts
     metrics.value = nextMetrics
+    evalReviewSummary.value = nextReviewSummary
+    realUsageSummary.value = nextUsageSummary
   }
 
   async function boot() {
@@ -320,6 +335,7 @@ export function useWorkbench() {
           [knowledgeBaseState.selectedKnowledgeBaseId.value],
           options,
           multimodalQuery.attachmentRefs.value,
+          realUsageConsent.value,
           (event: ConversationStreamEvent, partialText: string) => {
             if (event.type === 'retrieval.completed' && event.retrieval_trace) {
               answer.value = {
@@ -643,6 +659,34 @@ export function useWorkbench() {
     }
   }
 
+  async function handleReviewEvalCase(item: EvalDraft) {
+    if (!item.id || !evalReviewerId.value.trim()) return
+    evalReviewingId.value = item.id
+    evalReviewMessage.value = ''
+    const expectedKeywords = Array.isArray(item.expected_keywords)
+      ? item.expected_keywords.filter(Boolean)
+      : []
+    try {
+      const result = await reviewEvalCase(item.id, {
+        expected_answer: item.expected_answer || '',
+        expected_keywords: expectedKeywords,
+        expected_document_ids: item.expected_document_ids || [],
+        answerable: item.answerable !== false,
+        note: item.note || '',
+        reviewer_id: evalReviewerId.value.trim(),
+        reviewer_attestation: 'human-reviewed',
+      })
+      const index = evalDrafts.value.findIndex((draft) => draft.id === item.id)
+      if (index >= 0) evalDrafts.value[index] = result.case
+      evalReviewSummary.value = result.summary
+      evalReviewMessage.value = `已复核：${result.summary.human_reviewed}/200`
+    } catch (caught) {
+      reportError(caught, '人工复核保存失败', () => handleReviewEvalCase(item))
+    } finally {
+      evalReviewingId.value = ''
+    }
+  }
+
   async function handleDiagnosticAction(action: DiagnosticAction) {
     const payload = action.payload || {}
     if (action.id === 'open_expert_trace') {
@@ -696,6 +740,8 @@ export function useWorkbench() {
     selectedDocument, selectedFile, urlToImport, question, answer, selectedCitation,
     citationContext, compareResult, feedbackStats, feedbackText, feedbackMessage,
     rewriteResult, cardMessage, evalQuestion, evalKeywords, evalResults,
+    evalReviewSummary, evalReviewerId, evalReviewingId, evalReviewMessage,
+    realUsageConsent, realUsageSummary,
     appMode, workMode, searchMode, searchProfile, retrievalStrategy, graphWeight,
     graphMaxHops, parentWindow, modalityFilters, topK, candidateK, vectorBalance,
     mmrLambda, minScore, queryRewrite, scopedDocumentIds, documentFilter, inspectorTab,
@@ -707,7 +753,7 @@ export function useWorkbench() {
     boot, handleRun, cancelRun, handleUpload, handleImportUrl, handleCompare,
     selectCitation, selectDocument, openCitationElement, removeDocument, rebuildOne, rebuildAll,
     toggleScope, clearScope, useHistory, eraseHistory, handleFeedback, handleRewrite,
-    handleSaveCard, handleCreateEvalCase, handleRunEvalDrafts, handleDiagnosticAction,
+    handleSaveCard, handleCreateEvalCase, handleRunEvalDrafts, handleReviewEvalCase, handleDiagnosticAction,
     resetRetrievalControls, retryLast, clearError,
     knowledgeBases: knowledgeBaseState.knowledgeBases,
     selectedKnowledgeBaseId: knowledgeBaseState.selectedKnowledgeBaseId,

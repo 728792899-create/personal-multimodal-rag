@@ -283,12 +283,50 @@ watch(() => workbench.focusedElementId.value, async (id) => {
           </button>
         </div>
       </form>
+      <section class="eval-review-summary" aria-live="polite">
+        <strong>1.0 人工复核：{{ workbench.evalReviewSummary.value?.human_reviewed || 0 }}/200</strong>
+        <span>剩余 {{ workbench.evalReviewSummary.value?.remaining_for_1_0 ?? 200 }} 条；只有逐条确认并留存 reviewer ID 的 case 才计数。</span>
+        <label>
+          <span>复核人 ID</span>
+          <input v-model="workbench.evalReviewerId.value" type="text" autocomplete="off" placeholder="使用团队内稳定的非敏感 ID" />
+        </label>
+      </section>
       <div v-if="workbench.evalDrafts.value.length" class="eval-list">
-        <article v-for="item in workbench.evalDrafts.value.slice(0, 8)" :key="`${item.id}-${item.question}`">
+        <article v-for="item in workbench.evalDrafts.value.slice(0, 200)" :key="`${item.id}-${item.question}`">
           <span class="status-badge neutral">{{ item.failure_type || item.status }}</span>
           <strong>{{ item.question }}</strong>
+          <template v-if="item.status !== 'reviewed'">
+            <label>
+              <span>期望答案</span>
+              <textarea v-model="item.expected_answer" rows="3" placeholder="可回答问题必须填写答案或关键词"></textarea>
+            </label>
+            <label>
+              <span>期望关键词（逗号分隔）</span>
+              <input
+                :value="(item.expected_keywords || []).join(', ')"
+                type="text"
+                @input="item.expected_keywords = (($event.target as HTMLInputElement).value || '').split(/[,，]/).map((value) => value.trim()).filter(Boolean)"
+              />
+            </label>
+            <label class="checkbox-row">
+              <input v-model="item.answerable" type="checkbox" />
+              <span>资料中存在可回答证据</span>
+            </label>
+            <label>
+              <span>复核备注</span>
+              <input v-model="item.note" type="text" placeholder="记录证据或争议点" />
+            </label>
+            <button
+              type="button"
+              class="button secondary-button"
+              :disabled="!workbench.evalReviewerId.value.trim() || workbench.evalReviewingId.value === item.id || (item.answerable !== false && !item.expected_answer?.trim() && !(item.expected_keywords || []).length)"
+              @click="workbench.handleReviewEvalCase(item)"
+            >{{ workbench.evalReviewingId.value === item.id ? '保存中…' : '确认人工复核' }}</button>
+          </template>
+          <span v-else class="success-copy">由 {{ item.reviewer_id }} 于 {{ item.reviewed_at }} 复核</span>
         </article>
       </div>
+      <p v-if="workbench.evalReviewMessage.value" class="success-copy" aria-live="polite">{{ workbench.evalReviewMessage.value }}</p>
       <div v-else class="empty-state compact-empty">
         <strong>还没有评测草稿</strong>
         <p>手动添加，或对回答给出负反馈后自动生成。</p>

@@ -18,12 +18,12 @@
 
 | Gate | 最低要求 | 当前公开仓库状态 |
 | --- | ---: | --- |
-| 有明确许可证的真实资料 | 20 份 | blocked：不提交第三方或私有语料 |
-| 非 fixture 索引文档 | 200 份 | blocked：依赖真实部署 |
-| 人工标注问题 | 200 条 | blocked：仓库固定集不能替代 |
-| 真实使用问题 | 100 次 | blocked：不伪造流量 |
-| 连续运行 | 14 天 | blocked：尚无公开 soak 证据 |
-| 完整生产恢复 | 1 次且无数据丢失 | blocked：需要目标基础设施 |
+| 有明确许可证的真实资料 | 20 份 | passed：21 组私有清单，许可证与 hash 已校验 |
+| 非 fixture 索引文档 | 200 份 | passed：200 文档 / 200 jobs / 5,159 vectors |
+| 人工标注问题 | 200 条 | blocked：200 draft，人工确认 0 |
+| 真实使用问题 | 100 次 | blocked：明确来源声明计数 0 |
+| 连续运行 | 14 天 | in progress：2026-07-23T10:25:17Z 开始，不能回填 |
+| 完整生产恢复 | 1 次且无数据丢失 | passed：PostgreSQL/pgvector/MinIO 破坏性恢复对账通过 |
 | 数据丢失级缺陷 | 0 个未关闭 | blocked：需 soak 期确认 |
 | Recall@5 / MRR | ≥ 0.85 / ≥ 0.75 | blocked：需真实语料报告 |
 | 引用准确率 / 覆盖率 | ≥ 0.85 / ≥ 0.90 | blocked：需人工标注 |
@@ -47,3 +47,5 @@ curl --fail http://127.0.0.1:5173/api/system/readiness-report
 3. 分别注入 API、worker、Redis、PostgreSQL 与 MinIO 故障；确认任务恢复后无丢失、无重复文档。
 4. 运行 14 天 soak，记录真实问题、Provider 错误、DLQ、拒答与引用指标。
 5. 关闭所有数据丢失级缺陷后重新生成 readiness report；只有所有 gate 通过才创建 `v1.0.0` tag。
+
+本机还真实通过五类 Compose 故障注入与 MinerU PNG 解析。Ollama embedding 契约通过，`qwen3:8b` 生成接口超时；Sentry 无 DSN，未发送事件。这些失败/阻断项不会被固定 fixture 或 capability 探针替代。

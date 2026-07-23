@@ -295,8 +295,151 @@ def test_ingestion_worker_does_not_fallback_after_parser_cancellation(tmp_path: 
 
     assert worker.run_once() is True
     assert registry.get_index_job(job["id"])["status"] == "cancelled"
-    assert registry.get_asset(asset["id"]) is None
-    assert not stored.path.exists()
+    assert registry.get_asset(asset["id"]) is not None
+    assert stored.path.exists()
+
+    retried = registry.retry_index_job(job["id"])
+    assert retried and retried["status"] == "queued"
+
+
+def test_deduplicated_ingestion_retains_and_links_durable_source(tmp_path: Path):
+    from app.config import Settings
+
+    registry = DocumentRegistry(str(tmp_path / "registry.sqlite3"))
+    store = LocalObjectStore(tmp_path / "objects")
+    payload = b"# Durable source\n\nKeep the original object."
+    source_path = tmp_path / "durable.md"
+    source_path.write_bytes(payload)
+    existing = DocumentProcessor().parse_file(source_path)
+    existing.metadata["knowledge_base_id"] = "default"
+    registry.save_document(existing)
+    stored = store.put_bytes(payload)
+    asset = registry.create_asset(
+        knowledge_base_id="default",
+        kind="source",
+        object_key=stored.object_key,
+        original_name=source_path.name,
+        media_type="text/markdown",
+        sha256=stored.sha256,
+        size_bytes=stored.size_bytes,
+    )
+    job = registry.create_index_job(
+        source_type="file",
+        source_name=source_path.name,
+        payload={"asset_id": asset["id"], "parser_profile": "builtin"},
+        knowledge_base_id="default",
+        idempotency_key="dedupe-retains-source",
+    )
+    worker = IngestionWorker(
+        registry,
+        DocumentProcessor(),
+        object(),
+        Settings(),
+        object_store=store,
+    )
+
+    assert worker.run_once() is True
+
+    completed = registry.get_index_job(job["id"])
+    linked = registry.get_asset(asset["id"], include_private=True)
+    assert completed and completed["status"] == "succeeded"
+    assert completed["deduped"] is True
+    assert linked and linked["document_id"] == existing.document_id
+    assert store.read_bytes(linked["object_key"]) == payload
+
+
+def test_partial_vector_write_is_removed_when_document_is_not_persisted(
+    tmp_path: Path,
+):
+    from app.config import Settings
+
+    class PartialRetriever:
+        def __init__(self):
+            self.vector_store = SimpleNamespace(chunks={})
+            self.deleted: list[str] = []
+
+        def add_document(self, document, chunks):
+            for chunk in chunks:
+                self.vector_store.chunks[chunk.chunk_id] = chunk
+            raise RuntimeError("simulated vector commit interruption")
+
+        def delete_document(self, document_id):
+            self.deleted.append(document_id)
+            self.vector_store.chunks = {
+                chunk_id: chunk
+                for chunk_id, chunk in self.vector_store.chunks.items()
+                if chunk.document_id != document_id
+            }
+
+    registry = DocumentRegistry(str(tmp_path / "registry.sqlite3"))
+    store = LocalObjectStore(tmp_path / "objects")
+    payload = b"# Interrupted source\n\nThe vector commit must roll back."
+    stored = store.put_bytes(payload)
+    asset = registry.create_asset(
+        knowledge_base_id="default",
+        kind="source",
+        object_key=stored.object_key,
+        original_name="interrupted.md",
+        media_type="text/markdown",
+        sha256=stored.sha256,
+        size_bytes=stored.size_bytes,
+    )
+    job = registry.create_index_job(
+        source_type="file",
+        source_name="interrupted.md",
+        payload={"asset_id": asset["id"], "parser_profile": "builtin"},
+        knowledge_base_id="default",
+        idempotency_key="partial-vector-cleanup",
+        max_attempts=1,
+    )
+    retriever = PartialRetriever()
+    worker = IngestionWorker(
+        registry,
+        DocumentProcessor(),
+        retriever,
+        Settings(),
+        object_store=store,
+    )
+
+    assert worker.run_once() is True
+
+    failed = registry.get_index_job(job["id"])
+    assert failed and failed["status"] == "failed"
+    assert len(retriever.deleted) == 1
+    assert retriever.vector_store.chunks == {}
+    assert registry.get_asset(asset["id"]) is not None
+
+
+def test_worker_reconciles_orphaned_vectors_before_claiming_jobs():
+    orphan = SimpleNamespace(
+        chunk_id="orphan-chunk",
+        document_id="missing-document",
+    )
+
+    class Retriever:
+        def __init__(self):
+            self.vector_store = SimpleNamespace(chunks={orphan.chunk_id: orphan})
+
+        def delete_document(self, document_id):
+            self.vector_store.chunks = {
+                key: chunk
+                for key, chunk in self.vector_store.chunks.items()
+                if chunk.document_id != document_id
+            }
+
+    registry = DocumentRegistry(":memory:")
+    retriever = Retriever()
+    worker = IngestionWorker(
+        registry,
+        object(),
+        retriever,
+        SimpleNamespace(),
+        object_store=object(),
+    )
+
+    assert worker.reconcile_orphaned_vectors() == 1
+    assert retriever.vector_store.chunks == {}
+    assert worker.reconcile_orphaned_vectors() == 0
 
 
 def test_pdf_embedded_image_is_materialized_as_controlled_asset(tmp_path: Path):

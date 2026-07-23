@@ -1,6 +1,8 @@
+from app.models.domain import Chunk
 from app.services.document_processor import DocumentProcessor
 from app.services.index_hydration import hydrate_retriever
 from app.services.retriever import HybridRetriever
+from app.services.vectorstore import MemoryVectorStore
 
 
 def test_memory_index_is_rebuilt_from_registered_documents(tmp_path):
@@ -62,3 +64,21 @@ def test_incompatible_embedding_metadata_is_quarantined_for_rebuild(tmp_path):
     assert document.metadata["index_mismatch"]["embedding_dimension"] == {"stored": 64, "expected": 256}
     assert quarantined == [document]
     assert not retriever.vector_store.chunks
+
+
+def test_orphan_vector_can_be_deleted_without_a_loaded_document():
+    store = MemoryVectorStore()
+    chunk = Chunk(
+        chunk_id="orphan:0",
+        document_id="orphan",
+        chunk_index=0,
+        text="partial write",
+        file_name="interrupted.md",
+    )
+    store.add_chunks([chunk], [[0.1, 0.2]])
+    retriever = HybridRetriever(vector_store=store)
+
+    assert retriever.delete_document("orphan") is True
+    assert store.chunks == {}
+    assert store.embeddings == {}
+    assert retriever.delete_document("orphan") is False

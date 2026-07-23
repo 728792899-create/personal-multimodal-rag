@@ -12,7 +12,7 @@
 
 **从 PDF、网页、图片与笔记，到可解释、可拒答、可量化回归的证据链。**
 
-[快速启动](#5-分钟离线启动) · [端到端案例](docs/case-study.md) · [产品巡游](docs/product-tour.md) · [文档中心](docs/README.md) · [代码导览](docs/code-tour.md) · [评测结果](docs/evaluation-results.md) · [安全模型](docs/security-model.md)
+[快速启动](#5-分钟离线启动) · [端到端案例](docs/case-study.md) · [产品巡游](docs/product-tour.md) · [现场验收](docs/production-validation.md) · [文档中心](docs/README.md) · [评测结果](docs/evaluation-results.md) · [安全模型](docs/security-model.md)
 
 面向单用户真实日常使用的自托管多模态证据平台。它不只展示“上传并问答”，还把 BM25、向量召回、融合去重、MMR、Rerank、拒答决策和引用覆盖率组织成可理解、可回归的证据链。
 
@@ -22,6 +22,8 @@
 
 **0.4.0-rc.1 Production Local** 开始把“演示能力”和“受支持运行路径”明确分开：保留零 Key Demo，同时增加失败关闭的 Local Production 与 Production profile、Argon2id 会话认证、CSRF、登录限流、PostgreSQL metadata adapter、pgvector、S3/MinIO、ClamAV、Redis Streams、事务 outbox、DLQ 和带 checksum 的 SQLite→PostgreSQL 迁移。RC 不使用 `production-ready` 宣称；完成真实资料基准、恢复演练与 14 天持续运行门槛后才会发布 1.0。
 
+2026-07-23 的私有 Production 验收已索引 **21 组有许可证来源 / 200 份非 fixture 文档 / 5,159 个 768 维向量**，并真实通过 PostgreSQL + pgvector + MinIO 破坏性恢复及 API、worker、Redis、PostgreSQL、MinIO 五类故障注入。MinerU 高级解析真实任务通过；Ollama embedding 通过，但 `qwen3:8b` 三类生成接口在本机 180 秒超时。14 天不可回填观测已从首个健康样本开始；人工标注仍为 0/200、本人真实问题仍为 0/100，Sentry 因无 DSN 未验收。因此版本仍是 RC，完整证据与复现命令见[现场验收手册](docs/production-validation.md)。
+
 同一版本还补齐日常使用闭环：可以订阅服务端白名单内的本地目录、URL 列表和 RSS/Atom，以内容 hash、ETag、Last-Modified 和稳定 external ID 做增量同步；空结果或部分失败不会触发批量删除，条目连续两次完整同步仍消失才进入人工确认。回答、会话和知识卡片均可导出带引用 Markdown。实现与安全边界见[持续数据源与增量同步](docs/source-sync.md)。
 
 ## 一分钟看懂
@@ -30,8 +32,8 @@
 
 | 默认体验 | 可信度机制 | 工程证据 | 生产边界 |
 | --- | --- | --- | --- |
-| 零 Key、离线可运行 | 无证据拒答 | 152 个后端测试 | Argon2id session 与可选 Sentry |
-| 多知识库、DOCX 与图片提问 | 十阶段检索 Trace | 19 个前端测试 | Chroma / pgvector adapter |
+| 零 Key、离线可运行 | 无证据拒答 | 174 个后端测试 | Argon2id session 与可选 Sentry |
+| 多知识库、DOCX 与图片提问 | 十阶段检索 Trace | 22 个前端测试 | Chroma / pgvector adapter |
 | 持久会话与流式回答 | 精确元素引用与 Graph provenance | 14 个 Browser E2E | Redis Streams / S3 / ClamAV |
 | 可恢复索引任务 | 反馈 → eval draft | 100 条黄金回归 case | Demo、Local Production、Production 明确分层 |
 

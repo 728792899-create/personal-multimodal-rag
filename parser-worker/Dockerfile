@@ -8,14 +8,17 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=60 update \
     && apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=60 install -y --no-install-recommends \
-        git libreoffice-writer libreoffice-calc libreoffice-impress \
+        git libgl1 libglib2.0-0 \
+        libreoffice-writer libreoffice-calc libreoffice-impress \
     && useradd --create-home --uid 10001 parser
 
 WORKDIR /worker
 COPY parser-worker/requirements.txt ./requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
+    pip install --retries 10 --timeout 600 -r requirements.txt
 COPY parser-worker/parser_worker ./parser_worker
-RUN mkdir -p /tmp/parser-jobs && chown -R parser:parser /tmp/parser-jobs /worker
+RUN mkdir -p /tmp/parser-jobs /home/parser/.cache \
+    && chown -R parser:parser /tmp/parser-jobs /home/parser/.cache /worker
 
 USER parser
 EXPOSE 8090

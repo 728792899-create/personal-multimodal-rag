@@ -24,6 +24,37 @@ LOCK = RLock()
 app = FastAPI(title="RAG Parser Worker", version="0.3.0")
 
 
+def _module_available(name: str) -> bool:
+    return importlib.util.find_spec(name) is not None
+
+
+def profile_availability() -> dict[str, dict]:
+    raganything = _module_available("raganything")
+    checks = {
+        "mineru": raganything and shutil.which("mineru") is not None,
+        "docling": raganything and _module_available("docling"),
+        "paddleocr": (
+            raganything
+            and _module_available("paddleocr")
+            and _module_available("pypdfium2")
+        ),
+    }
+    reasons = {
+        "mineru": "mineru executable is not installed",
+        "docling": "docling Python package is not installed",
+        "paddleocr": "paddleocr and pypdfium2 packages are required",
+    }
+    if not raganything:
+        reasons = {profile: "raganything is not installed" for profile in checks}
+    return {
+        profile: {
+            "available": available,
+            "reason": "" if available else reasons[profile],
+        }
+        for profile, available in checks.items()
+    }
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -31,12 +62,12 @@ def health():
 
 @app.get("/v1/capabilities")
 def capabilities():
-    raganything = importlib.util.find_spec("raganything") is not None
+    availability = profile_availability()
     return {
         "profiles": [
             {
                 "id": profile,
-                "available": raganything,
+                **availability[profile],
                 "formats": [".pdf", ".png", ".jpg", ".jpeg", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx", ".txt", ".md"],
                 "capabilities": ["layout", "image", "table", "equation"],
             }

@@ -159,6 +159,71 @@ def test_ingest_ask_and_delete(monkeypatch, tmp_path):
     )
     assert eval_case.status_code == 200
     assert eval_case.json()["case"]["status"] == "draft"
+    eval_case_id = eval_case.json()["case"]["id"]
+
+    invalid_review = client.patch(
+        f"/api/eval/cases/{eval_case_id}",
+        json={
+            "answerable": True,
+            "reviewer_id": "portfolio-owner",
+            "reviewer_attestation": "human-reviewed",
+        },
+    )
+    assert invalid_review.status_code == 422
+
+    reviewed = client.patch(
+        f"/api/eval/cases/{eval_case_id}",
+        json={
+            "expected_keywords": ["retrieval", "citations"],
+            "expected_answer": "RAG uses retrieval and citations.",
+            "expected_document_ids": [document_id],
+            "answerable": True,
+            "note": "Verified against the cited source.",
+            "reviewer_id": "portfolio-owner",
+            "reviewer_attestation": "human-reviewed",
+        },
+    )
+    assert reviewed.status_code == 200
+    assert reviewed.json()["case"]["status"] == "reviewed"
+    assert reviewed.json()["summary"]["human_reviewed"] >= 1
+
+    review_summary = client.get("/api/eval/review-summary")
+    assert review_summary.status_code == 200
+    assert review_summary.json()["remaining_for_1_0"] <= 199
+
+    batch = client.post(
+        "/api/eval/cases:batch",
+        json={
+            "cases": [
+                {
+                    "candidate_id": "candidate-stable-1",
+                    "question": "Which source describes citation coverage?",
+                    "source_ref": "https://example.test/evidence",
+                },
+                {
+                    "candidate_id": "candidate-stable-2",
+                    "question": "When should the system refuse?",
+                    "source_ref": "https://example.test/refusal",
+                },
+            ]
+        },
+    )
+    assert batch.status_code == 200
+    assert batch.json()["created"] == 2
+    repeated_batch = client.post(
+        "/api/eval/cases:batch",
+        json={
+            "cases": [
+                {
+                    "candidate_id": "candidate-stable-1",
+                    "question": "Which source describes citation coverage?",
+                }
+            ]
+        },
+    )
+    assert repeated_batch.status_code == 200
+    assert repeated_batch.json()["created"] == 0
+    assert repeated_batch.json()["deduped"] == 1
 
     run_drafts = client.post("/api/eval/run-drafts")
     assert run_drafts.status_code == 200

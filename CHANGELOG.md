@@ -38,6 +38,8 @@
 
 ### Fixed
 
+- pgvector 改为 operation-scoped 连接；PostgreSQL 在混沌演练中重建后 readiness 可自动恢复，不再持有失效长连接。
+- 索引终态重试、去重来源原件、取消清理、部分向量写入与启动 orphan reconciliation 补齐，真实 200 文档恢复/故障注入后保持零孤儿向量。
 - 协作取消现在由 Worker 明确提交 `cancelled` 终态并清除租约；重启时遇到过期的 `cancelling` 任务也会收敛为终态，不再形成无法领取的 `queued` 任务。
 - 高级解析器的取消信号使用独立异常传播，不会被本地 parser fallback 捕获后额外执行内置解析；超时与取消都会尽力清理远端临时任务。
 - 新增非破坏性本地恢复演练命令，使用 SQLite Backup API 在隔离目录验证数据库完整性、外键、schema，以及对象路径、大小与 SHA-256。

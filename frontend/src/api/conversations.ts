@@ -1,4 +1,4 @@
-import { ApiError, apiRequest, formatApiErrorDetail, jsonBody } from './client'
+import { ApiError, apiRequest, formatApiErrorDetail, getCsrfToken, jsonBody } from './client'
 import type { Conversation, ConversationMessage, ConversationStreamEvent, QueryAttachmentRef, RequestOptions, RetrievalOptions } from './types'
 
 
@@ -28,12 +28,24 @@ export async function streamConversationMessage(
   onEvent: (event: ConversationStreamEvent) => void,
   options: RequestOptions = {},
   attachments: QueryAttachmentRef[] = [],
+  recordAsRealUsage = false,
 ): Promise<void> {
+  const csrfToken = getCsrfToken()
   const response = await fetch(`/api/conversations/${encodeURIComponent(conversationId)}/messages:stream`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'text/event-stream',
+      ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
+    },
     credentials: 'same-origin',
-    body: JSON.stringify({ question, ...retrieval, attachments }),
+    body: JSON.stringify({
+      question,
+      ...retrieval,
+      attachments,
+      record_as_real_usage: recordAsRealUsage,
+      ...(recordAsRealUsage ? { usage_attestation: 'human-originated' } : {}),
+    }),
     signal: options.signal,
   })
   if (!response.ok || !response.body) {

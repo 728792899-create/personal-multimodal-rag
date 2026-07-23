@@ -3,8 +3,9 @@ from __future__ import annotations
 import json
 import re
 import uuid
+from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from app.api.common import retrieval_options
@@ -95,10 +96,33 @@ def list_conversation_messages(conversation_id: str, limit: int = 200):
 
 
 @router.post("/{conversation_id}/messages:stream")
-def stream_conversation_message(conversation_id: str, payload: ConversationMessageRequest):
+def stream_conversation_message(
+    conversation_id: str,
+    payload: ConversationMessageRequest,
+    request: Request,
+):
     conversation = registry.get_conversation(conversation_id)
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
+    identity = request.scope.get("state", {}).get("identity")
+    usage_evidence: dict = {}
+    if payload.record_as_real_usage:
+        if settings.runtime_mode.lower() != "production":
+            raise HTTPException(
+                status_code=409,
+                detail="Real usage evidence can only be recorded in production mode",
+            )
+        if identity is None:
+            raise HTTPException(
+                status_code=401,
+                detail="Authenticated operator confirmation is required",
+            )
+        usage_evidence = {
+            "attestation": "human-originated",
+            "recorded_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "user_id": identity.user_id,
+            "workspace_id": identity.workspace_id,
+        }
 
     request_id = str(uuid.uuid4())
     assistant_message_id = str(uuid.uuid4())
@@ -124,7 +148,10 @@ def stream_conversation_message(conversation_id: str, payload: ConversationMessa
             conversation_id,
             "user",
             payload.question,
-            metadata={"attachments": [item.model_dump() for item in payload.attachments]},
+            metadata={
+                "attachments": [item.model_dump() for item in payload.attachments],
+                **({"usage_evidence": usage_evidence} if usage_evidence else {}),
+            },
         )
         registry.save_conversation_message(
             conversation_id,
@@ -185,7 +212,13 @@ def stream_conversation_message(conversation_id: str, payload: ConversationMessa
                     )
                     yield encode(event_type, {"response": response})
             finalized = True
-            yield encode("done", {"status": "completed"})
+            yield encode(
+                "done",
+                {
+                    "status": "completed",
+                    "real_usage_recorded": bool(usage_evidence),
+                },
+            )
         except GeneratorExit:
             raise
         except Exception as exc:

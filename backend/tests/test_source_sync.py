@@ -89,6 +89,78 @@ def test_source_sync_queues_changed_items_and_skips_indexed_unchanged_items(tmp_
     assert second["updated"] == 0
 
 
+def test_source_sync_refreshes_terminal_job_when_source_asset_was_lost(tmp_path):
+    candidate = _candidate("guide", b"# durable guide")
+    registry, source, service = _service(
+        tmp_path,
+        [
+            DiscoveryResult([candidate]),
+            DiscoveryResult([candidate]),
+        ],
+    )
+
+    service.sync(source["id"])
+    original = registry.claim_next_index_job("worker-1")
+    assert original
+    registry.complete_index_job_cancellation(original["id"])
+    old_asset_id = original["payload"]["asset_id"]
+    old_asset = registry.delete_asset(old_asset_id)
+    assert old_asset
+    service.object_store.delete(old_asset["object_key"])
+
+    service.sync(source["id"])
+    refreshed = registry.claim_next_index_job("worker-2")
+
+    assert refreshed
+    assert refreshed["id"] == original["id"]
+    assert refreshed["attempts"] == 1
+    assert refreshed["payload"]["asset_id"] != old_asset_id
+    new_asset = registry.get_asset(
+        refreshed["payload"]["asset_id"],
+        include_private=True,
+    )
+    assert new_asset
+    assert service.object_store.read_bytes(new_asset["object_key"]) == candidate.payload
+
+
+def test_unchanged_source_sync_repairs_missing_durable_original(tmp_path):
+    candidate = _candidate("guide", b"# durable guide")
+    registry, source, service = _service(
+        tmp_path,
+        [
+            DiscoveryResult([candidate]),
+            DiscoveryResult([candidate]),
+        ],
+    )
+    service.sync(source["id"])
+    job = registry.claim_next_index_job("worker-1")
+    assert job
+    document = DocumentProcessor().parse_text_source(
+        candidate.payload.decode(),
+        candidate.filename,
+    )
+    document.metadata["knowledge_base_id"] = "default"
+    registry.save_document(document)
+    registry.complete_index_job(job["id"], document.document_id)
+    item = registry.find_source_item(source["id"], candidate.external_id)
+    registry.mark_source_item_indexed(item["id"], document.document_id)
+    asset = registry.delete_asset(job["payload"]["asset_id"])
+    assert asset
+    service.object_store.delete(asset["object_key"])
+
+    second = service.sync(source["id"])
+    restored = registry.list_assets(
+        document_id=document.document_id,
+        kind="source",
+        include_private=True,
+    )
+
+    assert second["unchanged"] == 1
+    assert len(restored) == 1
+    assert restored[0]["metadata"]["recovered_original"] is True
+    assert service.object_store.read_bytes(restored[0]["object_key"]) == candidate.payload
+
+
 def test_deletion_requires_two_complete_nonempty_syncs_and_confirmation(tmp_path):
     alpha = _candidate("alpha", b"alpha")
     beta = _candidate("beta", b"beta")

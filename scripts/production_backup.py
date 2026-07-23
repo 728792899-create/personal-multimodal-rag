@@ -48,7 +48,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--compose-file", type=Path, default=Path("compose.production.yml"))
     parser.add_argument(
         "--readiness-url",
-        default="http://127.0.0.1:5173/api/system/readiness-report",
+        default="http://127.0.0.1:5173/ready",
     )
     return parser.parse_args()
 

@@ -8,6 +8,7 @@ import json
 import os
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 SCENARIOS = {
@@ -59,17 +60,21 @@ def consistency_snapshot(compose_file: Path) -> dict:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Inject one recoverable production Compose failure")
-    parser.add_argument("--scenario", choices=sorted(SCENARIOS), default="worker")
+    parser.add_argument(
+        "--scenario",
+        choices=[*sorted(SCENARIOS), "all"],
+        default="worker",
+    )
     parser.add_argument("--compose-file", type=Path, default=Path("compose.production.yml"))
     parser.add_argument("--execute", action="store_true")
+    parser.add_argument("--output", type=Path)
     return parser.parse_args()
 
 
-def main() -> int:
-    args = parse_args()
-    service = SCENARIOS[args.scenario]
-    plan = {
-        "scenario": args.scenario,
+def scenario_plan(scenario: str) -> dict:
+    service = SCENARIOS[scenario]
+    return {
+        "scenario": scenario,
         "service": service,
         "actions": [
             "capture PostgreSQL document/job/outbox counts",
@@ -79,25 +84,63 @@ def main() -> int:
             "assert document IDs and idempotency keys remain unique",
         ],
     }
-    if not args.execute:
-        print(json.dumps({"dry_run": True, **plan}, indent=2))
-        return 0
-    if os.getenv("RAG_CHAOS_CONFIRM") != "I_UNDERSTAND":
-        print("set RAG_CHAOS_CONFIRM=I_UNDERSTAND before --execute", file=sys.stderr)
-        return 2
-    before = consistency_snapshot(args.compose_file)
-    compose(args.compose_file, "kill", service)
-    compose(args.compose_file, "up", "--wait", "--wait-timeout", "300", "-d", service)
-    compose(args.compose_file, "up", "--wait", "--wait-timeout", "300", "-d")
-    after = consistency_snapshot(args.compose_file)
+
+
+def run_scenario(compose_file: Path, scenario: str) -> dict:
+    plan = scenario_plan(scenario)
+    before = consistency_snapshot(compose_file)
+    compose(compose_file, "kill", plan["service"])
+    compose(
+        compose_file,
+        "up",
+        "--wait",
+        "--wait-timeout",
+        "300",
+        "-d",
+        plan["service"],
+    )
+    compose(compose_file, "up", "--wait", "--wait-timeout", "300", "-d")
+    after = consistency_snapshot(compose_file)
     unique = (
         after["documents"] == after["document_ids"]
         and after["jobs"] == after["job_keys"]
         and after["documents"] >= before["documents"]
     )
-    report = {"dry_run": False, **plan, "before": before, "after": after, "unique": unique}
+    return {**plan, "before": before, "after": after, "passed": unique}
+
+
+def write_report(path: Path, report: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    os.replace(temporary, path)
+
+
+def main() -> int:
+    args = parse_args()
+    selected = sorted(SCENARIOS) if args.scenario == "all" else [args.scenario]
+    plans = [scenario_plan(scenario) for scenario in selected]
+    if not args.execute:
+        print(json.dumps({"dry_run": True, "scenarios": plans}, indent=2))
+        return 0
+    if os.getenv("RAG_CHAOS_CONFIRM") != "I_UNDERSTAND":
+        print("set RAG_CHAOS_CONFIRM=I_UNDERSTAND before --execute", file=sys.stderr)
+        return 2
+    results = [
+        run_scenario(args.compose_file, scenario)
+        for scenario in selected
+    ]
+    report = {
+        "schema_version": 1,
+        "observed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "dry_run": False,
+        "passed": all(item["passed"] for item in results),
+        "scenarios": results,
+    }
+    if args.output:
+        write_report(args.output.expanduser().resolve(), report)
     print(json.dumps(report, indent=2))
-    return 0 if unique else 1
+    return 0 if report["passed"] else 1
 
 
 if __name__ == "__main__":

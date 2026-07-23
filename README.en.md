@@ -10,7 +10,7 @@
 
 **A local-first multimodal RAG workbench where retrieval, refusal and citation quality stay inspectable.**
 
-[Quick start](#zero-key-quick-start) · [Case study](docs/case-study.md) · [Architecture](docs/architecture.md) · [Evaluation](docs/evaluation-results.md) · [Security](docs/security-model.md) · [Full documentation](docs/README.md)
+[Quick start](#zero-key-quick-start) · [Case study](docs/case-study.md) · [Production validation](docs/production-validation.md) · [Architecture](docs/architecture.md) · [Evaluation](docs/evaluation-results.md) · [Security](docs/security-model.md)
 
 The project is a single-user Production Local RC rather than a chat UI wrapped around one model call. It ingests PDF, DOCX, Markdown, text, images and public URLs into isolated knowledge bases; combines BM25, vector and provenance-backed graph navigation; persists conversations; streams audited answers; refuses unsupported questions; and links every answer back to inspectable evidence.
 
@@ -20,6 +20,8 @@ The default path remains deterministic and offline: hash embeddings, an in-memor
 
 **0.4.0-rc.1 Production Local** separates three supported paths: `demo` for zero-key review, `local-production` for SQLite/local objects/Chroma/Ollama, and `production` for PostgreSQL/pgvector, S3/MinIO, Redis Streams, ClamAV and a fail-closed real provider. It also adds Argon2id session authentication, CSRF, a server-resolved workspace boundary, transactional outbox/DLQ, checksum-verified SQLite migration, incremental directory/URL/RSS sources, guarded deletion candidates and citation-aware Markdown exports. The project deliberately does not claim “production-ready” before its real-corpus, recovery and 14-day soak gates are met.
 
+The private 2026-07-23 production run indexed **200 non-fixture documents from 21 licensed source groups into 5,159 768-dimensional vectors** and passed destructive PostgreSQL/pgvector/MinIO recovery plus five API/worker/Redis/PostgreSQL/MinIO fault scenarios. A real MinerU job passed. Ollama embeddings passed, while all three `qwen3:8b` generation contracts timed out at 180 seconds on this host. The non-backfillable 14-day chain has started; human review remains 0/200, attested real questions 0/100, and Sentry has no DSN. The release therefore remains an RC. See the [production validation runbook](docs/production-validation.md).
+
 ## What reviewers can verify
 
 | Product behavior | Trust mechanism | Engineering evidence |
@@ -28,7 +30,7 @@ The default path remains deterministic and offline: hash embeddings, an in-memor
 | Ordinary and expert modes | Stage-by-stage retrieval Trace | pytest, Vitest and Playwright |
 | Precise element citations and context | Citation and graph provenance audit | Fixed 100-case offline golden set |
 | Feedback to evaluation draft | Request IDs, timeout, cancel and retry | Health checks and multi-lane CI |
-| Durable local index jobs and source sync | Lease recovery, DLQ boundaries and restore drill | 152 backend / 19 frontend / 14 E2E tests |
+| Durable local index jobs and source sync | Lease recovery, DLQ boundaries and restore drill | 174 backend / 22 frontend / 14 E2E tests |
 
 ![System map from ingestion to evidence-constrained answers and evaluation](docs/assets/system-overview.svg)
 

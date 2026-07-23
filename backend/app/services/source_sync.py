@@ -59,6 +59,11 @@ class SourceSyncService:
                     and existing["document_id"]
                     and not existing["deletion_candidate"]
                 ):
+                    self._ensure_source_asset(
+                        source,
+                        existing,
+                        candidate,
+                    )
                     self.registry.upsert_source_item(
                         source_id=source_id,
                         external_id=candidate.external_id,
@@ -123,6 +128,14 @@ class SourceSyncService:
                         knowledge_base_id=source["knowledge_base_id"],
                         idempotency_key=key,
                     )
+                    superseded_asset_id = job.pop("_superseded_asset_id", "")
+                    if superseded_asset_id:
+                        removed = self.registry.delete_asset(superseded_asset_id)
+                        if (
+                            removed
+                            and self.registry.asset_reference_count(removed["object_key"]) == 0
+                        ):
+                            self.object_store.delete(removed["object_key"])
                     if job.get("payload", {}).get("asset_id") != asset["id"]:
                         removed = self.registry.delete_asset(asset["id"])
                         asset_id = ""
@@ -199,6 +212,43 @@ class SourceSyncService:
                 status="failed",
             )
             return completed
+
+    def _ensure_source_asset(self, source: dict, item: dict, candidate) -> None:
+        """Repair a missing durable original without rebuilding the index."""
+
+        document_id = str(item.get("document_id") or "")
+        if (
+            not document_id
+            or self.registry.get_document(document_id) is None
+            or self.registry.list_assets(
+                document_id=document_id,
+                kind="source",
+            )
+        ):
+            return
+        stored = self.object_store.put_bytes(candidate.payload)
+        try:
+            self.registry.create_asset(
+                knowledge_base_id=source["knowledge_base_id"],
+                kind="source",
+                object_key=stored.object_key,
+                original_name=candidate.filename,
+                media_type=candidate.media_type,
+                sha256=stored.sha256,
+                size_bytes=stored.size_bytes,
+                document_id=document_id,
+                metadata={
+                    "role": "source_sync",
+                    "source_id": source["id"],
+                    "source_item_id": item["id"],
+                    "pending_ingestion": False,
+                    "recovered_original": True,
+                },
+            )
+        except Exception:
+            if self.registry.asset_reference_count(stored.object_key) == 0:
+                self.object_store.delete(stored.object_key)
+            raise
 
     def retry(self, run_id: str) -> dict:
         run = self.registry.get_sync_run(run_id)

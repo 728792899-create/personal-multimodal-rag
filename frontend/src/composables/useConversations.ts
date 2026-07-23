@@ -60,6 +60,7 @@ export function useConversations() {
     knowledgeBaseIds: string[],
     retrieval: RetrievalOptions,
     attachments: QueryAttachmentRef[],
+    recordAsRealUsage: boolean,
     onProgress: (event: ConversationStreamEvent, partialText: string) => void,
   ): Promise<AskResponse> {
     controller?.abort()
@@ -83,7 +84,7 @@ export function useConversations() {
         }
         if (event.type === 'error') streamPhase.value = 'failed'
         onProgress(event, streamedText.value)
-      }, { signal: controller.signal }, attachments)
+      }, { signal: controller.signal }, attachments, recordAsRealUsage)
       if (!finalResponse) throw new Error('流式回答结束但缺少最终审计结果')
       await Promise.all([refreshConversations(), selectConversation(conversation.id)])
       return finalResponse

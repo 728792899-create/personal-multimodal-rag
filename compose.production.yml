@@ -28,7 +28,10 @@ x-backend-environment: &backend-environment
   EMBEDDING_PROVIDER: ollama
   EMBEDDING_MODEL: nomic-embed-text
   EMBEDDING_DIMENSION: "768"
+  EMBEDDING_BATCH_SIZE: "16"
+  EMBEDDING_TIMEOUT_SECONDS: "180"
   ANSWER_PROVIDER: ollama
+  ANSWER_TIMEOUT_SECONDS: "180"
   OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
   OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-qwen3:8b}
   OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}
@@ -36,6 +39,7 @@ x-backend-environment: &backend-environment
   QUERY_REWRITE_PROVIDER: none
   INDEX_VERSION: production-v1
   EMBEDDED_WORKER: "0"
+  INGESTION_LEASE_SECONDS: "600"
   FETCH_WORKER_URL: http://fetch-worker:8091
   OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
   OTEL_SERVICE_NAME: personal-multimodal-rag
@@ -83,6 +87,7 @@ services:
       - postgres_password
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/001-pgvector.sql:/docker-entrypoint-initdb.d/001-pgvector.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U rag -d personal_rag"]
       interval: 5s
@@ -143,15 +148,18 @@ services:
     restart: "no"
 
   clamav:
-    image: clamav/clamav:1.4.2
+    image: personal-multimodal-rag-clamav:1.4.3-debian12
+    build:
+      context: .
+      dockerfile: infra/clamav/Dockerfile
     volumes:
       - clamav_data:/var/lib/clamav
     healthcheck:
-      test: ["CMD", "/usr/local/bin/clamdcheck.sh"]
+      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('127.0.0.1', 3310), 2); s.sendall(b'PING\\n'); assert s.recv(32).startswith(b'PONG')"]
       interval: 30s
       timeout: 10s
-      start_period: 120s
-      retries: 5
+      start_period: 180s
+      retries: 8
     restart: unless-stopped
 
   backend:
@@ -205,6 +213,16 @@ services:
     tmpfs:
       - /tmp:size=2g,mode=1777
       - /app/cache:size=1g,mode=1777
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import time; from pathlib import Path; p=Path('/tmp/worker-heartbeat'); assert p.is_file() and time.time()-p.stat().st_mtime < 30"
+      interval: 10s
+      timeout: 3s
+      start_period: 20s
+      retries: 3
     cap_drop: ["ALL"]
     security_opt:
       - no-new-privileges:true

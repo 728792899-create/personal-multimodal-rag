@@ -752,6 +752,55 @@ class DocumentRegistry:
             "avg_first_token_ms": round(sum(first_token_values) / len(first_token_values), 2) if first_token_values else 0,
         }
 
+    def real_usage_summary(self) -> dict:
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT message_id, conversation_id, metadata, created_at
+                FROM conversation_messages
+                WHERE role = 'user'
+                ORDER BY created_at ASC
+                """
+            ).fetchall()
+        recorded: list[dict] = []
+        for row in rows:
+            try:
+                metadata = json.loads(row["metadata"])
+            except (TypeError, json.JSONDecodeError):
+                continue
+            evidence = (
+                metadata.get("usage_evidence")
+                if isinstance(metadata, dict)
+                else None
+            )
+            if not isinstance(evidence, dict):
+                continue
+            if (
+                evidence.get("attestation") != "human-originated"
+                or not evidence.get("user_id")
+                or not evidence.get("workspace_id")
+            ):
+                continue
+            recorded.append(
+                {
+                    "message_id": row["message_id"],
+                    "conversation_id": row["conversation_id"],
+                    "recorded_at": evidence.get("recorded_at") or row["created_at"],
+                }
+            )
+        count = len(recorded)
+        return {
+            "human_originated_questions": count,
+            "target": 100,
+            "remaining_for_1_0": max(0, 100 - count),
+            "conversation_count": len(
+                {item["conversation_id"] for item in recorded}
+            ),
+            "first_recorded_at": recorded[0]["recorded_at"] if recorded else "",
+            "last_recorded_at": recorded[-1]["recorded_at"] if recorded else "",
+            "attestation": "human-originated",
+        }
+
     # Index jobs ----------------------------------------------------------------
 
     def create_index_job(
@@ -772,6 +821,49 @@ class DocumentRegistry:
                 (idempotency_key,),
             ).fetchone()
             if existing:
+                if existing["status"] in {"failed", "cancelled"}:
+                    previous_payload = json.loads(existing["payload"])
+                    connection.execute(
+                        """
+                        UPDATE index_jobs
+                        SET source_type = ?, source_name = ?, payload = ?,
+                            knowledge_base_id = ?, status = 'queued', stage = 'receive',
+                            progress = 0, attempts = 0, max_attempts = ?,
+                            cancel_requested = 0, deduped = 0,
+                            error_code = '', error_message = '', document_id = '',
+                            worker_id = '', lease_expires_at = '', next_attempt_at = ?,
+                            started_at = '', completed_at = '', updated_at = ?
+                        WHERE job_id = ? AND status IN ('failed', 'cancelled')
+                        """,
+                        (
+                            source_type,
+                            source_name[:240],
+                            json.dumps(payload, ensure_ascii=False),
+                            knowledge_base_id,
+                            max(1, min(max_attempts, 10)),
+                            created_at,
+                            created_at,
+                            existing["job_id"],
+                        ),
+                    )
+                    self._enqueue_outbox_event(
+                        connection,
+                        event_type="index_job.retry_requested",
+                        aggregate_id=existing["job_id"],
+                        payload={
+                            "job_id": existing["job_id"],
+                            "reason": "idempotent_source_refresh",
+                        },
+                    )
+                    refreshed = connection.execute(
+                        "SELECT * FROM index_jobs WHERE job_id = ?",
+                        (existing["job_id"],),
+                    ).fetchone()
+                    result = self._job_payload(refreshed, include_payload=True)
+                    previous_asset_id = str(previous_payload.get("asset_id") or "")
+                    if previous_asset_id and previous_asset_id != str(payload.get("asset_id") or ""):
+                        result["_superseded_asset_id"] = previous_asset_id
+                    return result
                 return self._job_payload(existing, include_payload=True)
             job_id = str(uuid.uuid4())
             connection.execute(
@@ -850,6 +942,26 @@ class DocumentRegistry:
                 (stage[:40], max(0, min(progress, 100)), _utcnow(), job_id),
             )
         return self.get_index_job(job_id) if cursor.rowcount else None
+
+    def renew_index_job_lease(
+        self,
+        job_id: str,
+        worker_id: str,
+        lease_seconds: int,
+    ) -> bool:
+        lease = (
+            datetime.utcnow() + timedelta(seconds=max(1, lease_seconds))
+        ).isoformat(timespec="microseconds")
+        with self._connection() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE index_jobs
+                SET lease_expires_at = ?, updated_at = ?
+                WHERE job_id = ? AND status = 'running' AND worker_id = ?
+                """,
+                (lease, _utcnow(), job_id, worker_id),
+            )
+        return cursor.rowcount > 0
 
     def complete_index_job(self, job_id: str, document_id: str, *, deduped: bool = False) -> dict | None:
         completed_at = _utcnow()
@@ -1546,6 +1658,54 @@ class DocumentRegistry:
 
     def list_eval_cases(self, limit: int = 100) -> list[dict]:
         return self._json_rows("SELECT payload FROM eval_cases ORDER BY created_at DESC LIMIT ?", (limit,))
+
+    def get_eval_case(self, case_id: str) -> dict | None:
+        return self._json_row(
+            "SELECT payload FROM eval_cases WHERE case_id = ?",
+            (case_id,),
+        )
+
+    def update_eval_case(self, case_id: str, payload: dict) -> dict | None:
+        current = self.get_eval_case(case_id)
+        if not current:
+            return None
+        stored = {
+            **current,
+            **payload,
+            "id": case_id,
+            "updated_at": _utcnow(),
+        }
+        with self._connection() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE eval_cases
+                SET question = ?, payload = ?
+                WHERE case_id = ?
+                """,
+                (
+                    stored.get("question") or "",
+                    json.dumps(stored, ensure_ascii=False),
+                    case_id,
+                ),
+            )
+        return stored if cursor.rowcount > 0 else None
+
+    def eval_review_summary(self) -> dict:
+        cases = self.list_eval_cases(limit=10_000)
+        reviewed = [case for case in cases if case.get("status") == "reviewed"]
+        human_reviewed = [
+            case
+            for case in reviewed
+            if case.get("reviewer_attestation") == "human-reviewed"
+            and case.get("reviewer_id")
+        ]
+        return {
+            "total": len(cases),
+            "draft": sum(1 for case in cases if case.get("status") == "draft"),
+            "reviewed": len(reviewed),
+            "human_reviewed": len(human_reviewed),
+            "remaining_for_1_0": max(0, 200 - len(human_reviewed)),
+        }
 
     # Schema and serialization helpers -----------------------------------------
 
