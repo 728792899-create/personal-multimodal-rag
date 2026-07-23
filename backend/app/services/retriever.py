@@ -27,6 +27,7 @@ class HybridRetriever:
         mmr_lambda: float = 0.78,
         bm25_weight: float = 0.62,
         vector_weight: float = 0.38,
+        embedding_batch_size: int = 32,
     ):
         self.embedding_provider = embedding_provider or MockEmbeddingProvider()
         self.vector_store = vector_store or MemoryVectorStore()
@@ -40,6 +41,7 @@ class HybridRetriever:
         self.mmr_lambda = mmr_lambda
         self.bm25_weight = bm25_weight
         self.vector_weight = vector_weight
+        self.embedding_batch_size = max(1, int(embedding_batch_size))
         self.documents: dict[str, Document] = {}
         self.chunk_tokens: dict[str, list[str]] = {}
         self.doc_freq: dict[str, int] = defaultdict(int)
@@ -48,7 +50,14 @@ class HybridRetriever:
 
     def add_document(self, doc: Document, chunks: list[Chunk]) -> None:
         self.documents[doc.document_id] = doc
-        embeddings = self.embedding_provider.embed_batch([chunk.text for chunk in chunks])
+        embeddings: list[list[float]] = []
+        texts = [chunk.text for chunk in chunks]
+        for offset in range(0, len(texts), self.embedding_batch_size):
+            embeddings.extend(
+                self.embedding_provider.embed_batch(
+                    texts[offset : offset + self.embedding_batch_size]
+                )
+            )
         self.vector_store.add_chunks(chunks, embeddings)
         for chunk in chunks:
             tokens = tokenize(chunk.text)
@@ -320,15 +329,17 @@ class HybridRetriever:
         return str(document.metadata.get("knowledge_base_id", "default"))
 
     def delete_document(self, document_id: str) -> bool:
-        if document_id not in self.documents:
-            return False
-        self.documents.pop(document_id, None)
-        for chunk_id in list(self.chunk_tokens):
-            if chunk_id.startswith(f"{document_id}:"):
-                self.chunk_tokens.pop(chunk_id, None)
+        document_existed = self.documents.pop(document_id, None) is not None
+        chunk_ids = [
+            chunk_id
+            for chunk_id, chunk in self.vector_store.chunks.items()
+            if chunk.document_id == document_id
+        ]
+        for chunk_id in chunk_ids:
+            self.chunk_tokens.pop(chunk_id, None)
         self.vector_store.delete_by_document_id(document_id)
         self._rebuild_doc_freq()
-        return True
+        return document_existed or bool(chunk_ids)
 
     def _hydrate_chunk_tokens(self) -> None:
         self.chunk_tokens = {

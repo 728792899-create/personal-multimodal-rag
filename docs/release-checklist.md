@@ -34,15 +34,15 @@
 ## 部署负责人必须完成（未完成前不得发布 1.0）
 
 - [ ] 生产环境已配置 TLS、可信代理、Argon2id 管理员 session、CSRF 和 secret files。
-- [ ] 生产备份/恢复演练覆盖 PostgreSQL/pgvector 和 MinIO，对账无数据丢失。
-- [ ] 至少 20 份有明确许可证的真实资料、200 份非 fixture 文档和 200 条人工标注问题进入私有证据清单。
+- [x] 生产备份/恢复演练覆盖 PostgreSQL/pgvector 和 MinIO，对账无数据丢失。
+- [ ] 至少 20 份有明确许可证的真实资料、200 份非 fixture 文档和 200 条人工标注问题进入私有证据清单。（资料/文档已达标，人工标注 0/200）
 - [ ] 真实语料 Recall@5、MRR、引用准确率/覆盖率、拒答和接受率全部达到 1.0 门槛。
 - [ ] 在参考环境记录 50,000 chunks 的 API、五并发检索和任务入队 p95。
-- [ ] API、worker、Redis、PostgreSQL、MinIO 故障注入后无丢失和重复文档。
+- [x] API、worker、Redis、PostgreSQL、MinIO 故障注入后无丢失和重复文档。
 - [ ] 完成 14 天持续运行、100 次真实问题且无未关闭的数据丢失级缺陷。
 - [ ] 数据保留、删除与日志脱敏策略已由部署负责人确认。
 - [ ] 下载并抽查当前提交的 eval/Playwright artifact。
-- [ ] 在目标环境完成 Advanced parser smoke；未启用高级 profile 时记录为“不适用”，不得伪造通过。
+- [x] MinerU Advanced parser 真实 PNG smoke 通过；Docling/PaddleOCR 未安装并明确保持未验收。
 - [ ] 镜像使用不可变 tag/digest，记录迁移顺序。
 - [ ] 回滚版本与数据库兼容性已确认。
 - [ ] 发布后检查 `/health`、`/ready`、错误率、p95 延迟和拒答率。

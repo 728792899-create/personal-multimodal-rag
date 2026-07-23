@@ -48,11 +48,12 @@
 ### 部署/运维
 
 1. [Production Local 0.4 RC](production-local.md)
-2. [1.0 发布证据与阻断项](release-evidence-1.0.md)
-3. [运维手册](operations-runbook.md)
-4. [生产适配方案](production-adapters.md)
-5. [故障排查](troubleshooting.md)
-6. [Release Checklist](release-checklist.md)
+2. [Production Validation 现场验收](production-validation.md)
+3. [1.0 发布证据与阻断项](release-evidence-1.0.md)
+4. [运维手册](operations-runbook.md)
+5. [生产适配方案](production-adapters.md)
+6. [故障排查](troubleshooting.md)
+7. [Release Checklist](release-checklist.md)
 
 ### 维护者
 

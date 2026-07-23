@@ -13,11 +13,11 @@
 
 ## 外部服务未完成项
 
-- 没有在本次本地验收中连接仓库外真实 Ollama/OpenAI、托管 PostgreSQL/S3/Redis、OIDC 或 Sentry 项目，因为没有提供外部服务和凭据；Compose 内的 contract 不能替代真实长期运行。
+- 本机 Ollama 的 embedding 原生/兼容接口已真实通过，但 `qwen3:8b` 的原生 chat、OpenAI-compatible chat-completions 与 Responses 均在 180 秒超时；生产默认模型仍需按目标硬件重新选型。没有 OpenAI 云端凭据，也没有连接托管 OIDC 或 Sentry 项目。
 - 当前是服务端解析的单 workspace/单管理员边界；多 workspace、OIDC/RBAC 与数据库 RLS 顺延到 1.1。
 - GitHub Actions 已在远端实际运行后端、前端/E2E、检索评测和 Docker Compose job；后续每次合并仍需以对应提交的检查结果为准。
-- 故障注入脚本默认只输出计划，备份/恢复默认只校验；尚无生产容量、真实破坏性演练和 14 天 soak 数据。执行前必须准备隔离环境和显式确认。
-- OpenAI、Ollama、pgvector 与 Sentry 只有 adapter/契约/配置边界；本轮没有凭据或外部服务，因此没有声称真实在线验收。
-- 高级 parser 镜像已有手动 workflow 和 mock contract，但真实模型、GPU/内存峰值及扫描件质量仍必须在带 `rag-parser` 标签的部署 runner 验收。
+- 已在本机隔离生产栈执行一次破坏性恢复和五类故障注入；这不替代目标容量环境复演。14 天链刚开始，人工标注、真实问题和真实语料质量基准仍未达标。
+- Sentry SDK 与脱敏器已接入，但无 DSN，未验证真实事件；Docker 7.8 GiB 也不满足 full self-hosted profile 的资源门。
+- MinerU 高级解析真实 PNG 已通过；Docling/PaddleOCR 未安装，复杂 PDF/DOCX、GPU/内存峰值和质量仍需目标 runner 验收。
 
 对应人工步骤与目标架构见 [production-adapters.md](production-adapters.md)。

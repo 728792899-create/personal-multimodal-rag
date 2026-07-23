@@ -47,10 +47,12 @@ class IngestionWorker:
         self.worker_id = f"local-{uuid.uuid4().hex[:10]}"
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        self._last_stale_recovery_at = 0.0
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
             return
+        self.reconcile_orphaned_vectors()
         self.registry.recover_stale_index_jobs()
         self._stop.clear()
         self._thread = threading.Thread(target=self._loop, name="rag-index-worker", daemon=True)
@@ -61,6 +63,31 @@ class IngestionWorker:
         if self._thread:
             self._thread.join(timeout=timeout)
         self._thread = None
+
+    def is_alive(self) -> bool:
+        return bool(self._thread and self._thread.is_alive())
+
+    def reconcile_orphaned_vectors(self) -> int:
+        known = {
+            document.document_id
+            for document in self.registry.load_documents()
+        }
+        vector_store = getattr(self.retriever, "vector_store", None)
+        chunks = getattr(vector_store, "chunks", {})
+        orphaned = {
+            chunk.document_id
+            for chunk in chunks.values()
+            if chunk.document_id not in known
+        }
+        for document_id in orphaned:
+            self.retriever.delete_document(document_id)
+        if orphaned:
+            self.registry.log_operation(
+                "orphan_vectors_reconciled",
+                "已清理未关联文档的向量",
+                {"document_count": len(orphaned)},
+            )
+        return len(orphaned)
 
     def _loop(self) -> None:
         while not self._stop.is_set():
@@ -82,6 +109,7 @@ class IngestionWorker:
                 self._stop.wait(self.settings.ingestion_poll_seconds)
 
     def run_once(self) -> bool:
+        self._recover_stale_periodically()
         job = self.registry.claim_next_index_job(
             worker_id=self.worker_id,
             lease_seconds=self.settings.ingestion_lease_seconds,
@@ -90,17 +118,27 @@ class IngestionWorker:
             return False
         started_at = time.perf_counter()
         final_status = "succeeded"
+        heartbeat_stop = threading.Event()
+        heartbeat = threading.Thread(
+            target=self._lease_heartbeat,
+            args=(job["id"], heartbeat_stop),
+            name=f"rag-index-lease-{job['id'][:8]}",
+            daemon=True,
+        )
+        heartbeat.start()
         try:
             self._process(job)
         except JobCancelled:
             final_status = "cancelled"
             self.registry.complete_index_job_cancellation(job["id"])
             self._mark_source_item(job, "", "cancelled")
-            self._cleanup_source_asset(job)
         except Exception as exc:
             final_status = "failed"
             self.registry.fail_index_job(job["id"], "INGESTION_FAILED", redact_sensitive_text(exc))
             self._mark_source_item(job, "", "failed")
+        finally:
+            heartbeat_stop.set()
+            heartbeat.join(timeout=1)
         current = self.registry.get_index_job(job["id"]) or job
         production_metrics.record_job(
             status=final_status,
@@ -108,6 +146,32 @@ class IngestionWorker:
             attempts=int(current.get("attempts") or job.get("attempts") or 1),
         )
         return True
+
+    def _recover_stale_periodically(self) -> None:
+        now = time.monotonic()
+        if now - self._last_stale_recovery_at < 10:
+            return
+        self.registry.recover_stale_index_jobs()
+        self._last_stale_recovery_at = now
+
+    def _lease_heartbeat(
+        self,
+        job_id: str,
+        stopped: threading.Event,
+    ) -> None:
+        lease_seconds = max(3, int(self.settings.ingestion_lease_seconds))
+        interval = max(1.0, min(30.0, lease_seconds / 3))
+        while not stopped.wait(interval):
+            try:
+                renewed = self.registry.renew_index_job_lease(
+                    job_id,
+                    self.worker_id,
+                    lease_seconds,
+                )
+            except Exception:
+                continue
+            if not renewed:
+                return
 
     def _process(self, job: dict) -> None:
         self._check_cancel(job["id"])
@@ -209,9 +273,17 @@ class IngestionWorker:
             job["knowledge_base_id"],
         )
         if existing:
+            asset_id = str(job["payload"].get("asset_id") or "")
+            if asset_id:
+                self.registry.link_asset(asset_id, existing.document_id)
+            else:
+                staged_path = Path(
+                    str(job["payload"].get("staged_path") or "")
+                )
+                if staged_path.name:
+                    staged_path.unlink(missing_ok=True)
             self.registry.complete_index_job(job["id"], existing.document_id, deduped=True)
             self._mark_source_item(job, existing.document_id, "active")
-            self._cleanup_source_asset(job)
             return
 
         self._check_cancel(job["id"])
@@ -228,55 +300,103 @@ class IngestionWorker:
         split_started = datetime.utcnow()
         chunks = self.processor.split(document)
         split_ended = datetime.utcnow()
+        self._persist_new_document(
+            job,
+            document,
+            chunks,
+            parser_provider=parser_provider,
+            parse_started=parse_started,
+            parse_ended=parse_ended,
+            enrich_modalities=enrich_modalities,
+            enrichment_started=enrichment_started,
+            enrichment_ended=enrichment_ended,
+            split_started=split_started,
+            split_ended=split_ended,
+        )
+
+    def _persist_new_document(
+        self,
+        job: dict,
+        document,
+        chunks,
+        *,
+        parser_provider: str,
+        parse_started: datetime,
+        parse_ended: datetime,
+        enrich_modalities: bool,
+        enrichment_started: datetime,
+        enrichment_ended: datetime,
+        split_started: datetime,
+        split_ended: datetime,
+    ) -> None:
         self._check_cancel(job["id"])
         self.registry.update_index_job(job["id"], stage="embed", progress=65)
         index_started = datetime.utcnow()
-        self.retriever.add_document(document, chunks)
-        index_ended = datetime.utcnow()
-        self._check_cancel(job["id"])
-        self.registry.update_index_job(job["id"], stage="graph_extract", progress=78)
-        document.metadata["index_status"] = "indexed"
-        document.metadata["lifecycle"] = [
-            lifecycle_event("parse", "success", parse_started, parse_ended),
-            lifecycle_event(
-                "enrich_modalities",
-                "success" if enrich_modalities else "skipped",
-                enrichment_started,
-                enrichment_ended,
-            ),
-            lifecycle_event("chunk", "success", split_started, split_ended),
-            lifecycle_event("index", "success", index_started, index_ended),
-        ]
-        document.metadata["quality"] = assess_document_quality(document, chunks)
-        document.metadata["summary"] = summarize_document(document, chunks)
-        self.registry.save_document(document)
-        build_graph = bool(job["payload"].get("build_graph", True))
-        self.registry.update_index_job(job["id"], stage="graph_write", progress=84)
-        if build_graph and self.graph_store is not None:
-            document.metadata["graph"] = self.graph_store.build_document(document)
+        index_attempted = True
+        try:
+            self.retriever.add_document(document, chunks)
+            index_ended = datetime.utcnow()
+            self._check_cancel(job["id"])
+            self.registry.update_index_job(job["id"], stage="graph_extract", progress=78)
+            document.metadata["index_status"] = "indexed"
+            document.metadata["lifecycle"] = [
+                lifecycle_event("parse", "success", parse_started, parse_ended),
+                lifecycle_event(
+                    "enrich_modalities",
+                    "success" if enrich_modalities else "skipped",
+                    enrichment_started,
+                    enrichment_ended,
+                ),
+                lifecycle_event("chunk", "success", split_started, split_ended),
+                lifecycle_event("index", "success", index_started, index_ended),
+            ]
             document.metadata["quality"] = assess_document_quality(document, chunks)
+            document.metadata["summary"] = summarize_document(document, chunks)
             self.registry.save_document(document)
-        self._check_cancel(job["id"])
-        self.registry.update_index_job(job["id"], stage="quality", progress=90)
-        asset_id = str(job["payload"].get("asset_id") or "")
-        if asset_id:
-            self.registry.link_asset(asset_id, document.document_id)
-        materialize_document_assets(document, self.registry, self.object_store)
-        self.registry.create_parser_run(
-            document_id=document.document_id,
-            job_id=job["id"],
-            provider=parser_provider,
-            parser=str(document.metadata.get("parser") or "builtin"),
-            status="succeeded",
-            payload={"element_count": len(document.elements), "parser_profile": job["payload"].get("parser_profile", "builtin")},
-        )
-        self.registry.complete_index_job(job["id"], document.document_id)
-        self._mark_source_item(job, document.document_id, "active")
-        self.registry.log_operation(
-            "index_job_succeeded",
-            f"后台索引完成：{document.file_name}",
-            {"job_id": job["id"], "document_id": document.document_id, "chunk_count": len(chunks)},
-        )
+            build_graph = bool(job["payload"].get("build_graph", True))
+            self.registry.update_index_job(job["id"], stage="graph_write", progress=84)
+            if build_graph and self.graph_store is not None:
+                document.metadata["graph"] = self.graph_store.build_document(document)
+                document.metadata["quality"] = assess_document_quality(document, chunks)
+                self.registry.save_document(document)
+            self._check_cancel(job["id"])
+            self.registry.update_index_job(job["id"], stage="quality", progress=90)
+            asset_id = str(job["payload"].get("asset_id") or "")
+            if asset_id:
+                self.registry.link_asset(asset_id, document.document_id)
+            materialize_document_assets(document, self.registry, self.object_store)
+            self.registry.create_parser_run(
+                document_id=document.document_id,
+                job_id=job["id"],
+                provider=parser_provider,
+                parser=str(document.metadata.get("parser") or "builtin"),
+                status="succeeded",
+                payload={
+                    "element_count": len(document.elements),
+                    "parser_profile": job["payload"].get(
+                        "parser_profile",
+                        "builtin",
+                    ),
+                },
+            )
+            self.registry.complete_index_job(job["id"], document.document_id)
+            self._mark_source_item(job, document.document_id, "active")
+            self.registry.log_operation(
+                "index_job_succeeded",
+                f"后台索引完成：{document.file_name}",
+                {
+                    "job_id": job["id"],
+                    "document_id": document.document_id,
+                    "chunk_count": len(chunks),
+                },
+            )
+        except Exception:
+            if (
+                index_attempted
+                and self.registry.get_document(document.document_id) is None
+            ):
+                self.retriever.delete_document(document.document_id)
+            raise
 
     def _check_cancel(self, job_id: str) -> None:
         if self._cancel_requested(job_id):
@@ -285,19 +405,6 @@ class IngestionWorker:
     def _cancel_requested(self, job_id: str) -> bool:
         current = self.registry.get_index_job(job_id)
         return not current or bool(current["cancel_requested"]) or self._stop.is_set()
-
-    def _cleanup_source_asset(self, job: dict) -> None:
-        if job.get("source_type") != "file":
-            return
-        asset_id = str(job.get("payload", {}).get("asset_id") or "")
-        if asset_id:
-            asset = self.registry.delete_asset(asset_id)
-            if asset and self.registry.asset_reference_count(asset["object_key"]) == 0:
-                self.object_store.delete(asset["object_key"])
-            return
-        path = Path(str(job.get("payload", {}).get("staged_path") or ""))
-        if path.name:
-            path.unlink(missing_ok=True)
 
     def _mark_source_item(self, job: dict, document_id: str, status: str) -> None:
         source_item_id = str(job.get("payload", {}).get("source_item_id") or "")

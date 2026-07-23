@@ -231,6 +231,16 @@ function toggleModality(id: typeof modalities[number]['id']) {
       <div class="run-context">
         <span>{{ workbench.scopeLabel.value }}</span>
         <span>{{ workbench.workMode.value === 'answer' ? '生成证据回答' : '只返回证据' }}</span>
+        <label v-if="workbench.workMode.value === 'answer'" class="usage-attestation">
+          <input v-model="workbench.realUsageConsent.value" type="checkbox" />
+          <span>
+            这是我本人此刻提出的真实问题
+            <small>
+              明确确认后才计入 1.0 使用证据 ·
+              {{ workbench.realUsageSummary.value?.human_originated_questions ?? 0 }}/100
+            </small>
+          </span>
+        </label>
       </div>
       <div class="run-actions">
         <button

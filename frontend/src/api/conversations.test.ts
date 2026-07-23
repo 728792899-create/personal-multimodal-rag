@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { setCsrfToken } from './client'
 import { streamConversationMessage } from './conversations'
 
 
@@ -9,7 +10,10 @@ function streamResponse(frames: Array<Record<string, unknown>>) {
 }
 
 describe('streamConversationMessage', () => {
-  afterEach(() => vi.unstubAllGlobals())
+  afterEach(() => {
+    setCsrfToken('')
+    vi.unstubAllGlobals()
+  })
 
   it('parses typed SSE frames in order and forwards final audit', async () => {
     const events = [
@@ -35,6 +39,23 @@ describe('streamConversationMessage', () => {
     await expect(streamConversationMessage('c', 'question', {}, () => undefined)).rejects.toMatchObject({
       code: 'STREAM_FAILED',
       message: 'provider unavailable',
+    })
+  })
+
+  it('carries CSRF and only sends the human attestation after explicit opt-in', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(streamResponse([
+      { type: 'done', sequence: 1, request_id: 'r', conversation_id: 'c', message_id: 'm', status: 'completed', real_usage_recorded: true },
+    ]))
+    vi.stubGlobal('fetch', fetchMock)
+    setCsrfToken('csrf-test')
+
+    await streamConversationMessage('c', 'a real question', {}, () => undefined, {}, [], true)
+
+    const init = fetchMock.mock.calls[0][1] as RequestInit
+    expect(new Headers(init.headers).get('X-CSRF-Token')).toBe('csrf-test')
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      record_as_real_usage: true,
+      usage_attestation: 'human-originated',
     })
   })
 })

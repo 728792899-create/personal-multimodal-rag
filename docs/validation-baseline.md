@@ -155,3 +155,13 @@ Docker 实栈重新构建后，`/ready` 返回 schema version 5 与 `mock / memo
 
 - pgvector、对象存储、外部身份网关和 Sentry 项目：没有提供外部服务或凭据，因此只实现/记录适配边界，未声称已部署。
 - OpenAI Responses、OpenAI-compatible Chat 与 Ollama 使用 mock HTTP 契约测试，没有产生付费调用或伪造在线 Provider 结果。
+
+## 0.4 Production Validation 私有实栈
+
+2026-07-23 在 `codex/production-validation-soak` 使用 PostgreSQL/pgvector、MinIO、Redis、ClamAV、隔离 fetch worker 与 Ollama 运行真实本地生产栈。21 组有明确许可证来源产生 200 份非 fixture 文档、12,090 个元素和 5,159 个 768 维向量；200 个 manifest hash、数据库原件、MinIO 对象与 source item 全量对账。
+
+破坏性恢复真实插入数据库哨兵并删除一个 7,007-byte 对象，覆盖恢复后哨兵消失、对象 SHA-256 恢复，文档/资产/元素/任务/评测/向量计数与恢复前一致。随后 API、worker、Redis、PostgreSQL、MinIO 五类 kill/recreate 场景全部保持 200 个唯一文档、200 个唯一幂等任务和 0 个未发布 outbox。演练暴露并修复了来源原件去重误删、部分向量写入、orphan 清理、worker lease heartbeat、错误 worker healthcheck 以及 pgvector 长连接不能跨 PostgreSQL 重启恢复等缺陷。
+
+MinerU 3.4.4 / RAG-Anything 1.3.1 隔离容器对真实 fixture PNG 解析成功并返回 3 个元素；Docling/PaddleOCR 未安装。Ollama 0.32.1 的原生/兼容 embedding 均成功并返回 768 维，`qwen3:8b` 原生 chat、chat-completions 和 Responses 均在 180 秒超时，故 Provider 总验收失败。Sentry 无 DSN、无真实事件，Docker 7.8 GiB 不满足 full self-hosted profile。
+
+14 天 hash-chained soak 于 `2026-07-23T10:25:17Z` 从第一个健康样本开始，历史不回填。机器已生成 200 条 draft，但人工确认仍为 0；真实问题来源声明仍为 0。以上数字不会被自动化或 fixture 补齐，项目继续保持 `0.4.0-rc.1`。

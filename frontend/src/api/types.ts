@@ -497,11 +497,35 @@ export interface EvalDraft {
   question: string
   expected_answer: string
   expected_keywords: string[]
+  expected_document_ids?: string[]
+  answerable?: boolean
+  note?: string
+  reviewer_id?: string
+  reviewer_attestation?: string
+  reviewed_at?: string
   bad_answer: string
   failure_type: string
   user_feedback: string
   citations: ChunkResult[]
   status: string
+}
+
+export interface EvalReviewPayload {
+  expected_answer: string
+  expected_keywords: string[]
+  expected_document_ids: string[]
+  answerable: boolean
+  note: string
+  reviewer_id: string
+  reviewer_attestation: 'human-reviewed'
+}
+
+export interface EvalReviewSummary {
+  total: number
+  draft: number
+  reviewed: number
+  human_reviewed: number
+  remaining_for_1_0: number
 }
 
 export interface EvaluationResult {
@@ -598,6 +622,16 @@ export interface ReleaseReadiness {
   errors: string[]
   evidence_updated_at: string
   production_ready_claim: false
+}
+
+export interface RealUsageSummary {
+  human_originated_questions: number
+  target: 100
+  remaining_for_1_0: number
+  conversation_count: number
+  first_recorded_at: string
+  last_recorded_at: string
+  attestation: 'human-originated'
 }
 
 export interface DeadLetterJob {
@@ -739,4 +773,4 @@ export type ConversationStreamEvent =
   | { type: 'answer.delta'; request_id: string; conversation_id: string; message_id: string; sequence: number; delta: string }
   | { type: 'answer.completed' | 'refusal'; request_id: string; conversation_id: string; message_id: string; sequence: number; response: AskResponse }
   | { type: 'error'; request_id: string; conversation_id: string; message_id: string; sequence: number; code: string; message: string }
-  | { type: 'done'; request_id: string; conversation_id: string; message_id: string; sequence: number; status: string }
+  | { type: 'done'; request_id: string; conversation_id: string; message_id: string; sequence: number; status: string; real_usage_recorded?: boolean }

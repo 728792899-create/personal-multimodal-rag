@@ -1,0 +1,36 @@
+services:
+  backend:
+    environment:
+      RELEASE_EVIDENCE_PATH: /evidence/release-evidence.json
+    volumes:
+      - ${RAG_VALIDATION_EVIDENCE_DIR:-./data/validation}:/evidence:ro
+
+  soak-monitor:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile.production
+    command:
+      - python
+      - /app/scripts/soak_monitor.py
+      - --evidence-dir
+      - /evidence
+      - --health-url
+      - http://backend:8010/ready
+      - --readiness-url
+      - ""
+      - --expected-mode
+      - production
+      - --interval-seconds
+      - ${RAG_SOAK_INTERVAL_SECONDS:-300}
+    depends_on:
+      backend:
+        condition: service_healthy
+    volumes:
+      - ${RAG_VALIDATION_EVIDENCE_DIR:-./data/validation}:/evidence
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped

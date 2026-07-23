@@ -27,3 +27,9 @@ def readiness_report():
     report["schema_version"] = registry.schema_version
     report["release"] = build_release_readiness(settings.release_evidence_path)
     return report
+
+
+@router.get("/usage-evidence")
+def usage_evidence():
+    """Return counts only; question text is deliberately excluded."""
+    return registry.real_usage_summary()

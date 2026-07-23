@@ -78,7 +78,7 @@ def create_embedding_provider():
         return OllamaEmbeddingProvider(
             base_url=settings.ollama_base_url,
             model=settings.ollama_embedding_model,
-            timeout_seconds=settings.answer_timeout_seconds,
+            timeout_seconds=settings.embedding_timeout_seconds,
         )
     raise ValueError(f"Unsupported EMBEDDING_PROVIDER: {settings.embedding_provider}")
 
@@ -370,6 +370,7 @@ retriever = HybridRetriever(
     mmr_lambda=settings.mmr_lambda,
     bm25_weight=settings.bm25_weight,
     vector_weight=settings.vector_weight,
+    embedding_batch_size=settings.embedding_batch_size,
 )
 hydrate_retriever(
     retriever,

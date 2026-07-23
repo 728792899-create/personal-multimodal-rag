@@ -23,12 +23,14 @@ describe('WorkbenchPage workflows', () => {
   let askResponse = answerFixture()
   let conversations: Array<Record<string, unknown>>
   let knowledgeBases: Array<Record<string, unknown>>
+  let evalDrafts: Array<Record<string, unknown>>
 
   beforeEach(() => {
     documents = []
     calls = []
     askResponse = answerFixture()
     conversations = []
+    evalDrafts = []
     knowledgeBases = [{ id: 'default', name: '默认知识库', description: '', is_default: true, document_count: 0, created_at: '', updated_at: '' }]
     vi.stubGlobal('confirm', vi.fn(() => true))
     vi.stubGlobal('fetch', vi.fn((input: string | URL | Request, init: RequestInit = {}) => {
@@ -53,7 +55,14 @@ describe('WorkbenchPage workflows', () => {
       if (path.startsWith('/api/history')) return json({ history: [] })
       if (path.startsWith('/api/operations')) return json({ operations: [] })
       if (path.startsWith('/api/knowledge/cards')) return json({ cards: [] })
-      if (path.startsWith('/api/eval/drafts')) return json({ drafts: [] })
+      if (path.startsWith('/api/eval/drafts')) return json({ drafts: evalDrafts })
+      if (path === '/api/eval/review-summary') return json({ total: evalDrafts.length, draft: evalDrafts.filter((item) => item.status === 'draft').length, reviewed: evalDrafts.filter((item) => item.status === 'reviewed').length, human_reviewed: evalDrafts.filter((item) => item.status === 'reviewed').length, remaining_for_1_0: 200 - evalDrafts.filter((item) => item.status === 'reviewed').length })
+      if (path === '/api/system/usage-evidence') return json({ human_originated_questions: 0, target: 100, remaining_for_1_0: 100, conversation_count: 0, first_recorded_at: '', last_recorded_at: '', attestation: 'human-originated' })
+      if (path.startsWith('/api/eval/cases/') && init.method === 'PATCH') {
+        const reviewed = { ...evalDrafts[0], ...JSON.parse(String(init.body)), status: 'reviewed', reviewed_at: '2026-07-23T08:00:00' }
+        evalDrafts = [reviewed]
+        return json({ case: reviewed, summary: { total: 1, draft: 0, reviewed: 1, human_reviewed: 1, remaining_for_1_0: 199 } })
+      }
       if (path === '/api/metrics') return json(metricsFixture)
       if (path === '/api/providers/status') return json({ status: 'ready', environment: 'test', fallback_allowed: true, providers: { answer: { provider: 'template', configured: true, mode: 'offline', capabilities: ['answer'] }, embedding: { provider: 'mock', configured: true, mode: 'offline', capabilities: ['embeddings'] }, vector_store: { provider: 'memory', configured: true } } })
       if (path === '/api/conversations' && init.method === 'POST') {
@@ -145,6 +154,61 @@ describe('WorkbenchPage workflows', () => {
       strategy: 'auto',
       attachments: [{ id: 'query-1', detail: 'high' }],
     })
+  })
+
+  it('never counts a question as real usage without explicit human opt-in', async () => {
+    const wrapper = mount(WorkbenchPage)
+    await flushPromises()
+
+    await wrapper.get('textarea[name="question"]').setValue('这是我的真实生产问题吗？')
+    await wrapper.get('[data-testid="run-query"]').trigger('click')
+    await flushPromises()
+    const automaticCall = calls.find((call) => call.path.endsWith('/messages:stream'))!
+    expect(JSON.parse(String(automaticCall.init.body))).toMatchObject({
+      record_as_real_usage: false,
+    })
+    expect(JSON.parse(String(automaticCall.init.body))).not.toHaveProperty('usage_attestation')
+
+    calls = calls.filter((call) => !call.path.endsWith('/messages:stream'))
+    await wrapper.get('.usage-attestation input').setValue(true)
+    await wrapper.get('[data-testid="run-query"]').trigger('click')
+    await flushPromises()
+    const confirmedCall = calls.find((call) => call.path.endsWith('/messages:stream'))!
+    expect(JSON.parse(String(confirmedCall.init.body))).toMatchObject({
+      record_as_real_usage: true,
+      usage_attestation: 'human-originated',
+    })
+  })
+
+  it('requires an explicit reviewer identity before counting a human-reviewed case', async () => {
+    evalDrafts = [{
+      id: 'case-1',
+      question: 'What evidence supports hybrid retrieval?',
+      expected_answer: '',
+      expected_keywords: ['BM25'],
+      expected_document_ids: [],
+      answerable: true,
+      note: '',
+      status: 'draft',
+      bad_answer: '',
+      failure_type: '',
+      user_feedback: '',
+      citations: [],
+    }]
+    const wrapper = mount(WorkbenchPage)
+    await flushPromises()
+    await wrapper.get('#tab-eval').trigger('click')
+    await flushPromises()
+
+    const reviewButton = wrapper.findAll('button').find((button) => button.text() === '确认人工复核')!
+    expect(reviewButton.attributes('disabled')).toBeDefined()
+    await wrapper.get('.eval-review-summary input').setValue('portfolio-owner')
+    expect(reviewButton.attributes('disabled')).toBeUndefined()
+    await reviewButton.trigger('click')
+    await flushPromises()
+
+    expect(calls.some((call) => call.path === '/api/eval/cases/case-1' && call.init.method === 'PATCH')).toBe(true)
+    expect(wrapper.text()).toContain('已复核：1/200')
   })
 
   it('disables execution and explains invalid expert parameters', async () => {

@@ -40,6 +40,7 @@ class Settings:
     embedding_provider: str = os.getenv("EMBEDDING_PROVIDER", "mock")
     embedding_model: str = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
     embedding_dimension: int = int(os.getenv("EMBEDDING_DIMENSION", "0") or "0")
+    embedding_batch_size: int = int(os.getenv("EMBEDDING_BATCH_SIZE", "32"))
     openai_api_key: str = _env_or_file("OPENAI_API_KEY")
     openai_base_url: str = os.getenv("OPENAI_BASE_URL", "")
 
@@ -73,6 +74,9 @@ class Settings:
     answer_base_url: str = os.getenv("ANSWER_BASE_URL", os.getenv("OPENAI_BASE_URL", ""))
     answer_api_key: str = _env_or_file("ANSWER_API_KEY", _env_or_file("OPENAI_API_KEY"))
     answer_timeout_seconds: float = float(os.getenv("ANSWER_TIMEOUT_SECONDS", "45"))
+    embedding_timeout_seconds: float = float(
+        os.getenv("EMBEDDING_TIMEOUT_SECONDS", "120")
+    )
 
     query_rewrite_provider: str = os.getenv("QUERY_REWRITE_PROVIDER", "none")
     query_rewrite_model: str = os.getenv("QUERY_REWRITE_MODEL", os.getenv("ANSWER_MODEL", answer_model))

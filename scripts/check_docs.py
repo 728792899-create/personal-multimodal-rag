@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import re
 import struct
+import subprocess
 import sys
 import xml.etree.ElementTree as ET
+from functools import lru_cache
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -19,9 +21,42 @@ SOCIAL_PREVIEW_SIZE = (1280, 640)
 MAX_SOCIAL_PREVIEW_BYTES = 1_000_000
 
 
+@lru_cache(maxsize=1)
+def versioned_paths() -> set[Path] | None:
+    """Return files that belong to the Git deliverable.
+
+    Local screenshot drafts and Finder-style duplicate copies must not make
+    documentation CI nondeterministic. Staged files are included by
+    ``git ls-files``; non-Git source archives fall back to scanning everything.
+    """
+
+    try:
+        result = subprocess.run(
+            ["git", "ls-files", "-z"],
+            cwd=ROOT,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return {
+        (ROOT / item.decode("utf-8")).resolve()
+        for item in result.stdout.split(b"\0")
+        if item
+    }
+
+
+def belongs_to_deliverable(path: Path) -> bool:
+    tracked = versioned_paths()
+    return tracked is None or path.resolve() in tracked
+
+
 def markdown_files() -> list[Path]:
-    root_docs = sorted(ROOT.glob("*.md"))
-    nested_docs = sorted((ROOT / "docs").rglob("*.md"))
+    root_docs = sorted(path for path in ROOT.glob("*.md") if belongs_to_deliverable(path))
+    nested_docs = sorted(
+        path for path in (ROOT / "docs").rglob("*.md") if belongs_to_deliverable(path)
+    )
     return [*root_docs, *nested_docs]
 
 
@@ -101,6 +136,7 @@ def check_manifest(directory: Path, manifest: Path, patterns: tuple[str, ...]) -
         for pattern in patterns
         for path in directory.glob(pattern)
         if path.name != manifest.name
+        and belongs_to_deliverable(path)
     )
     return [
         f"{manifest.relative_to(ROOT)}: missing asset entry for {asset.name}"
@@ -132,12 +168,13 @@ def main() -> int:
     docs = markdown_files()
     assets_dir = ROOT / "docs" / "assets"
     screenshots_dir = ROOT / "docs" / "screenshots"
-    svgs = sorted(assets_dir.glob("*.svg"))
+    svgs = sorted(path for path in assets_dir.glob("*.svg") if belongs_to_deliverable(path))
     rasters = sorted(
         path
         for directory in (assets_dir, screenshots_dir)
         for pattern in ("*.png", "*.jpg", "*.jpeg")
         for path in directory.glob(pattern)
+        if belongs_to_deliverable(path)
     )
     errors = [error for path in docs for error in check_markdown(path)]
     errors.extend(error for path in svgs for error in check_svg(path))

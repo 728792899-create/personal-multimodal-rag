@@ -1,6 +1,6 @@
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class DocumentMeta(BaseModel):
@@ -112,6 +112,20 @@ class ConversationUpdate(BaseModel):
 class ConversationMessageRequest(RetrievalOptions):
     question: str = Field(..., min_length=1, max_length=4000)
     attachments: list[QueryAttachmentRef] = Field(default_factory=list, max_length=4)
+    record_as_real_usage: bool = False
+    usage_attestation: Optional[Literal["human-originated"]] = None
+
+    @model_validator(mode="after")
+    def validate_usage_attestation(self):
+        if self.record_as_real_usage and self.usage_attestation != "human-originated":
+            raise ValueError(
+                "Recording real usage requires the human-originated attestation"
+            )
+        if not self.record_as_real_usage and self.usage_attestation is not None:
+            raise ValueError(
+                "usage_attestation is only valid when record_as_real_usage is enabled"
+            )
+        return self
 
 
 class AskResponse(BaseModel):
@@ -143,6 +157,24 @@ class EvaluationDraftRequest(BaseModel):
     expected_keywords: list[str] = Field(default_factory=list)
     expected_answer: str = ""
     note: str = ""
+    candidate_id: str = Field("", max_length=128)
+    source_ref: str = Field("", max_length=1_000)
+
+
+class EvaluationDraftBatchRequest(BaseModel):
+    cases: list[EvaluationDraftRequest] = Field(
+        ..., min_length=1, max_length=200
+    )
+
+
+class EvaluationReviewRequest(BaseModel):
+    expected_keywords: list[str] = Field(default_factory=list, max_length=40)
+    expected_answer: str = Field("", max_length=12_000)
+    expected_document_ids: list[str] = Field(default_factory=list, max_length=40)
+    answerable: bool = True
+    note: str = Field("", max_length=4_000)
+    reviewer_id: str = Field(..., min_length=2, max_length=80)
+    reviewer_attestation: Literal["human-reviewed"]
 
 
 class EvaluationResult(BaseModel):

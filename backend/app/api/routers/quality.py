@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from fastapi import APIRouter, HTTPException
 
 from app.api.common import chunks_for_document, feedback_eval_case, retrieval_options
 from app.core.store import rag_engine, registry, retriever
 from app.models.schemas import (
     EvaluationDraftRequest,
+    EvaluationDraftBatchRequest,
     EvaluationRequest,
+    EvaluationReviewRequest,
     FeedbackRequest,
     KnowledgeCardRequest,
     RewriteRequest,
@@ -36,9 +40,99 @@ def evaluate(payload: EvaluationRequest):
 
 @router.post("/eval/cases")
 def create_eval_case(payload: EvaluationDraftRequest):
-    case = registry.save_eval_case({"question": payload.question, "expected_keywords": payload.expected_keywords, "expected_answer": payload.expected_answer, "note": payload.note, "status": "draft"})
+    if payload.candidate_id:
+        existing = next(
+            (
+                item
+                for item in registry.list_eval_cases(limit=10_000)
+                if item.get("candidate_id") == payload.candidate_id
+            ),
+            None,
+        )
+        if existing:
+            return {"case": existing, "deduped": True}
+    case = registry.save_eval_case(
+        {
+            "question": payload.question,
+            "expected_keywords": payload.expected_keywords,
+            "expected_answer": payload.expected_answer,
+            "note": payload.note,
+            "candidate_id": payload.candidate_id,
+            "source_ref": payload.source_ref,
+            "status": "draft",
+        }
+    )
     registry.log_operation("eval_case_created", f"新增评测 case：{payload.question[:40]}", {"case_id": case["id"]})
-    return {"case": case}
+    return {"case": case, "deduped": False}
+
+
+@router.post("/eval/cases:batch")
+def create_eval_case_batch(payload: EvaluationDraftBatchRequest):
+    existing = {
+        str(item.get("candidate_id") or ""): item
+        for item in registry.list_eval_cases(limit=10_000)
+        if item.get("candidate_id")
+    }
+    cases: list[dict] = []
+    created = deduped = 0
+    for candidate in payload.cases:
+        if candidate.candidate_id and candidate.candidate_id in existing:
+            cases.append(existing[candidate.candidate_id])
+            deduped += 1
+            continue
+        case = registry.save_eval_case(
+            {
+                **candidate.model_dump(),
+                "status": "draft",
+            }
+        )
+        cases.append(case)
+        created += 1
+        if candidate.candidate_id:
+            existing[candidate.candidate_id] = case
+    registry.log_operation(
+        "eval_case_batch_created",
+        f"批量准备评测候选：新增 {created}，已存在 {deduped}",
+        {"created": created, "deduped": deduped},
+    )
+    return {
+        "cases": cases,
+        "created": created,
+        "deduped": deduped,
+        "summary": registry.eval_review_summary(),
+    }
+
+
+@router.patch("/eval/cases/{case_id}")
+def review_eval_case(case_id: str, payload: EvaluationReviewRequest):
+    if payload.answerable and not (
+        payload.expected_answer.strip() or payload.expected_keywords
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="Answerable cases require an expected answer or expected keywords",
+        )
+    reviewed = registry.update_eval_case(
+        case_id,
+        {
+            **payload.model_dump(),
+            "status": "reviewed",
+            "reviewed_at": datetime.utcnow().isoformat(timespec="microseconds"),
+        },
+    )
+    if not reviewed:
+        raise HTTPException(status_code=404, detail="Evaluation case not found")
+    registry.log_operation(
+        "eval_case_human_reviewed",
+        "评测 case 已完成人工复核",
+        {"case_id": case_id, "answerable": payload.answerable},
+    )
+    return {"case": reviewed, "summary": registry.eval_review_summary()}
+
+
+@router.get("/eval/review-summary")
+def eval_review_summary():
+    return registry.eval_review_summary()
 
 
 @router.post("/feedback")
