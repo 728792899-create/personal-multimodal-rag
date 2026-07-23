@@ -145,6 +145,8 @@ Docker 实栈重新构建后，`/ready` 返回 schema version 5 与 `mock / memo
 
 首轮远端 Security workflow 发现旧固定依赖有 17 条已公布漏洞，且 Trivy Action 使用了不存在的 tag。依照 2026-07-23 官方 PyPI/项目 release 升级 FastAPI 0.139.2、Starlette 1.3.1、python-multipart 0.0.32、PyMuPDF 1.28.0、pytest 9.1.1、python-dotenv 1.2.2，并改用 `aquasecurity/trivy-action@v0.36.0`。新依赖镜像下完整后端仍为 152 passed、3 skipped，Playwright 14 passed；`pip-audit -r backend/requirements-production.txt` 返回 `No known vulnerabilities found`。
 
+修复提交的 Trivy 复扫进一步发现隔离 parser worker 仍单独固定 `python-multipart 0.0.20`。该 worker 已同步升级到 FastAPI 0.139.2 与 python-multipart 0.0.32；这是高级 profile 的独立依赖边界，不应由主后端审计结果替代。
+
 ## 远端 CI
 
 0.1 加固分支的 GitHub Actions 已实际跑通。0.2 PR #2 首个功能提交的 push 与 pull_request 两套 backend、docs、frontend、retrieval-eval、docker-compose 共 10 项检查全部通过；后续修复提交仍以对应提交 checks 为准，本地结果不能代替远端 CI。
