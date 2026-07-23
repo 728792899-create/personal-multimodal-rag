@@ -34,3 +34,16 @@ services:
     security_opt:
       - no-new-privileges:true
     restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          python -c "import json,os,time;
+          p='/evidence/soak-state.json';
+          d=json.load(open(p));
+          assert time.time()-os.path.getmtime(p) < 900;
+          assert d['last_sample_at'] == d['last_success_at']"
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
