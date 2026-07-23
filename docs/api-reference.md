@@ -6,15 +6,19 @@ FastAPI 默认提供交互式 OpenAPI 页面：
 - OpenAPI JSON：`http://127.0.0.1:8010/openapi.json`
 - 通过前端 Nginx 访问业务 API：`http://127.0.0.1:5173/api/*`
 
-当前 API 服务于单用户/小团队 Beta，字段会随 Beta 迭代。外部集成应固定版本或在升级前比较 OpenAPI schema。
+当前 API 服务于单用户 Production Local RC，字段会随 RC 迭代。外部集成应固定版本或在升级前比较 OpenAPI schema。
 
-## 认证、请求 ID 与限流
+## 认证、workspace、请求 ID 与限流
 
-默认 `API_AUTH_TOKEN` 为空，不要求认证。配置 token 后，除 `/health`、`/ready` 与文档端点外，请求必须携带：
+`demo` 默认关闭认证；`local-production` 可启用 session；`production` 强制 Argon2id 管理员密码、HttpOnly/Secure/SameSite Cookie 与 CSRF。兼容 Bearer token 仍可用于受控脚本，但不是 production 浏览器认证方式。
 
-```http
-Authorization: Bearer <token>
-```
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| POST | `/api/auth/login` | 校验管理员密码并创建 HttpOnly session；独立限流 |
+| POST | `/api/auth/logout` | 撤销当前 session；要求 CSRF |
+| GET | `/api/auth/session` | 返回认证状态、服务端解析的 workspace 和 CSRF token |
+
+workspace 永远从服务端 session 解析。浏览器请求体、query 或 header 中自报的 workspace 都不构成授权依据。
 
 服务端为每个请求生成或透传请求 ID，错误排查时应记录该 ID，但不要复制 Authorization、完整 URL query 或资料原文到公共 issue。
 
@@ -26,12 +30,16 @@ Authorization: Bearer <token>
 | --- | --- | --- |
 | GET | `/health` | 进程健康；用于 liveness |
 | GET | `/ready` | schema、队列深度和脱敏 Provider 状态；未配置外部 Provider 时为 `degraded` |
+| GET | `/api/system/readiness-report` | runtime、metadata/object/vector/queue/provider 的逐项就绪报告 |
 | GET | `/api/providers/status` | 只读能力、配置完整性与运行模式；不返回 Key/带凭据 URL |
+| GET | `/metrics` | Prometheus 文本格式；不包含正文、问题、Cookie、Key 或 URL query |
 | GET | `/docs` | Swagger UI |
 
 ```bash
 curl --fail http://127.0.0.1:8010/ready
 ```
+
+`production` 任一必需依赖不可用时 `/ready` 返回 `503`，不会静默切回 template。
 
 ## 文档 API
 
@@ -104,6 +112,22 @@ curl --fail-with-body -F knowledge_base_id=default \
   -F 'file=@samples/demo-documents/01-system-overview.md' \
   http://127.0.0.1:8010/api/ingestions/file
 ```
+
+## 持续数据源、同步与 Markdown 导出
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET / POST | `/api/sources` | 列表 / 创建白名单目录、URL 列表或 RSS/Atom 来源 |
+| GET / PATCH / DELETE | `/api/sources/{id}` | 读取、修改、停用或删除订阅配置 |
+| POST | `/api/sources/{id}/sync` | 启动增量发现；内容变化进入原有索引任务 |
+| POST | `/api/sources/{id}/deletions:confirm` | 人工确认连续两次缺失的删除候选 |
+| GET | `/api/sync-runs`、`/api/sync-runs/{id}` | 查看发现、未变化、更新、失败和候选数 |
+| POST | `/api/sync-runs/{id}/retry` | 对失败或中断的 run 做幂等重试 |
+| GET | `/api/exports/history/{id}.md` | 导出带引用的单次回答 |
+| GET | `/api/exports/conversations/{id}.md` | 导出带引用的持久会话 |
+| GET | `/api/exports/knowledge-cards/{id}.md` | 导出知识卡片 |
+
+目录来源只接受 `GET /api/sources` 响应 `capabilities.directory_roots` 返回的不可逆 root ID 与相对路径；不能提交任意服务器路径。空结果、304 和部分失败都不会推进删除计数。完整非空同步连续两次未发现某条目后，它只进入候选状态，仍需显式确认。详见[持续数据源与增量同步](source-sync.md)。
 
 ## 检索与问答 API
 

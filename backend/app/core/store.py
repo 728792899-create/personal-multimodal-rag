@@ -49,6 +49,14 @@ from app.services.multimodal_enrichment import (
 )
 from app.services.query_assets import QueryAssetService
 from app.services.job_queue import OutboxDispatcher, RedisJobQueue
+from app.services.source_connectors import (
+    ConnectorRegistry,
+    DirectoryConnector,
+    FeedConnector,
+    SourceRootResolver,
+    UrlListConnector,
+)
+from app.services.source_sync import SourceSyncService
 
 
 def create_embedding_provider():
@@ -284,6 +292,26 @@ outbox_dispatcher = (
     if job_signal_queue is not None
     else None
 )
+source_root_resolver = SourceRootResolver(settings.source_roots)
+connector_registry = ConnectorRegistry(
+    [
+        DirectoryConnector(
+            source_root_resolver,
+            max_items=settings.source_sync_max_items,
+            max_bytes=settings.source_sync_max_bytes,
+        ),
+        UrlListConnector(
+            timeout=settings.url_import_timeout_seconds,
+            max_bytes=settings.url_import_max_bytes,
+            max_items=settings.source_sync_max_items,
+        ),
+        FeedConnector(
+            timeout=settings.url_import_timeout_seconds,
+            max_bytes=settings.url_import_max_bytes,
+            max_items=settings.source_sync_max_items,
+        ),
+    ]
+)
 
 
 def _load_asset(asset_id: str) -> tuple[bytes, str] | None:
@@ -357,4 +385,11 @@ ingestion_worker = IngestionWorker(
     enrichment_service=enrichment_service,
     graph_store=graph_store,
     job_signal_queue=job_signal_queue,
+)
+source_sync_service = SourceSyncService(
+    registry,
+    object_store,
+    connector_registry,
+    settings,
+    retriever=retriever,
 )

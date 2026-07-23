@@ -13,6 +13,8 @@ async function installOfflineApi(page: Page) {
   ]
   let jobs: Array<Record<string, unknown>> = []
   let queryAssets: Array<Record<string, unknown>> = []
+  let sources: Array<Record<string, unknown>> = []
+  let syncRuns: Array<Record<string, unknown>> = []
 
   await page.route(/^https?:\/\/[^/]+\/api\//, async (route) => {
     const request = route.request()
@@ -28,6 +30,41 @@ async function installOfflineApi(page: Page) {
     if (path === '/api/auth/session') {
       return json({ session: { required: false, authenticated: false, user_id: '', workspace_id: '', role: '', csrf_token: '', expires_at: '' } })
     }
+    if (path === '/api/sources' && method === 'POST') {
+      const body = request.postDataJSON() as Record<string, unknown>
+      const source = {
+        id: 'source-1',
+        knowledge_base_id: body.knowledge_base_id,
+        type: body.type,
+        name: body.name,
+        config: body.config,
+        enabled: true,
+        item_count: 0,
+        deletion_candidate_count: 0,
+        created_at: '',
+        updated_at: '',
+      }
+      sources = [source]
+      return json({ source }, 201)
+    }
+    if (path === '/api/sources') return json({
+      sources,
+      capabilities: {
+        types: ['local_directory', 'rss_atom', 'url_list'],
+        directory_roots: [{ id: 'root-demo', label: 'sources' }],
+      },
+    })
+    if (path === '/api/sources/source-1/sync' && method === 'POST') {
+      const run = {
+        id: 'sync-1', source_id: 'source-1', status: 'succeeded', discovered: 2,
+        unchanged: 1, updated: 1, deletion_candidates: 0, failed: 0,
+        partial: false, empty_result: false, error_message: '', started_at: '', completed_at: '',
+      }
+      syncRuns = [run]
+      sources = sources.map((item) => ({ ...item, item_count: 2 }))
+      return json({ sync_run: run, accepted: true }, 202)
+    }
+    if (path === '/api/sync-runs') return json({ sync_runs: syncRuns })
     if (path === '/api/query-assets' && method === 'POST') {
       const asset = { id: 'query-1', filename: 'diagram.png', media_type: 'image/png', size_bytes: 96, width: 32, height: 24, expires_at: '2099-01-01T00:00:00', preview_url: '/api/assets/query-1' }
       queryAssets = [asset]
@@ -333,4 +370,20 @@ test('session authentication gates the workbench and logout revokes access', asy
   await page.getByRole('button', { name: '退出登录' }).click()
   await expect(page.getByRole('button', { name: '登录工作台' })).toBeVisible()
   expect(csrfSeen).toBe(true)
+})
+
+test('URL source subscription creates and reports an incremental sync', async ({ page }) => {
+  await installOfflineApi(page)
+  await page.goto('/')
+
+  const manager = page.getByTestId('source-manager')
+  await manager.locator('summary').click()
+  await manager.locator('input[name="source-name"]').fill('产品资料订阅')
+  await manager.locator('textarea[name="source-urls"]').fill('https://example.com/guide\nhttps://example.com/changelog')
+  await manager.getByRole('button', { name: '添加数据源' }).click()
+
+  await expect(manager.getByText('产品资料订阅')).toBeVisible()
+  await manager.getByRole('button', { name: '立即同步' }).click()
+  await expect(manager.getByText(/最近同步：succeeded/)).toBeVisible()
+  await expect(manager.getByText('新增/更新 1')).toBeVisible()
 })

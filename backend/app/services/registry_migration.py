@@ -33,6 +33,9 @@ MIGRATION_TABLES = (
     "sessions",
     "outbox_events",
     "dead_letter_jobs",
+    "sources",
+    "source_items",
+    "sync_runs",
 )
 
 PRIMARY_KEYS = {
@@ -59,6 +62,9 @@ PRIMARY_KEYS = {
     "sessions": ("token_hash",),
     "outbox_events": ("event_id",),
     "dead_letter_jobs": ("dead_letter_id",),
+    "sources": ("source_id",),
+    "source_items": ("source_item_id",),
+    "sync_runs": ("run_id",),
 }
 
 

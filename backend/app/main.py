@@ -36,6 +36,7 @@ configure_sentry(
 async def lifespan(_: FastAPI):
     validate_runtime_settings(settings)
     query_asset_service.cleanup_expired()
+    registry.recover_interrupted_sync_runs()
     if outbox_dispatcher:
         outbox_dispatcher.start()
     if settings.embedded_worker:

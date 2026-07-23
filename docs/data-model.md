@@ -1,12 +1,12 @@
 # SQLite 数据模型与生产迁移边界
 
-0.3 用 SQLite 保存可恢复的 registry、知识库、会话、索引任务、多模态元素与对象引用，用 vector store 保存 chunk 与向量。每次操作获取独立连接；文件数据库启用 WAL、foreign keys 与 busy timeout，避免 API 和本地 worker 跨线程共享单一连接。
+0.4 RC 的 Demo 与 Local Production 用 SQLite 保存可恢复 registry；Production 使用同一 repository 契约的 PostgreSQL adapter。vector store 保存 chunk 与向量，对象层使用本地内容寻址目录或 S3/MinIO。SQLite 每次操作获取独立连接并启用 WAL、foreign keys 与 busy timeout，避免 API 和本地 worker 跨线程共享单一连接。
 
 ![SQLite 业务表、chunk 向量存储及生产 workspace 迁移边界](assets/data-model.svg)
 
-## 当前 schema（version 5）
+## 当前 schema（version 7）
 
-`backend/app/services/document_registry.py` 创建 18 张表，其中 `schema_migrations` 记录版本：
+`backend/app/services/document_registry.py` 创建 27 张业务/控制表，其中 `schema_migrations` 记录幂等版本：
 
 | 表 | 作用 | 关键一致性 |
 | --- | --- | --- |
@@ -28,6 +28,13 @@
 | `operation_logs` | 产品内轻量审计 | 只写脱敏消息和安全 payload |
 | `knowledge_cards` | 人工保存的知识卡片 | JSON payload 保持 Beta 灵活性 |
 | `eval_cases` | 人工评测草稿 | 与版本化 `eval/cases.jsonl` 分离 |
+| `workspaces`、`users`、`memberships` | 默认 workspace、owner 与成员边界 | API workspace 从服务端 session 解析 |
+| `sessions` | 管理员登录会话 | 只保存 token hash、过期和撤销状态 |
+| `outbox_events` | metadata 事务内的可靠任务事件 | Redis 发布成功后标记；重复发布仍由幂等键收敛 |
+| `dead_letter_jobs` | 超过重试上限的生产任务 | 保留脱敏错误、重放次数和人工处理状态 |
+| `sources` | 目录、URL 列表、RSS/Atom 订阅 | 绑定 workspace/KB；配置不接受任意服务器路径 |
+| `source_items` | 稳定 external ID、hash、缓存头和索引文档 | `(source_id, external_id)` 唯一；维护缺失计数 |
+| `sync_runs` | 一次增量发现事实 | 记录更新、未变化、失败、空结果、partial 和删除候选 |
 
 迁移自动创建默认知识库，并将旧 documents/history 无损回填到 `default`。旧文档没有受管原件时明确写入 `source_available=false`：仍能用已有 pages 重建 chunk，但重新解析必须重新上传。知识库含文档或终态索引任务时，删除默认返回 `409`；只有 `force=true` 才级联清理。活动任务即使带 `force=true` 也会阻止删除，必须先取消并等待进入终态。成功删除会从会话范围移除该知识库；范围变空时自动回退到 `default`。默认知识库始终保留。
 
@@ -59,14 +66,14 @@ API 接受文件时流式写暂存文件、校验签名、写内容寻址对象�
 
 新 SSE 会话事实保存在 `conversations` 与 `conversation_messages`。上下文默认最多最近六轮、约 12,000 字符；只有明确指代型追问才将最近问题用于检索改写，独立新问题不会继承旧主题词。流式开始先写空 assistant message，完成后原位更新为最终响应；客户端断开则标记 `cancelled`，异常标记 `failed`。旧 `history` API 保留兼容，不作为新会话上下文来源。
 
-## 生产迁移顺序
+## Production 数据平面与迁移顺序
 
-1. 建立 `workspaces`、`users`、`memberships` 与服务端授权模型。
-2. 为 KB、documents、conversations/messages、jobs、feedback/cards/eval/operations 增加不可为空的 `workspace_id`。
-3. 把高频过滤字段从 JSON 提升为类型化列，保留 versioned metadata JSON 处理长尾。
-4. 将源文件迁移到私有对象存储，记录 object key、etag、size、content type 与保留状态。
-5. 用独立 worker 和外部队列承载解析、索引、删除；保持当前 job 状态机与幂等键作为公开契约。
-6. 在 versioned pgvector 表写 chunk、模型、维度、hash 和 index version；新旧索引双跑评测后切读。
-7. 核对 KB/文档/任务/消息数、hash、chunk 数、向量维度、删除结果和固定回归，再停止 SQLite 写入。
+1. `scripts/migrate_sqlite_to_postgres.py --dry-run` 读取一致性快照，校验目标 schema 和对象清单。
+2. 正式迁移在单个 PostgreSQL 事务中保留 ID、时间戳和关联关系；失败回滚，不修改源 SQLite。
+3. 按表比对行数和规范化 SHA-256，再校验对象 size/hash、知识库边界与随机引用跳转。
+4. S3 对象使用内容 hash key，只有暂存对象通过 ClamAV 后才进入 `available`；删除级联原件、派生资源、元素、chunk、vector 和 graph。
+5. outbox dispatcher 将任务投递到 Redis Streams consumer group；worker 用幂等提交、租约、指数退避和 DLQ 处理重复投递与崩溃恢复。
+6. pgvector collection/table 校验 embedding 模型、维度与 index version；不兼容索引必须重建，不能混读。
+7. 切换前执行 `verify:production`、备份恢复和计数/hash 对账；保留 SQLite 只读备份直到回滚窗口结束。
 
-升级和回滚细节见[Durable Local 0.2](durable-local-0.2.md)，生产职责见[生产适配方案](production-adapters.md)。
+升级和回滚细节见[Production Local 运行手册](production-local.md)和[Durable Local 0.2](durable-local-0.2.md)，生产职责见[生产适配方案](production-adapters.md)。

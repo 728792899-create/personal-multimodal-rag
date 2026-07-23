@@ -1,4 +1,4 @@
-# Personal Multimodal RAG · Evidence Workbench
+# Personal Multimodal RAG · Self-hosted Multimodal Evidence Platform
 
 [中文说明](README.md) · **English**
 
@@ -12,11 +12,13 @@
 
 [Quick start](#zero-key-quick-start) · [Case study](docs/case-study.md) · [Architecture](docs/architecture.md) · [Evaluation](docs/evaluation-results.md) · [Security](docs/security-model.md) · [Full documentation](docs/README.md)
 
-The project is a durable single-instance Beta rather than a chat UI wrapped around one model call. It ingests PDF, DOCX, Markdown, text, images and public URLs into isolated knowledge bases; combines BM25 and vector recall; persists conversations; streams audited answers; refuses unsupported questions; and links every answer back to inspectable chunks.
+The project is a single-user Production Local RC rather than a chat UI wrapped around one model call. It ingests PDF, DOCX, Markdown, text, images and public URLs into isolated knowledge bases; combines BM25, vector and provenance-backed graph navigation; persists conversations; streams audited answers; refuses unsupported questions; and links every answer back to inspectable evidence.
 
 **0.3 Multimodal Intelligence** adds a typed text/heading/image/table/equation/code intermediate representation, content-addressed assets, contextual enrichment, provenance-backed Graph-lite, 24-hour query images, precise element citations, and accessible graph inspection. Graph paths only navigate to local evidence chunks before RRF, MMR, reranking, refusal, and citation audit. Cooperative job cancellation now converges to a durable terminal state, and SQLite plus referenced objects can be exercised through a non-destructive isolated restore drill. The zero-download built-in parser and deterministic template enrichment remain the default; heavy parsers and vision providers are optional. See the [pinned RAG-Anything comparative review](docs/comparative-review-rag-anything.md) for the evidence and trade-offs.
 
-The default path is deterministic and offline: hash embeddings, an in-memory vector store and template answers require **no API key and make no paid API calls**. Optional adapters expose the production integration boundaries without making the local demo depend on them.
+The default path remains deterministic and offline: hash embeddings, an in-memory vector store and template answers require **no API key and make no paid API calls**.
+
+**0.4.0-rc.1 Production Local** separates three supported paths: `demo` for zero-key review, `local-production` for SQLite/local objects/Chroma/Ollama, and `production` for PostgreSQL/pgvector, S3/MinIO, Redis Streams, ClamAV and a fail-closed real provider. It also adds Argon2id session authentication, CSRF, a server-resolved workspace boundary, transactional outbox/DLQ, checksum-verified SQLite migration, incremental directory/URL/RSS sources, guarded deletion candidates and citation-aware Markdown exports. The project deliberately does not claim “production-ready” before its real-corpus, recovery and 14-day soak gates are met.
 
 ## What reviewers can verify
 
@@ -26,7 +28,7 @@ The default path is deterministic and offline: hash embeddings, an in-memory vec
 | Ordinary and expert modes | Stage-by-stage retrieval Trace | pytest, Vitest and Playwright |
 | Precise element citations and context | Citation and graph provenance audit | Fixed 100-case offline golden set |
 | Feedback to evaluation draft | Request IDs, timeout, cancel and retry | Health checks and multi-lane CI |
-| Durable local index jobs | Lease recovery, terminal cancellation and restore drill | 110 backend / 15 frontend / 8 E2E tests |
+| Durable local index jobs and source sync | Lease recovery, DLQ boundaries and restore drill | 136 backend / 19 frontend / 14 E2E tests |
 
 ![System map from ingestion to evidence-constrained answers and evaluation](docs/assets/system-overview.svg)
 
@@ -71,12 +73,22 @@ ANSWER_PROVIDER=template
 QUERY_REWRITE_PROVIDER=none
 ```
 
-The Docker path is equally self-contained:
+The Docker demo path is equally self-contained:
 
 ```bash
 docker compose up --build --wait -d
 npm run demo:bootstrap
 ```
+
+## Runtime modes
+
+| Mode | Data plane | Provider | Failure policy |
+| --- | --- | --- | --- |
+| `demo` | SQLite + local objects + memory vectors | mock + template | zero-key, auth may be disabled |
+| `local-production` | SQLite + local objects + Chroma | Ollama `qwen3:8b`, `nomic-embed-text`, cross-encoder | no template fallback |
+| `production` | PostgreSQL/pgvector + S3/MinIO + Redis Streams | Ollama or OpenAI-compatible | readiness fails when a required dependency is unavailable |
+
+See the [Production Local runbook](docs/production-local.md) and [incremental source guide](docs/source-sync.md). The browser may select only server-configured directory aliases; empty or partial syncs cannot trigger mass deletion.
 
 ## Architecture and request lifecycle
 
@@ -114,9 +126,9 @@ Or run `npm test`, `npm run lint:docs`, `npm run lint:secrets`, `npm run build`,
 
 ![Trust boundaries between the browser, API, untrusted input, providers and storage](docs/assets/security-boundaries.svg)
 
-Implemented controls cover upload type/size/signature checks, SSRF-aware URL validation across redirects, optional bearer authentication, process-local rate limiting, timeouts, terminal cooperative cancellation, source cleanup, request IDs and sensitive-log redaction. `scripts/verify_local_restore.py` creates an isolated SQLite snapshot and checks integrity, foreign keys, schema, safe object paths, byte sizes and SHA-256 without changing business rows in the input database. The default Sentry integration disables PII and request bodies.
+Implemented controls cover upload type/size/signature checks, SSRF-aware URL validation across redirects, Argon2id session authentication, HttpOnly/Secure/SameSite cookies, CSRF, login rate limiting, timeouts, terminal cooperative cancellation, request IDs and sensitive-log redaction. Production object ingestion uses staged content-addressed keys and an optional ClamAV gate. `scripts/verify_local_restore.py` creates an isolated SQLite snapshot and checks integrity, foreign keys, schema, safe object paths, byte sizes and SHA-256 without changing business rows in the input database.
 
-This repository does **not** claim multi-tenant isolation. Versioned SQLite migrations, a lease-based local worker, local uploads, memory vectors and process-local rate limiting fit the local/single-instance Beta. Production teams still need workspace-scoped authorization, a distributed queue, object storage, pgvector migrations, Redis-backed limits, malware scanning, backups and operational ownership. The boundary and migration steps are explicit in the [Durable Local 0.2 guide](docs/durable-local-0.2.md), [security model](docs/security-model.md), and [production adapter plan](docs/production-adapters.md).
+This repository does **not** claim multi-tenant isolation or a completed 1.0 production gate. The default workspace, owner, session and membership boundary is server-resolved, but 0.4 remains a single-admin deployment. OIDC/RBAC, HA, Kubernetes and multi-tenant authorization are deferred. The boundaries and migration steps are explicit in the [Production Local runbook](docs/production-local.md), [security model](docs/security-model.md), and [production adapter plan](docs/production-adapters.md).
 
 ## License
 

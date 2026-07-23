@@ -16,6 +16,8 @@ from app.api.routers.providers import router as providers_router
 from app.api.routers.parsers import router as parsers_router
 from app.api.routers.query_assets import router as query_assets_router
 from app.api.routers.system import router as system_router
+from app.api.routers.sources import router as sources_router
+from app.api.routers.exports import router as exports_router
 
 
 router = APIRouter()
@@ -29,3 +31,5 @@ router.include_router(providers_router)
 router.include_router(parsers_router)
 router.include_router(query_assets_router)
 router.include_router(system_router)
+router.include_router(sources_router)
+router.include_router(exports_router)

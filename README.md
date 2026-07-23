@@ -22,15 +22,17 @@
 
 **0.4.0-rc.1 Production Local** 开始把“演示能力”和“受支持运行路径”明确分开：保留零 Key Demo，同时增加失败关闭的 Local Production 与 Production profile、Argon2id 会话认证、CSRF、登录限流、PostgreSQL metadata adapter、pgvector、S3/MinIO、ClamAV、Redis Streams、事务 outbox、DLQ 和带 checksum 的 SQLite→PostgreSQL 迁移。RC 不使用 `production-ready` 宣称；完成真实资料基准、恢复演练与 14 天持续运行门槛后才会发布 1.0。
 
+同一版本还补齐日常使用闭环：可以订阅服务端白名单内的本地目录、URL 列表和 RSS/Atom，以内容 hash、ETag、Last-Modified 和稳定 external ID 做增量同步；空结果或部分失败不会触发批量删除，条目连续两次完整同步仍消失才进入人工确认。回答、会话和知识卡片均可导出带引用 Markdown。实现与安全边界见[持续数据源与增量同步](docs/source-sync.md)。
+
 ## 一分钟看懂
 
 ![系统从资料输入到质量回归的完整地图](docs/assets/system-overview.svg)
 
 | 默认体验 | 可信度机制 | 工程证据 | 生产边界 |
 | --- | --- | --- | --- |
-| 零 Key、离线可运行 | 无证据拒答 | 124 个后端测试 | Argon2id session 与可选 Sentry |
-| 多知识库、DOCX 与图片提问 | 十阶段检索 Trace | 17 个前端测试 | Chroma / pgvector adapter |
-| 持久会话与流式回答 | 精确元素引用与 Graph provenance | 12 个 Browser E2E | Redis Streams / S3 / ClamAV |
+| 零 Key、离线可运行 | 无证据拒答 | 136 个后端测试 | Argon2id session 与可选 Sentry |
+| 多知识库、DOCX 与图片提问 | 十阶段检索 Trace | 19 个前端测试 | Chroma / pgvector adapter |
+| 持久会话与流式回答 | 精确元素引用与 Graph provenance | 14 个 Browser E2E | Redis Streams / S3 / ClamAV |
 | 可恢复索引任务 | 反馈 → eval draft | 100 条黄金回归 case | Demo、Local Production、Production 明确分层 |
 
 这个仓库刻意同时展示三件事：**RAG 能力、工程可靠性、产品可信度**。如果只想快速体验，从[产品巡游](docs/product-tour.md)开始；如果要审查实现，阅读[架构](docs/architecture.md)和[检索原理](docs/retrieval-explained.md)；如果准备部署，直接查看[配置](docs/configuration.md)、[运维手册](docs/operations-runbook.md)与[生产适配](docs/production-adapters.md)。
@@ -49,13 +51,14 @@
 | 领域 | 已实现 | 默认离线 | 可选增强 |
 | --- | --- | :---: | --- |
 | 输入 | PDF、DOCX、Markdown、TXT、图片，以及 PNG/JPEG/WEBP/GIF 图片提问 | ✓ | Tesseract OCR / 视觉 Provider |
+| 数据源 | 白名单目录、URL 列表、RSS/Atom 增量同步与人工删除确认 | ✓ | connector registry 可继续扩展 |
 | 处理 | SQLite 任务、租约恢复、去重、终态取消、版本兼容 | ✓ | 分布式队列待接入 |
 | 检索 | 知识库隔离、BM25、vector、Graph-lite、RRF、MMR、rerank | ✓ | LightRAG 导航、local/OpenAI/Ollama embedding、Chroma、pgvector |
 | 回答 | 持久会话、SSE、模板/Responses/chat/Ollama adapter | ✓ | 外部 Provider 人工验证 |
 | 可信度 | no-answer gate、引用、相邻上下文、citation audit | ✓ | NLI/LLM judge 待规划 |
 | 质量 | 反馈、eval draft、黄金集、Recall@K、MRR、引用/拒答 | ✓ | 真实流量抽样待规划 |
 | 交付 | Nginx、FastAPI、Compose、healthcheck、GitHub Actions | ✓ | 云端基础设施由部署方接入 |
-| 安全 | 上传边界、SSRF、防泄漏日志、限流、Bearer token | ✓ | OIDC、Redis、AV scan 待部署 |
+| 安全 | 上传边界、SSRF、防泄漏日志、Argon2id session、CSRF | ✓ | OIDC/RBAC 顺延至 1.1 |
 
 ## 5 分钟离线启动
 
@@ -124,6 +127,13 @@ docker compose down
 
 Production profile 需要先生成 `secrets/` 中的本地 secret files；不会把密码或 Key写入镜像、Compose environment 或浏览器。完整前置检查、迁移和回滚见 [Production Local 运行手册](docs/production-local.md)。
 
+要启用目录订阅，把宿主机目录通过 `SOURCE_DIRECTORY` 只读挂载；工作台只会看到配置好的根目录别名：
+
+```bash
+SOURCE_DIRECTORY="$HOME/Documents/knowledge" \
+docker compose -f docker-compose.yml -f compose.local-production.yml up --build --wait -d
+```
+
 ## 可复现验收
 
 所有命令都强制使用离线 provider：
@@ -152,9 +162,9 @@ npm run verify
 
 | 检查 | 当前本地结果 | CI 门槛 |
 | --- | ---: | ---: |
-| 后端测试 | 124 passed + 2 PostgreSQL contract passed | 全部通过 |
-| 前端单元/组件 | 17 passed | 全部通过 |
-| Browser E2E | 12 passed | 桌面与移动全部通过 |
+| 后端测试 | 136 passed + 2 PostgreSQL contract passed | 全部通过 |
+| 前端单元/组件 | 19 passed | 全部通过 |
+| Browser E2E | 14 passed | 桌面与移动全部通过 |
 | Recall@5 | 1.0000 | ≥ 0.90 |
 | MRR | 0.9888 | ≥ 0.75 |
 | 首条引用准确率 | 0.9775 | ≥ 0.75 |
@@ -339,7 +349,7 @@ GitHub Actions 分五个 job：
 - **拒答优先于流畅。** 没有证据时给出缺口，比生成看似完整的答案更符合知识工具定位。
 - **Trace 服务于决策。** 不展示无组织的 debug JSON，而是按检索因果顺序组织信息。
 - **回归指标互相制衡。** Recall 防漏召回，MRR 防排序退化，引用防错来源，拒答防无依据扩张。
-- **本地边界不冒充多租户。** Bearer token、SQLite 和进程限流适合 Beta；真正 workspace 隔离需要 schema 与服务端授权。
+- **服务端决定 workspace。** 0.4 RC 已建立默认 workspace/owner/session/membership 边界；仍是单管理员单实例，不把它包装成多租户或 RBAC。
 - **真实截图与概念配图分工。** 截图证明产品状态，SVG/主视觉解释系统关系，两者都不能代替自动化测试。
 
 ## 参与与安全

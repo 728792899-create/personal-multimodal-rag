@@ -16,6 +16,7 @@ x-backend-environment: &backend-environment
   S3_SECRET_KEY_FILE: /run/secrets/s3_secret_key
   S3_CACHE_PATH: /app/cache/objects
   RAG_STAGING_PATH: /tmp/rag-staging
+  SOURCE_ROOTS: /sources
   CLAMAV_HOST: clamav
   CLAMAV_PORT: "3310"
   JOB_QUEUE_BACKEND: redis
@@ -145,6 +146,8 @@ services:
       clamav:
         condition: service_healthy
     read_only: true
+    volumes:
+      - ${SOURCE_DIRECTORY:-./data/sources}:/sources:ro
     tmpfs:
       - /tmp:size=1g,mode=1777
       - /app/cache:size=1g,mode=1777
@@ -168,6 +171,8 @@ services:
       backend:
         condition: service_healthy
     read_only: true
+    volumes:
+      - ${SOURCE_DIRECTORY:-./data/sources}:/sources:ro
     tmpfs:
       - /tmp:size=2g,mode=1777
       - /app/cache:size=1g,mode=1777

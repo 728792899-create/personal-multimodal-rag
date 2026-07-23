@@ -90,9 +90,11 @@ class IngestionWorker:
             self._process(job)
         except JobCancelled:
             self.registry.complete_index_job_cancellation(job["id"])
+            self._mark_source_item(job, "", "cancelled")
             self._cleanup_source_asset(job)
         except Exception as exc:
             self.registry.fail_index_job(job["id"], "INGESTION_FAILED", redact_sensitive_text(exc))
+            self._mark_source_item(job, "", "failed")
         return True
 
     def _process(self, job: dict) -> None:
@@ -182,12 +184,21 @@ class IngestionWorker:
                 "parser_profile": parser_profile,
             }
         )
+        if job["payload"].get("source_item_id"):
+            document.metadata.update(
+                {
+                    "source_id": str(job["payload"].get("source_id") or ""),
+                    "source_item_id": str(job["payload"]["source_item_id"]),
+                    "source_location": str(job["payload"].get("source_location") or ""),
+                }
+            )
         existing = self.registry.find_by_content_hash(
             str(document.metadata.get("content_hash") or ""),
             job["knowledge_base_id"],
         )
         if existing:
             self.registry.complete_index_job(job["id"], existing.document_id, deduped=True)
+            self._mark_source_item(job, existing.document_id, "active")
             self._cleanup_source_asset(job)
             return
 
@@ -248,6 +259,7 @@ class IngestionWorker:
             payload={"element_count": len(document.elements), "parser_profile": job["payload"].get("parser_profile", "builtin")},
         )
         self.registry.complete_index_job(job["id"], document.document_id)
+        self._mark_source_item(job, document.document_id, "active")
         self.registry.log_operation(
             "index_job_succeeded",
             f"后台索引完成：{document.file_name}",
@@ -274,3 +286,28 @@ class IngestionWorker:
         path = Path(str(job.get("payload", {}).get("staged_path") or ""))
         if path.name:
             path.unlink(missing_ok=True)
+
+    def _mark_source_item(self, job: dict, document_id: str, status: str) -> None:
+        source_item_id = str(job.get("payload", {}).get("source_item_id") or "")
+        if not source_item_id:
+            return
+        if document_id:
+            previous = self.registry.get_source_item(source_item_id)
+            self.registry.mark_source_item_indexed(source_item_id, document_id)
+            previous_document_id = str(previous.get("document_id") or "") if previous else ""
+            if (
+                previous_document_id
+                and previous_document_id != document_id
+                and self.registry.source_item_document_reference_count(previous_document_id) == 0
+            ):
+                assets = self.registry.list_assets(
+                    document_id=previous_document_id,
+                    include_private=True,
+                )
+                self.retriever.delete_document(previous_document_id)
+                self.registry.delete_document(previous_document_id)
+                for asset in assets:
+                    if self.registry.asset_reference_count(asset["object_key"]) == 0:
+                        self.object_store.delete(asset["object_key"])
+        else:
+            self.registry.update_source_item_status(source_item_id, status)

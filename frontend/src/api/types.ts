@@ -559,6 +559,58 @@ export interface AuthSession {
   expires_at: string
 }
 
+export type SourceType = 'local_directory' | 'url_list' | 'rss_atom'
+
+export interface Source {
+  id: string
+  knowledge_base_id: string
+  type: SourceType
+  name: string
+  config: Record<string, unknown>
+  enabled: boolean
+  item_count: number
+  deletion_candidate_count: number
+  created_at: string
+  updated_at: string
+}
+
+export interface SourceCapabilities {
+  types: SourceType[]
+  directory_roots: Array<{ id: string; label: string }>
+}
+
+export interface SourceItem {
+  id: string
+  source_id: string
+  external_id: string
+  location: string
+  title: string
+  content_hash: string
+  status: string
+  missing_successes: number
+  deletion_candidate: boolean
+  document_id: string
+  metadata: Record<string, unknown>
+  last_seen_at: string
+  updated_at: string
+}
+
+export interface SyncRun {
+  id: string
+  source_id: string
+  status: 'running' | 'succeeded' | 'partial' | 'failed'
+  discovered: number
+  unchanged: number
+  updated: number
+  deletion_candidates: number
+  failed: number
+  partial: boolean
+  empty_result: boolean
+  error_message: string
+  started_at: string
+  completed_at: string
+}
+
 export interface KnowledgeBase {
   id: string
   name: string

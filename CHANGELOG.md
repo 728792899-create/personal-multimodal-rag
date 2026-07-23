@@ -12,6 +12,9 @@
 - 原子 SQLite→PostgreSQL 迁移 CLI：自动备份、ID 保留、逐表 checksum 对账和失败回滚。
 - 失败关闭的运行配置校验与 live readiness；生产依赖异常不再静默降级到 template。
 - 非 root/read-only Production 镜像、secret-file 配置与 [Production Local 运行手册](docs/production-local.md)。
+- 白名单本地目录、URL 列表和 RSS/Atom connector registry；内容 hash、ETag/Last-Modified、稳定 external ID 与持久 `sync_runs` 增量闭环。
+- 空结果/部分失败删除保护、连续两次缺失候选、人工确认级联删除和重启后可重试的中断同步。
+- 带引用的回答、持久会话和知识卡片 Markdown 导出。
 - 0.3 多模态统一 IR：text、heading、image、table、equation、code 元素，保留页码、顺序、bbox、标题路径、结构化表格和精确引用 ID。
 - 内容寻址本地对象存储、原件受控下载、PDF/DOCX 内嵌图片物化、引用计数与删除/失败回滚。
 - SQLite schema v4：`assets`、`document_elements`、`parser_runs`、`enrichment_cache`，旧文档明确标记原件可用性。

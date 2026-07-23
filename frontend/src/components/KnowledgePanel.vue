@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import { exportConversationUrl, exportKnowledgeCardUrl } from '../api'
 import { useWorkbenchContext } from '../composables/workbenchContext'
+import SourceManager from './SourceManager.vue'
 
 const workbench = useWorkbenchContext()
 
@@ -134,6 +136,8 @@ function onKnowledgeBaseChange(event: Event) {
       <p v-else class="muted-copy">上传和 URL 导入会在这里显示可恢复进度。</p>
     </details>
 
+    <SourceManager />
+
     <div class="list-toolbar">
       <label for="document-filter" class="sr-only">筛选文档</label>
       <input
@@ -211,9 +215,32 @@ function onKnowledgeBaseChange(event: Event) {
             <span>{{ conversation.message_count }} 条消息 · {{ conversation.updated_at.slice(0, 10) }}</span>
           </button>
           <button type="button" class="button icon-button danger-button" :aria-label="`删除会话 ${conversation.title}`" @click="workbench.removeConversation(conversation.id)">×</button>
+          <a
+            class="button icon-button"
+            :href="exportConversationUrl(conversation.id)"
+            :aria-label="`导出会话 ${conversation.title}`"
+            download
+          >↓</a>
         </article>
       </div>
       <p v-else class="muted-copy">第一次提问时会创建本地持久化会话。</p>
+    </details>
+
+    <details class="history-section">
+      <summary>知识卡片 <span>{{ workbench.cards.value.length }}</span></summary>
+      <div v-if="workbench.cards.value.length" class="history-list">
+        <a
+          v-for="card in workbench.cards.value.slice(0, 8)"
+          :key="card.id"
+          class="export-row"
+          :href="exportKnowledgeCardUrl(card.id)"
+          download
+        >
+          <strong>{{ card.title }}</strong>
+          <span>导出 Markdown</span>
+        </a>
+      </div>
+      <p v-else class="muted-copy">从可信回答保存卡片后可在这里导出。</p>
     </details>
 
     <details class="history-section">

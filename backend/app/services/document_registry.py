@@ -68,7 +68,7 @@ class DocumentRegistry:
     SQLite URI plus a keeper connection to preserve test compatibility.
     """
 
-    CURRENT_SCHEMA_VERSION = 6
+    CURRENT_SCHEMA_VERSION = 7
 
     def __init__(self, db_path: str):
         self.db_path = db_path
@@ -1063,6 +1063,369 @@ class DocumentRegistry:
             for row in rows
         ]
 
+    # Incremental sources -------------------------------------------------------
+
+    def create_source(
+        self,
+        *,
+        source_type: str,
+        name: str,
+        config: dict,
+        knowledge_base_id: str = DEFAULT_KNOWLEDGE_BASE_ID,
+        enabled: bool = True,
+    ) -> dict:
+        source_id = str(uuid.uuid4())
+        now = _utcnow()
+        with self._connection() as connection:
+            self._assert_knowledge_base(connection, knowledge_base_id)
+            connection.execute(
+                """
+                INSERT INTO sources
+                  (source_id, workspace_id, knowledge_base_id, source_type, name,
+                   config, enabled, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    source_id,
+                    DEFAULT_WORKSPACE_ID,
+                    knowledge_base_id,
+                    source_type[:40],
+                    name.strip()[:160],
+                    json.dumps(config, ensure_ascii=False),
+                    int(enabled),
+                    now,
+                    now,
+                ),
+            )
+        return self.get_source(source_id) or {}
+
+    def get_source(self, source_id: str) -> dict | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                """
+                SELECT s.*,
+                  (SELECT COUNT(*) FROM source_items i WHERE i.source_id = s.source_id) AS item_count,
+                  (SELECT COUNT(*) FROM source_items i
+                   WHERE i.source_id = s.source_id AND i.deletion_candidate = 1) AS deletion_candidate_count
+                FROM sources s WHERE s.source_id = ?
+                """,
+                (source_id,),
+            ).fetchone()
+        return self._source_payload(row) if row else None
+
+    def list_sources(self, knowledge_base_id: str = "") -> list[dict]:
+        params: tuple = ()
+        where = ""
+        if knowledge_base_id:
+            where = "WHERE s.knowledge_base_id = ?"
+            params = (knowledge_base_id,)
+        with self._connection() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT s.*,
+                  (SELECT COUNT(*) FROM source_items i WHERE i.source_id = s.source_id) AS item_count,
+                  (SELECT COUNT(*) FROM source_items i
+                   WHERE i.source_id = s.source_id AND i.deletion_candidate = 1) AS deletion_candidate_count
+                FROM sources s
+                {where}
+                ORDER BY s.created_at ASC
+                """,
+                params,
+            ).fetchall()
+        return [self._source_payload(row) for row in rows]
+
+    def update_source(
+        self,
+        source_id: str,
+        *,
+        name: str | None = None,
+        config: dict | None = None,
+        enabled: bool | None = None,
+    ) -> dict | None:
+        current = self.get_source(source_id)
+        if not current:
+            return None
+        next_name = current["name"] if name is None else name.strip()[:160]
+        next_config = current["config"] if config is None else config
+        next_enabled = current["enabled"] if enabled is None else bool(enabled)
+        with self._connection() as connection:
+            connection.execute(
+                """
+                UPDATE sources SET name = ?, config = ?, enabled = ?, updated_at = ?
+                WHERE source_id = ?
+                """,
+                (
+                    next_name,
+                    json.dumps(next_config, ensure_ascii=False),
+                    int(next_enabled),
+                    _utcnow(),
+                    source_id,
+                ),
+            )
+        return self.get_source(source_id)
+
+    def delete_source(self, source_id: str) -> bool:
+        with self._connection() as connection:
+            cursor = connection.execute("DELETE FROM sources WHERE source_id = ?", (source_id,))
+        return cursor.rowcount > 0
+
+    def get_source_item(self, source_item_id: str) -> dict | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM source_items WHERE source_item_id = ?",
+                (source_item_id,),
+            ).fetchone()
+        return self._source_item_payload(row) if row else None
+
+    def find_source_item(self, source_id: str, external_id: str) -> dict | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM source_items WHERE source_id = ? AND external_id = ?",
+                (source_id, external_id),
+            ).fetchone()
+        return self._source_item_payload(row) if row else None
+
+    def list_source_items(self, source_id: str) -> list[dict]:
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM source_items
+                WHERE source_id = ?
+                ORDER BY deletion_candidate DESC, title ASC, external_id ASC
+                """,
+                (source_id,),
+            ).fetchall()
+        return [self._source_item_payload(row) for row in rows]
+
+    def upsert_source_item(
+        self,
+        *,
+        source_id: str,
+        external_id: str,
+        location: str,
+        title: str,
+        content_hash: str,
+        etag: str = "",
+        last_modified: str = "",
+        metadata: dict | None = None,
+        sync_run_id: str = "",
+    ) -> dict:
+        now = _utcnow()
+        source_item_id = str(uuid.uuid4())
+        with self._connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO source_items
+                  (source_item_id, source_id, external_id, location, title,
+                   content_hash, etag, last_modified, status, missing_successes,
+                   deletion_candidate, document_id, metadata, last_seen_sync_id,
+                   first_seen_at, last_seen_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', 0, 0, '', ?, ?, ?, ?, ?)
+                ON CONFLICT(source_id, external_id) DO UPDATE SET
+                  location = excluded.location,
+                  title = excluded.title,
+                  content_hash = excluded.content_hash,
+                  etag = excluded.etag,
+                  last_modified = excluded.last_modified,
+                  status = 'active',
+                  missing_successes = 0,
+                  deletion_candidate = 0,
+                  metadata = excluded.metadata,
+                  last_seen_sync_id = excluded.last_seen_sync_id,
+                  last_seen_at = excluded.last_seen_at,
+                  updated_at = excluded.updated_at
+                """,
+                (
+                    source_item_id,
+                    source_id,
+                    external_id,
+                    location[:2048],
+                    title[:240],
+                    content_hash,
+                    etag[:500],
+                    last_modified[:200],
+                    json.dumps(metadata or {}, ensure_ascii=False),
+                    sync_run_id,
+                    now,
+                    now,
+                    now,
+                ),
+            )
+        return self.find_source_item(source_id, external_id) or {}
+
+    def mark_source_item_indexed(self, source_item_id: str, document_id: str) -> dict | None:
+        with self._connection() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE source_items
+                SET document_id = ?, status = 'active', updated_at = ?
+                WHERE source_item_id = ?
+                """,
+                (document_id, _utcnow(), source_item_id),
+            )
+        return self.get_source_item(source_item_id) if cursor.rowcount else None
+
+    def update_source_item_status(self, source_item_id: str, status: str) -> dict | None:
+        with self._connection() as connection:
+            cursor = connection.execute(
+                "UPDATE source_items SET status = ?, updated_at = ? WHERE source_item_id = ?",
+                (status[:40], _utcnow(), source_item_id),
+            )
+        return self.get_source_item(source_item_id) if cursor.rowcount else None
+
+    def mark_missing_source_items(
+        self,
+        source_id: str,
+        seen_external_ids: set[str],
+        *,
+        threshold: int = 2,
+    ) -> int:
+        candidates = 0
+        with self._connection() as connection:
+            rows = connection.execute(
+                "SELECT source_item_id, external_id, missing_successes FROM source_items WHERE source_id = ?",
+                (source_id,),
+            ).fetchall()
+            for row in rows:
+                if row["external_id"] in seen_external_ids:
+                    continue
+                missing = int(row["missing_successes"]) + 1
+                deletion_candidate = int(missing >= max(2, threshold))
+                connection.execute(
+                    """
+                    UPDATE source_items
+                    SET missing_successes = ?, deletion_candidate = ?,
+                        status = ?, updated_at = ?
+                    WHERE source_item_id = ?
+                    """,
+                    (
+                        missing,
+                        deletion_candidate,
+                        "deletion_candidate" if deletion_candidate else "missing",
+                        _utcnow(),
+                        row["source_item_id"],
+                    ),
+                )
+                candidates += deletion_candidate
+        return candidates
+
+    def delete_source_item(self, source_item_id: str) -> dict | None:
+        item = self.get_source_item(source_item_id)
+        if not item:
+            return None
+        with self._connection() as connection:
+            connection.execute(
+                "DELETE FROM source_items WHERE source_item_id = ?",
+                (source_item_id,),
+            )
+        return item
+
+    def source_item_document_reference_count(self, document_id: str) -> int:
+        if not document_id:
+            return 0
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT COUNT(*) AS count FROM source_items WHERE document_id = ?",
+                (document_id,),
+            ).fetchone()
+        return int(row["count"] if row else 0)
+
+    def start_sync_run(self, source_id: str) -> dict:
+        run_id = str(uuid.uuid4())
+        now = _utcnow()
+        with self._connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO sync_runs
+                  (run_id, source_id, status, discovered_count, unchanged_count,
+                   updated_count, deletion_candidate_count, failed_count,
+                   partial, empty_result, error_message, started_at, completed_at)
+                VALUES (?, ?, 'running', 0, 0, 0, 0, 0, 0, 0, '', ?, '')
+                """,
+                (run_id, source_id, now),
+            )
+        return self.get_sync_run(run_id) or {}
+
+    def complete_sync_run(
+        self,
+        run_id: str,
+        *,
+        status: str,
+        discovered: int,
+        unchanged: int,
+        updated: int,
+        deletion_candidates: int,
+        failed: int,
+        partial: bool,
+        empty_result: bool,
+        error_message: str = "",
+    ) -> dict | None:
+        with self._connection() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE sync_runs
+                SET status = ?, discovered_count = ?, unchanged_count = ?,
+                    updated_count = ?, deletion_candidate_count = ?,
+                    failed_count = ?, partial = ?, empty_result = ?,
+                    error_message = ?, completed_at = ?
+                WHERE run_id = ?
+                """,
+                (
+                    status,
+                    discovered,
+                    unchanged,
+                    updated,
+                    deletion_candidates,
+                    failed,
+                    int(partial),
+                    int(empty_result),
+                    redact_sensitive_text(error_message)[:500],
+                    _utcnow(),
+                    run_id,
+                ),
+            )
+        return self.get_sync_run(run_id) if cursor.rowcount else None
+
+    def get_sync_run(self, run_id: str) -> dict | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM sync_runs WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+        return self._sync_run_payload(row) if row else None
+
+    def list_sync_runs(self, limit: int = 50, source_id: str = "") -> list[dict]:
+        with self._connection() as connection:
+            if source_id:
+                rows = connection.execute(
+                    """
+                    SELECT * FROM sync_runs WHERE source_id = ?
+                    ORDER BY started_at DESC LIMIT ?
+                    """,
+                    (source_id, max(1, min(limit, 200))),
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    "SELECT * FROM sync_runs ORDER BY started_at DESC LIMIT ?",
+                    (max(1, min(limit, 200)),),
+                ).fetchall()
+        return [self._sync_run_payload(row) for row in rows]
+
+    def recover_interrupted_sync_runs(self) -> int:
+        now = _utcnow()
+        with self._connection() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE sync_runs
+                SET status = 'failed', partial = 1,
+                    error_message = 'Sync interrupted before completion; retry is safe',
+                    completed_at = ?
+                WHERE status = 'running'
+                """,
+                (now,),
+            )
+        return cursor.rowcount
+
     # Existing quality/history APIs --------------------------------------------
 
     def save_history(self, question: str, response: dict, knowledge_base_id: str = DEFAULT_KNOWLEDGE_BASE_ID) -> dict:
@@ -1157,6 +1520,12 @@ class DocumentRegistry:
 
     def list_knowledge_cards(self, limit: int = 50) -> list[dict]:
         return self._json_rows("SELECT payload FROM knowledge_cards ORDER BY created_at DESC LIMIT ?", (limit,))
+
+    def get_knowledge_card(self, card_id: str) -> dict | None:
+        return self._json_row(
+            "SELECT payload FROM knowledge_cards WHERE card_id = ?",
+            (card_id,),
+        )
 
     def delete_knowledge_card(self, card_id: str) -> bool:
         with self._connection() as connection:
@@ -1444,6 +1813,55 @@ class DocumentRegistry:
                   error_message TEXT NOT NULL,
                   created_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS sources (
+                  source_id TEXT PRIMARY KEY,
+                  workspace_id TEXT NOT NULL DEFAULT 'default',
+                  knowledge_base_id TEXT NOT NULL,
+                  source_type TEXT NOT NULL,
+                  name TEXT NOT NULL,
+                  config TEXT NOT NULL,
+                  enabled INTEGER NOT NULL DEFAULT 1,
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL,
+                  FOREIGN KEY (knowledge_base_id) REFERENCES knowledge_bases(knowledge_base_id)
+                );
+                CREATE TABLE IF NOT EXISTS source_items (
+                  source_item_id TEXT PRIMARY KEY,
+                  source_id TEXT NOT NULL,
+                  external_id TEXT NOT NULL,
+                  location TEXT NOT NULL,
+                  title TEXT NOT NULL,
+                  content_hash TEXT NOT NULL DEFAULT '',
+                  etag TEXT NOT NULL DEFAULT '',
+                  last_modified TEXT NOT NULL DEFAULT '',
+                  status TEXT NOT NULL DEFAULT 'active',
+                  missing_successes INTEGER NOT NULL DEFAULT 0,
+                  deletion_candidate INTEGER NOT NULL DEFAULT 0,
+                  document_id TEXT NOT NULL DEFAULT '',
+                  metadata TEXT NOT NULL,
+                  last_seen_sync_id TEXT NOT NULL DEFAULT '',
+                  first_seen_at TEXT NOT NULL,
+                  last_seen_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL,
+                  UNIQUE (source_id, external_id),
+                  FOREIGN KEY (source_id) REFERENCES sources(source_id) ON DELETE CASCADE
+                );
+                CREATE TABLE IF NOT EXISTS sync_runs (
+                  run_id TEXT PRIMARY KEY,
+                  source_id TEXT NOT NULL,
+                  status TEXT NOT NULL,
+                  discovered_count INTEGER NOT NULL DEFAULT 0,
+                  unchanged_count INTEGER NOT NULL DEFAULT 0,
+                  updated_count INTEGER NOT NULL DEFAULT 0,
+                  deletion_candidate_count INTEGER NOT NULL DEFAULT 0,
+                  failed_count INTEGER NOT NULL DEFAULT 0,
+                  partial INTEGER NOT NULL DEFAULT 0,
+                  empty_result INTEGER NOT NULL DEFAULT 0,
+                  error_message TEXT NOT NULL DEFAULT '',
+                  started_at TEXT NOT NULL,
+                  completed_at TEXT NOT NULL DEFAULT '',
+                  FOREIGN KEY (source_id) REFERENCES sources(source_id) ON DELETE CASCADE
+                );
                 """
             )
             self._add_column_if_missing(connection, "knowledge_bases", "workspace_id", "TEXT NOT NULL DEFAULT 'default'")
@@ -1472,6 +1890,10 @@ class DocumentRegistry:
                 CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at, revoked_at);
                 CREATE INDEX IF NOT EXISTS idx_outbox_pending ON outbox_events(status, available_at);
                 CREATE INDEX IF NOT EXISTS idx_dead_letter_jobs_job ON dead_letter_jobs(job_id, created_at);
+                CREATE INDEX IF NOT EXISTS idx_sources_kb ON sources(knowledge_base_id, enabled);
+                CREATE INDEX IF NOT EXISTS idx_source_items_source ON source_items(source_id, status);
+                CREATE INDEX IF NOT EXISTS idx_source_items_document ON source_items(document_id);
+                CREATE INDEX IF NOT EXISTS idx_sync_runs_source ON sync_runs(source_id, started_at);
                 """
             )
             now = _utcnow()
@@ -1727,4 +2149,59 @@ class DocumentRegistry:
             "payload": json.loads(row["payload"]),
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
+        }
+
+    @staticmethod
+    def _source_payload(row) -> dict:
+        return {
+            "id": row["source_id"],
+            "knowledge_base_id": row["knowledge_base_id"],
+            "type": row["source_type"],
+            "name": row["name"],
+            "config": redact_private_metadata(json.loads(row["config"])),
+            "enabled": bool(row["enabled"]),
+            "item_count": int(row["item_count"]),
+            "deletion_candidate_count": int(row["deletion_candidate_count"]),
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    @staticmethod
+    def _source_item_payload(row) -> dict:
+        return {
+            "id": row["source_item_id"],
+            "source_id": row["source_id"],
+            "external_id": row["external_id"],
+            "location": row["location"],
+            "title": row["title"],
+            "content_hash": row["content_hash"],
+            "etag": row["etag"],
+            "last_modified": row["last_modified"],
+            "status": row["status"],
+            "missing_successes": int(row["missing_successes"]),
+            "deletion_candidate": bool(row["deletion_candidate"]),
+            "document_id": row["document_id"],
+            "metadata": redact_private_metadata(json.loads(row["metadata"])),
+            "last_seen_sync_id": row["last_seen_sync_id"],
+            "first_seen_at": row["first_seen_at"],
+            "last_seen_at": row["last_seen_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    @staticmethod
+    def _sync_run_payload(row) -> dict:
+        return {
+            "id": row["run_id"],
+            "source_id": row["source_id"],
+            "status": row["status"],
+            "discovered": int(row["discovered_count"]),
+            "unchanged": int(row["unchanged_count"]),
+            "updated": int(row["updated_count"]),
+            "deletion_candidates": int(row["deletion_candidate_count"]),
+            "failed": int(row["failed_count"]),
+            "partial": bool(row["partial"]),
+            "empty_result": bool(row["empty_result"]),
+            "error_message": row["error_message"],
+            "started_at": row["started_at"],
+            "completed_at": row["completed_at"],
         }

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
+import { exportHistoryUrl } from '../api'
 import { useWorkbenchContext } from '../composables/workbenchContext'
 
 const workbench = useWorkbenchContext()
@@ -121,6 +122,12 @@ function percent(value?: number) {
         <button type="button" class="button secondary-button" :disabled="workbench.rewriting.value" @click="workbench.handleRewrite('highlights')">改写为要点</button>
         <button type="button" class="button secondary-button" :disabled="workbench.rewriting.value" @click="workbench.handleRewrite('study')">改写为笔记</button>
         <button type="button" class="button secondary-button" @click="workbench.handleSaveCard">保存知识卡片</button>
+        <a
+          v-if="workbench.answer.value.history_id"
+          class="button secondary-button"
+          :href="exportHistoryUrl(workbench.answer.value.history_id)"
+          download
+        >导出 Markdown</a>
       </div>
       <div v-if="workbench.rewriteResult.value" class="rewrite-result">
         <strong>{{ workbench.rewriteResult.value.label }}</strong>
