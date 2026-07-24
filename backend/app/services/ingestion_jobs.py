@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import threading
 import time
 import uuid
@@ -13,6 +14,9 @@ from app.services.object_store import LocalObjectStore
 from app.services.parser_worker import ParserJobCancelled, document_from_content_list
 from app.services.multimodal_assets import materialize_document_assets
 from app.services.production_metrics import production_metrics
+
+
+logger = logging.getLogger(__name__)
 
 
 class JobCancelled(Exception):
@@ -99,7 +103,14 @@ class IngestionWorker:
                     )
                 except Exception:
                     self._stop.wait(self.settings.ingestion_poll_seconds)
-            processed = self.run_once()
+            try:
+                processed = self.run_once()
+            except Exception as exc:
+                processed = False
+                logger.warning(
+                    "index worker poll failed; retrying error_type=%s",
+                    type(exc).__name__,
+                )
             if message is not None:
                 try:
                     self.job_signal_queue.acknowledge(message.message_id)
