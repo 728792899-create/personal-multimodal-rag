@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
 from dataclasses import dataclass
 
 from app.services.safe_logging import redact_sensitive_text
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -132,5 +136,13 @@ class OutboxDispatcher:
 
     def _loop(self) -> None:
         while not self._stop.is_set():
-            if not self.dispatch_once():
+            try:
+                published = self.dispatch_once()
+            except Exception as exc:
+                logger.warning(
+                    "outbox dispatch poll failed; retrying error_type=%s",
+                    type(exc).__name__,
+                )
+                published = 0
+            if not published:
                 self._stop.wait(self.poll_seconds)
