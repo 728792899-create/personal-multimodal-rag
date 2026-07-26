@@ -130,7 +130,7 @@ docker compose \
   up -d --no-deps soak-monitor
 ```
 
-每个事件包含前一事件 hash；任何编辑都会使验证失败：
+每个事件包含前一事件 hash；任何编辑都会使验证失败。验证命令还会比较宿主机真实 UTC 与最后样本时间，并核对 state 的样本数、末尾 hash 和末次时间，避免“链本身正确但 monitor 已冻结”被误判为通过：
 
 ```bash
 npm run soak:verify
@@ -170,6 +170,8 @@ curl --fail http://127.0.0.1:5173/api/system/readiness-report
 | Provider | Ollama 0.32.1 原生/兼容 embedding 通过且为 768 维；三类 `qwen3:8b` 生成请求均 180 秒超时 |
 | Sentry | 阻断：无 DSN，未发送真实事件；Docker 7.8 GiB，不满足 14 GiB full profile 内存门 |
 | 人工标注 / 真实问题 | 0/200、0/100；200 条机器候选只计 draft |
-| 14 天观测 | 已从 `2026-07-23T10:25:17Z` 首个健康样本开始，不能回填，尚未达标 |
+| 14 天观测 | 四次真实宿主机/运行时间隔均已入链并自然重置；截至 `2026-07-26T05:27:19Z` 共 636 个样本、22 个失败样本，最长连续 81,984 秒，当前窗口从 `2026-07-26T04:57:18Z` 开始，尚未达标 |
+
+第四次恢复还复现了 Nginx 在 backend 容器重建后保留旧 Docker IP、导致前端 `/ready` 返回 502 的问题。前端现使用 Docker embedded DNS 按请求重新解析 backend，CI 会强制替换 backend 后再次检查代理路径；soak verifier 同时增加宿主机 wall-clock freshness 与 state/chain 一致性门。修复没有删除卷、回填样本或抹去历史失败。
 
 私有 JSON 证据和第三方原文受 `.gitignore` 保护；仓库只提交采集器、门槛和本脱敏摘要。

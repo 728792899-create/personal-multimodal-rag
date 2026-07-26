@@ -16,7 +16,7 @@
 - 本机 Ollama 的 embedding 原生/兼容接口已真实通过，但 `qwen3:8b` 的原生 chat、OpenAI-compatible chat-completions 与 Responses 均在 180 秒超时；生产默认模型仍需按目标硬件重新选型。没有 OpenAI 云端凭据，也没有连接托管 OIDC 或 Sentry 项目。
 - 当前是服务端解析的单 workspace/单管理员边界；多 workspace、OIDC/RBAC 与数据库 RLS 顺延到 1.1。
 - GitHub Actions 已在远端实际运行后端、前端/E2E、检索评测和 Docker Compose job；后续每次合并仍需以对应提交的检查结果为准。
-- 已在本机隔离生产栈执行一次破坏性恢复和五类故障注入；这不替代目标容量环境复演。14 天链刚开始，人工标注、真实问题和真实语料质量基准仍未达标。
+- 已在本机隔离生产栈执行一次破坏性恢复和五类故障注入；这不替代目标容量环境复演。14 天链已如实记录四次宿主机/容器运行时长间隔，最长连续窗口为 81,984 秒，当前窗口已自然重置；人工标注、真实问题和真实语料质量基准仍未达标。
 - Sentry SDK 与脱敏器已接入，但无 DSN，未验证真实事件；Docker 7.8 GiB 也不满足 full self-hosted profile 的资源门。
 - MinerU 高级解析真实 PNG 已通过；Docling/PaddleOCR 未安装，复杂 PDF/DOCX、GPU/内存峰值和质量仍需目标 runner 验收。
 

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import stat
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -144,6 +146,78 @@ def test_soak_monitor_rejects_tampered_evidence(tmp_path, monkeypatch):
     path.write_text(json.dumps(event) + "\n", encoding="utf-8")
     with pytest.raises(ValueError, match="hash chain"):
         soak_monitor.verify_chain(path)
+
+
+def test_soak_verification_requires_fresh_wall_clock_and_consistent_state(
+    tmp_path, monkeypatch
+):
+    observed = datetime(2026, 7, 25, 5, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(soak_monitor, "utc_now", lambda: observed)
+    monkeypatch.setattr(
+        soak_monitor,
+        "fetch_json",
+        lambda *_args, **_kwargs: (
+            200,
+            {
+                "status": "ready",
+                "runtime": {
+                    "ready": True,
+                    "configured": True,
+                    "mode": "production",
+                    "components": {"metadata": {"healthy": True}},
+                },
+            },
+            1.0,
+        ),
+    )
+    soak_monitor.sample(
+        tmp_path,
+        health_url="http://health",
+        readiness_url="",
+        expected_mode="production",
+        timeout=1,
+        maximum_gap_seconds=30,
+    )
+
+    current = soak_monitor.verify_evidence(
+        tmp_path,
+        now=observed + timedelta(seconds=10),
+        maximum_age_seconds=30,
+    )
+    assert current["eligible"] is True
+    assert current["wall_clock_fresh"] is True
+    assert current["state_consistent"] is True
+
+    stale = soak_monitor.verify_evidence(
+        tmp_path,
+        now=observed + timedelta(seconds=31),
+        maximum_age_seconds=30,
+    )
+    assert stale["eligible"] is False
+    assert stale["wall_clock_fresh"] is False
+    assert stale["last_event_age_seconds"] == 31
+
+    state_path = tmp_path / "soak-state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["last_event_hash"] = "mismatched"
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    inconsistent = soak_monitor.verify_evidence(
+        tmp_path,
+        now=observed + timedelta(seconds=10),
+        maximum_age_seconds=30,
+    )
+    assert inconsistent["eligible"] is False
+    assert inconsistent["state_consistent"] is False
+
+
+def test_frontend_proxy_resolves_backend_at_request_time():
+    nginx = (
+        Path(__file__).resolve().parents[2] / "frontend" / "nginx.conf"
+    ).read_text(encoding="utf-8")
+
+    assert "resolver 127.0.0.11" in nginx
+    assert "set $backend_upstream backend:8010;" in nginx
+    assert "proxy_pass http://$backend_upstream" in nginx
 
 
 def test_real_corpus_manifest_requires_unique_licensed_sources(tmp_path):
@@ -350,3 +424,52 @@ def test_release_evidence_refuses_to_count_unmatched_or_unreviewed_artifacts(tmp
     assert result["corpus"]["annotated_questions"] == 0
     assert result["operations"]["soak_days"] == 0
     assert result["operations"]["no_data_loss_defect"] is False
+
+
+def test_release_evidence_uses_current_verified_soak_window(tmp_path, monkeypatch):
+    evidence_dir = tmp_path / "evidence"
+    evidence_dir.mkdir()
+    manifest = tmp_path / "corpus-manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "licensed_materials": 1,
+                "documents": [{"sha256": "expected", "license_name": "MIT"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (evidence_dir / "indexing-summary.json").write_text(
+        json.dumps(
+            {"indexed_documents": 1, "corpus_sha256": ["expected"]}
+        ),
+        encoding="utf-8",
+    )
+    (evidence_dir / "restore-summary.json").write_text(
+        json.dumps({"passed": True}),
+        encoding="utf-8",
+    )
+    (evidence_dir / "chaos-summary.json").write_text(
+        json.dumps({"passed": True}),
+        encoding="utf-8",
+    )
+    (evidence_dir / "soak-state.json").write_text(
+        json.dumps(
+            {
+                "continuous_seconds": 14 * 86_400,
+                "failure_count": 4,
+                "sample_count": 4_100,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        build_release_evidence,
+        "verify_evidence",
+        lambda _directory: {"eligible": True},
+    )
+
+    result = build_release_evidence.build(evidence_dir, manifest)
+
+    assert result["operations"]["soak_days"] == 14
+    assert result["operations"]["no_data_loss_defect"] is True

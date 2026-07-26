@@ -22,7 +22,7 @@
 
 **0.4.0-rc.1 Production Local** 开始把“演示能力”和“受支持运行路径”明确分开：保留零 Key Demo，同时增加失败关闭的 Local Production 与 Production profile、Argon2id 会话认证、CSRF、登录限流、PostgreSQL metadata adapter、pgvector、S3/MinIO、ClamAV、Redis Streams、事务 outbox、DLQ 和带 checksum 的 SQLite→PostgreSQL 迁移。RC 不使用 `production-ready` 宣称；完成真实资料基准、恢复演练与 14 天持续运行门槛后才会发布 1.0。
 
-2026-07-23 的私有 Production 验收已索引 **21 组有许可证来源 / 200 份非 fixture 文档 / 5,159 个 768 维向量**，并真实通过 PostgreSQL + pgvector + MinIO 破坏性恢复及 API、worker、Redis、PostgreSQL、MinIO 五类故障注入。MinerU 高级解析真实任务通过；Ollama embedding 通过，但 `qwen3:8b` 三类生成接口在本机 180 秒超时。14 天不可回填观测已从首个健康样本开始；人工标注仍为 0/200、本人真实问题仍为 0/100，Sentry 因无 DSN 未验收。因此版本仍是 RC，完整证据与复现命令见[现场验收手册](docs/production-validation.md)。
+2026-07-23 的私有 Production 验收已索引 **21 组有许可证来源 / 200 份非 fixture 文档 / 5,159 个 768 维向量**，并真实通过 PostgreSQL + pgvector + MinIO 破坏性恢复及 API、worker、Redis、PostgreSQL、MinIO 五类故障注入。MinerU 高级解析真实任务通过；Ollama embedding 通过，但 `qwen3:8b` 三类生成接口在本机 180 秒超时。持续观测如实记录了四次宿主机/容器运行时长间隔，并在每次超限后自然重置；截至 2026-07-26，最长连续窗口为 81,984 秒，当前窗口从 `2026-07-26T04:57:18Z` 重新开始。人工标注仍为 0/200、本人真实问题仍为 0/100，Sentry 因无 DSN 未验收。因此版本仍是 RC，完整证据与复现命令见[现场验收手册](docs/production-validation.md)。
 
 同一版本还补齐日常使用闭环：可以订阅服务端白名单内的本地目录、URL 列表和 RSS/Atom，以内容 hash、ETag、Last-Modified 和稳定 external ID 做增量同步；空结果或部分失败不会触发批量删除，条目连续两次完整同步仍消失才进入人工确认。回答、会话和知识卡片均可导出带引用 Markdown。实现与安全边界见[持续数据源与增量同步](docs/source-sync.md)。
 
@@ -167,8 +167,8 @@ npm run verify
 
 | 检查 | 当前本地结果 | CI 门槛 |
 | --- | ---: | ---: |
-| 后端测试 | 152 passed、3 skipped + 2 PostgreSQL contract passed | 全部通过 |
-| 前端单元/组件 | 19 passed | 全部通过 |
+| 后端测试 | 179 passed、3 skipped + 2 PostgreSQL contract passed | 全部通过 |
+| 前端单元/组件 | 22 passed | 全部通过 |
 | Browser E2E | 14 passed | 桌面与移动全部通过 |
 | Recall@5 | 1.0000 | ≥ 0.90 |
 | MRR | 0.9888 | ≥ 0.75 |

@@ -127,10 +127,10 @@ Docker 实栈重新构建后，`/ready` 返回 schema version 5 与 `mock / memo
 
 | 项目 | 真实结果 |
 | --- | --- |
-| 后端 pytest | 152 passed、3 skipped；含 session/CSRF、Redis/outbox/DLQ、S3 生命周期、数据源同步、fetch IP pinning、Prometheus/telemetry scrubber、备份与 release gate |
+| 后端 pytest | 179 passed、3 skipped；含 session/CSRF、Redis/outbox/DLQ、S3 生命周期、数据源同步、fetch IP pinning、Prometheus/telemetry scrubber、备份、soak freshness 与 release gate |
 | PostgreSQL 实栈 contract | 2 passed；真实 pgvector PostgreSQL 容器验证任务状态和 SQLite→PostgreSQL ID/checksum 对账 |
-| 前端 Vitest | 7 files / 19 tests passed |
-| `npm run build` | 通过；JS 157.08 kB（gzip 53.90），CSS 31.97 kB（gzip 6.33） |
+| 前端 Vitest | 7 files / 22 tests passed |
+| `npm run build` | 通过；JS 161.08 kB（gzip 55.20），CSS 32.76 kB（gzip 6.46） |
 | Playwright | 14 passed；desktop + mobile，含 session 登录/登出、source sync 与错误恢复 |
 | 固定黄金集 | 100 cases；12 项阈值全部通过 |
 | 生产 contract | fail-closed 配置、固定镜像、只读应用容器通过；真实 evidence 样例保持 0/13 gates blocked |
@@ -143,7 +143,7 @@ Docker 实栈重新构建后，`/ready` 返回 schema version 5 与 `mock / memo
 
 内置 Browser 打开重建后的真实 Compose 页面，普通模式、专家参数和 source/conversation 区均正常。旧持久文档的 `hybrid-v1` 与当前 `multimodal-v1` 不兼容时，页面如实显示 `needs_rebuild` 和 0 chunks；实际点击“重建全部索引”后恢复为 7 chunks，再次提问得到“回答已生成”、4 条引用和包含 BM25、向量、Graph、MMR、Rerank、引用覆盖率的十阶段 Trace。以 Browser 视口 override 实测 CSS viewport 388px，`scrollWidth === clientWidth === 388`。停止后端后页面显示“请求失败（504）”和“重试连接”；服务恢复后点击重试返回 Provider ready，错误消失且窄屏无溢出。
 
-首轮远端 Security workflow 发现旧固定依赖有 17 条已公布漏洞，且 Trivy Action 使用了不存在的 tag。依照 2026-07-23 官方 PyPI/项目 release 升级 FastAPI 0.139.2、Starlette 1.3.1、python-multipart 0.0.32、PyMuPDF 1.28.0、pytest 9.1.1、python-dotenv 1.2.2，并改用 `aquasecurity/trivy-action@v0.36.0`。新依赖镜像下完整后端仍为 152 passed、3 skipped，Playwright 14 passed；`pip-audit -r backend/requirements-production.txt` 返回 `No known vulnerabilities found`。
+首轮远端 Security workflow 发现旧固定依赖有 17 条已公布漏洞，且 Trivy Action 使用了不存在的 tag。依照 2026-07-23 官方 PyPI/项目 release 升级 FastAPI 0.139.2、Starlette 1.3.1、python-multipart 0.0.32、PyMuPDF 1.28.0、pytest 9.1.1、python-dotenv 1.2.2，并改用 `aquasecurity/trivy-action@v0.36.0`。新依赖镜像下最新完整后端为 179 passed、3 skipped，Playwright 14 passed；`pip-audit -r backend/requirements-production.txt` 返回 `No known vulnerabilities found`。
 
 修复提交的 Trivy 复扫进一步发现隔离 parser worker 仍单独固定 `python-multipart 0.0.20`。该 worker 已同步升级到 FastAPI 0.139.2 与 python-multipart 0.0.32；这是高级 profile 的独立依赖边界，不应由主后端审计结果替代。
 
@@ -164,4 +164,4 @@ Docker 实栈重新构建后，`/ready` 返回 schema version 5 与 `mock / memo
 
 MinerU 3.4.4 / RAG-Anything 1.3.1 隔离容器对真实 fixture PNG 解析成功并返回 3 个元素；Docling/PaddleOCR 未安装。Ollama 0.32.1 的原生/兼容 embedding 均成功并返回 768 维，`qwen3:8b` 原生 chat、chat-completions 和 Responses 均在 180 秒超时，故 Provider 总验收失败。Sentry 无 DSN、无真实事件，Docker 7.8 GiB 不满足 full self-hosted profile。
 
-14 天 hash-chained soak 于 `2026-07-23T10:25:17Z` 从第一个健康样本开始，历史不回填。机器已生成 200 条 draft，但人工确认仍为 0；真实问题来源声明仍为 0。以上数字不会被自动化或 fixture 补齐，项目继续保持 `0.4.0-rc.1`。
+14 天 hash-chained soak 于 `2026-07-23T10:25:17Z` 从第一个健康样本开始，历史不回填。到 `2026-07-26T05:27:19Z`，SHA-256 链含 636 个样本和 22 个失败样本；四次真实宿主机/运行时间隔均让连续时间自然重置，最长连续窗口为 81,984 秒，当前窗口从 `2026-07-26T04:57:18Z` 开始。第四次恢复复现并修复 Nginx 缓存已重建 backend 地址的问题；verifier 也新增宿主机时间 freshness 与 state/chain 一致性检查。机器已生成 200 条 draft，但人工确认仍为 0；真实问题来源声明仍为 0。以上数字不会被自动化或 fixture 补齐，项目继续保持 `0.4.0-rc.1`。

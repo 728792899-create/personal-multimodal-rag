@@ -196,6 +196,7 @@ def sample(
 def verify_chain(path: Path) -> dict:
     previous = ""
     count = 0
+    last_observed_at = ""
     with path.open(encoding="utf-8") as source:
         for line_number, line in enumerate(source, 1):
             event = json.loads(line)
@@ -203,8 +204,49 @@ def verify_chain(path: Path) -> dict:
             if event.get("previous_hash") != previous or event_hash(event) != recorded:
                 raise ValueError(f"invalid soak hash chain at line {line_number}")
             previous = recorded
+            last_observed_at = str(event.get("observed_at") or "")
             count += 1
-    return {"valid": True, "events": count, "last_event_hash": previous}
+    return {
+        "valid": True,
+        "events": count,
+        "last_event_hash": previous,
+        "last_observed_at": last_observed_at,
+    }
+
+
+def verify_evidence(
+    directory: Path,
+    *,
+    now: datetime | None = None,
+    maximum_age_seconds: float = 900,
+) -> dict:
+    chain = verify_chain(directory / "soak-events.jsonl")
+    state = load_state(directory / "soak-state.json")
+    observed_at = chain["last_observed_at"]
+    try:
+        observed = datetime.fromisoformat(observed_at)
+        age_seconds = ((now or utc_now()) - observed).total_seconds()
+    except (TypeError, ValueError):
+        age_seconds = float("inf")
+    wall_clock_fresh = -5 <= age_seconds <= max(1.0, maximum_age_seconds)
+    try:
+        state_consistent = (
+            int(state.get("sample_count", -1)) == int(chain["events"])
+            and state.get("last_event_hash") == chain["last_event_hash"]
+            and state.get("last_sample_at") == observed_at
+        )
+    except (TypeError, ValueError):
+        state_consistent = False
+    return {
+        **chain,
+        "wall_clock_fresh": wall_clock_fresh,
+        "last_event_age_seconds": (
+            round(age_seconds, 2) if age_seconds != float("inf") else None
+        ),
+        "state_consistent": state_consistent,
+        "eligible": bool(chain["valid"] and wall_clock_fresh and state_consistent),
+        "state": state,
+    }
 
 
 def stop(_signum, _frame) -> None:
@@ -223,15 +265,18 @@ def main() -> int:
     parser.add_argument("--expected-mode", default="production")
     parser.add_argument("--interval-seconds", type=float, default=300)
     parser.add_argument("--timeout-seconds", type=float, default=10)
+    parser.add_argument("--maximum-age-seconds", type=float, default=900)
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--verify", action="store_true")
     args = parser.parse_args()
     directory = args.evidence_dir.expanduser().resolve()
     if args.verify:
-        result = verify_chain(directory / "soak-events.jsonl")
-        result["state"] = load_state(directory / "soak-state.json")
+        result = verify_evidence(
+            directory,
+            maximum_age_seconds=max(1.0, args.maximum_age_seconds),
+        )
         print(json.dumps(result, indent=2))
-        return 0
+        return 0 if result["eligible"] else 1
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     interval = max(30.0, args.interval_seconds)
