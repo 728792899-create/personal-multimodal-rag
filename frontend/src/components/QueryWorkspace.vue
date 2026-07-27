@@ -59,7 +59,7 @@ watch(
             <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 18V9m5 9V5m6 13v-7m5 7V3"/><path d="M2 18h20"/></svg>
             检索参数
           </span>
-          <small>BM25 {{ workbench.bm25Weight.value.toFixed(2) }} / Vector {{ workbench.vectorWeight.value.toFixed(2) }}</small>
+          <small>BM25 {{ workbench.bm25Weight.value.toFixed(2) }} / 向量 {{ workbench.vectorWeight.value.toFixed(2) }}</small>
         </summary>
         <div class="expert-panel-body">
           <div class="expert-panel-heading">
@@ -79,19 +79,19 @@ watch(
               </select>
             </label>
             <label>
-              <span>检索 Profile</span>
+              <span>检索配置</span>
               <select v-model="workbench.searchProfile.value" name="search-profile">
-                <option value="balanced">Balanced</option>
-                <option value="precision">Precision</option>
-                <option value="recall">Recall</option>
+                <option value="balanced">均衡</option>
+                <option value="precision">精准</option>
+                <option value="recall">召回优先</option>
               </select>
             </label>
             <label>
               <span>证据策略</span>
               <select v-model="workbench.retrievalStrategy.value" name="retrieval-strategy">
-                <option value="auto">Auto 自动关系识别</option>
-                <option value="hybrid">Hybrid</option>
-                <option value="hybrid_graph">Hybrid + Graph</option>
+                <option value="auto">自动关系识别</option>
+                <option value="hybrid">混合检索</option>
+                <option value="hybrid_graph">混合检索 + 图谱</option>
               </select>
             </label>
             <label>
@@ -116,14 +116,14 @@ watch(
             </label>
             <label class="checkbox-field">
               <input v-model="workbench.queryRewrite.value" name="query-rewrite" type="checkbox" />
-              <span>Query Rewrite</span>
+              <span>查询改写</span>
             </label>
             <label>
-              <span>Graph 权重 <strong>{{ workbench.graphWeight.value.toFixed(2) }}</strong></span>
+              <span>图谱权重 <strong>{{ workbench.graphWeight.value.toFixed(2) }}</strong></span>
               <input v-model.number="workbench.graphWeight.value" name="graph-weight" type="range" min="0" max="1" step="0.05" />
             </label>
             <label>
-              <span>Graph 跳数</span>
+              <span>图谱跳数</span>
               <input v-model.number="workbench.graphMaxHops.value" name="graph-hops" type="number" min="1" max="4" />
             </label>
             <label>
@@ -196,10 +196,10 @@ watch(
         <label class="attachment-detail">
           <span>视觉细节</span>
           <select v-model="workbench.queryAttachmentDetail.value">
-            <option value="auto">Auto</option>
-            <option value="low">Low</option>
-            <option value="high">High</option>
-            <option value="original">Original</option>
+            <option value="auto">自动</option>
+            <option value="low">低</option>
+            <option value="high">高</option>
+            <option value="original">原始</option>
           </select>
         </label>
       </div>
@@ -315,7 +315,7 @@ watch(
           :class="{ best: profile.id === workbench.compareResult.value.best_profile }"
         >
           <strong>{{ profile.label }}</strong>
-          <span>{{ profile.summary.returned }} 条 · top {{ profile.summary.top_score }}</span>
+          <span>{{ profile.summary.returned }} 条 · 最高分 {{ profile.summary.top_score }}</span>
           <small>{{ profile.summary.top_source }}</small>
         </article>
       </div>

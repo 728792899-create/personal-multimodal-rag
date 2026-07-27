@@ -2,9 +2,9 @@
 
 [中文说明](README.md) · **English**
 
-[![CI](https://github.com/728792899-create/personal-multimodal-rag/actions/workflows/ci.yml/badge.svg)](https://github.com/728792899-create/personal-multimodal-rag/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-0f766e.svg)](LICENSE)
-[![Offline First](https://img.shields.io/badge/default-offline%20%2F%20zero--key-7c3aed.svg)](.env.example)
+[![持续集成](https://img.shields.io/badge/%E6%8C%81%E7%BB%AD%E9%9B%86%E6%88%90-%E6%9F%A5%E7%9C%8B%E5%B7%A5%E4%BD%9C%E6%B5%81-0f766e.svg)](https://github.com/728792899-create/personal-multimodal-rag/actions/workflows/ci.yml)
+[![许可证：MIT](https://img.shields.io/badge/%E8%AE%B8%E5%8F%AF%E8%AF%81-MIT-0f766e.svg)](LICENSE)
+[![离线优先](https://img.shields.io/badge/%E9%BB%98%E8%AE%A4-%E7%A6%BB%E7%BA%BF%20%2F%20%E9%9B%B6%E5%AF%86%E9%92%A5-7c3aed.svg)](.env.example)
 
 ![PDF, URL, image and note evidence flowing through hybrid retrieval and a refusal gate](docs/assets/social-preview.png)
 

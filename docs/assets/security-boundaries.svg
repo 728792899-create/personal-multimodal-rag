@@ -1,41 +1,41 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="760" viewBox="0 0 1440 760" role="img" aria-labelledby="title desc">
-  <title id="title">Security trust boundaries for the local Beta and external adapters</title>
-  <desc id="desc">Untrusted browser, uploads and URLs enter guarded application boundaries; local storage and optional external providers are separated with controls and documented residual risks.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="760" viewBox="0 0 1440 760" role="img" aria-labelledby="title desc" lang="zh-CN" xml:lang="zh-CN">
+  <title id="title">本地候选版与外部适配器的安全信任边界</title>
+  <desc id="desc">不受信任的浏览器、上传文件和 URL 进入受防护的应用边界；本地存储和可选外部提供方由控制措施分隔，并列出剩余风险。</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#071629"/><stop offset="1" stop-color="#102c3b"/></linearGradient>
     <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 10 5 0 10z" fill="#67e8f9"/></marker>
-    <style>text{font-family:Arial,Helvetica,sans-serif}.h{font-size:30px;font-weight:700;fill:#f8fafc}.sub{font-size:16px;fill:#94a3b8}.zone{font-size:13px;font-weight:700;letter-spacing:1.3px;fill:#5eead4}.t{font-size:17px;font-weight:700;fill:#e2e8f0}.c{font-size:13px;fill:#94a3b8}.box{fill:#10283b;stroke:#2b5d70;stroke-width:1.5}.risk{fill:#3b1d2a;stroke:#be4b68;stroke-width:1.5}.line{fill:none;stroke:#67e8f9;stroke-width:2.2;marker-end:url(#arrow)}</style>
+    <style>text{font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC",Arial,Helvetica,sans-serif}.h{font-size:30px;font-weight:700;fill:#f8fafc}.sub{font-size:16px;fill:#94a3b8}.zone{font-size:13px;font-weight:700;letter-spacing:1.3px;fill:#5eead4}.t{font-size:17px;font-weight:700;fill:#e2e8f0}.c{font-size:13px;fill:#94a3b8}.box{fill:#10283b;stroke:#2b5d70;stroke-width:1.5}.risk{fill:#3b1d2a;stroke:#be4b68;stroke-width:1.5}.line{fill:none;stroke:#67e8f9;stroke-width:2.2;marker-end:url(#arrow)}</style>
   </defs>
   <rect width="1440" height="760" rx="28" fill="url(#bg)"/>
-  <text x="54" y="62" class="h">Trust boundaries stay explicit—even in a local-first Beta</text>
-  <text x="54" y="92" class="sub">Controls reduce risk; the diagram also names what the repository does not yet solve.</text>
+  <text x="54" y="62" class="h">即使在本地优先候选版中，信任边界也保持明确</text>
+  <text x="54" y="92" class="sub">控制措施降低风险；图中也标明仓库尚未解决的问题。</text>
 
   <rect x="42" y="132" width="250" height="466" rx="22" fill="none" stroke="#64748b" stroke-dasharray="7 7"/>
-  <text x="64" y="162" class="zone">UNTRUSTED INPUT</text>
-  <rect x="64" y="188" width="206" height="104" rx="18" class="box"/><text x="88" y="222" class="t">Browser client</text><text x="88" y="250" class="c">questions · parameters</text><text x="88" y="274" class="c">cancel / retry</text>
-  <rect x="64" y="316" width="206" height="104" rx="18" class="box"/><text x="88" y="350" class="t">Uploaded content</text><text x="88" y="378" class="c">filename · bytes · parser</text><text x="88" y="402" class="c">possible malicious payload</text>
-  <rect x="64" y="444" width="206" height="104" rx="18" class="box"/><text x="88" y="478" class="t">Imported URL</text><text x="88" y="506" class="c">DNS · redirect · body</text><text x="88" y="530" class="c">possible SSRF target</text>
+  <text x="64" y="162" class="zone">不受信任输入</text>
+  <rect x="64" y="188" width="206" height="104" rx="18" class="box"/><text x="88" y="222" class="t">浏览器客户端</text><text x="88" y="250" class="c">问题 · 参数</text><text x="88" y="274" class="c">取消 / 重试</text>
+  <rect x="64" y="316" width="206" height="104" rx="18" class="box"/><text x="88" y="350" class="t">上传内容</text><text x="88" y="378" class="c">文件名 · 字节 · 解析器</text><text x="88" y="402" class="c">可能含恶意载荷</text>
+  <rect x="64" y="444" width="206" height="104" rx="18" class="box"/><text x="88" y="478" class="t">导入 URL</text><text x="88" y="506" class="c">DNS · 重定向 · 响应体</text><text x="88" y="530" class="c">可能的 SSRF 目标</text>
 
   <rect x="330" y="132" width="520" height="466" rx="22" fill="#0b2032" stroke="#2a566b"/>
-  <text x="352" y="162" class="zone">APPLICATION TRUST BOUNDARY</text>
-  <rect x="352" y="188" width="220" height="130" rx="18" class="box"/><text x="376" y="222" class="t">Nginx + middleware</text><text x="376" y="250" class="c">optional bearer auth</text><text x="376" y="274" class="c">rate limit + Retry-After</text><text x="376" y="298" class="c">request ID</text>
-  <rect x="608" y="188" width="220" height="130" rx="18" class="box"/><text x="632" y="222" class="t">Input guards</text><text x="632" y="250" class="c">size · type · magic bytes</text><text x="632" y="274" class="c">URL/DNS/redirect checks</text><text x="632" y="298" class="c">timeout + cleanup</text>
-  <rect x="352" y="350" width="220" height="130" rx="18" class="box"/><text x="376" y="384" class="t">RAG services</text><text x="376" y="412" class="c">evidence gate</text><text x="376" y="436" class="c">citation audit</text><text x="376" y="460" class="c">provider fallback</text>
-  <rect x="608" y="350" width="220" height="130" rx="18" class="box"/><text x="632" y="384" class="t">Sensitive output controls</text><text x="632" y="412" class="c">credential redaction</text><text x="632" y="436" class="c">URL query removal</text><text x="632" y="460" class="c">Sentry PII/body disabled</text>
-  <rect x="352" y="508" width="476" height="66" rx="16" fill="#12364a"/><text x="376" y="536" class="t">Beta boundary: single shared workspace</text><text x="376" y="560" class="c">Bearer token is not user identity, role management or tenant isolation.</text>
+  <text x="352" y="162" class="zone">应用信任边界</text>
+  <rect x="352" y="188" width="220" height="130" rx="18" class="box"/><text x="376" y="222" class="t">Nginx + 中间件</text><text x="376" y="250" class="c">可选 Bearer 认证</text><text x="376" y="274" class="c">限流 + Retry-After</text><text x="376" y="298" class="c">请求 ID</text>
+  <rect x="608" y="188" width="220" height="130" rx="18" class="box"/><text x="632" y="222" class="t">输入防护</text><text x="632" y="250" class="c">大小 · 类型 · 魔数</text><text x="632" y="274" class="c">URL/DNS/重定向检查</text><text x="632" y="298" class="c">超时 + 清理</text>
+  <rect x="352" y="350" width="220" height="130" rx="18" class="box"/><text x="376" y="384" class="t">RAG 服务</text><text x="376" y="412" class="c">证据门</text><text x="376" y="436" class="c">引用审计</text><text x="376" y="460" class="c">提供方回退</text>
+  <rect x="608" y="350" width="220" height="130" rx="18" class="box"/><text x="632" y="384" class="t">敏感输出控制</text><text x="632" y="412" class="c">凭据脱敏</text><text x="632" y="436" class="c">移除 URL 查询参数</text><text x="632" y="460" class="c">Sentry PII/正文禁用</text>
+  <rect x="352" y="508" width="476" height="66" rx="16" fill="#12364a"/><text x="376" y="536" class="t">候选版边界：单管理员工作区</text><text x="376" y="560" class="c">Argon2id、HttpOnly Cookie 与 CSRF 保护会话。</text>
 
   <rect x="888" y="132" width="510" height="212" rx="22" fill="none" stroke="#64748b" stroke-dasharray="7 7"/>
-  <text x="910" y="162" class="zone">LOCAL DATA BOUNDARY</text>
-  <rect x="910" y="188" width="218" height="126" rx="18" class="box"/><text x="934" y="222" class="t">SQLite + uploads</text><text x="934" y="250" class="c">document content</text><text x="934" y="274" class="c">history + feedback</text><text x="934" y="298" class="c">backup is sensitive</text>
-  <rect x="1154" y="188" width="220" height="126" rx="18" class="box"/><text x="1178" y="222" class="t">Vector store</text><text x="1178" y="250" class="c">chunks + embeddings</text><text x="1178" y="274" class="c">model/version coupling</text><text x="1178" y="298" class="c">delete/rebuild boundary</text>
+  <text x="910" y="162" class="zone">本地数据边界</text>
+  <rect x="910" y="188" width="218" height="126" rx="18" class="box"/><text x="934" y="222" class="t">SQLite + 上传文件</text><text x="934" y="250" class="c">文档内容</text><text x="934" y="274" class="c">历史 + 反馈</text><text x="934" y="298" class="c">备份含敏感数据</text>
+  <rect x="1154" y="188" width="220" height="126" rx="18" class="box"/><text x="1178" y="222" class="t">向量存储</text><text x="1178" y="250" class="c">分块 + 向量</text><text x="1178" y="274" class="c">模型 / 版本耦合</text><text x="1178" y="298" class="c">删除 / 重建边界</text>
 
   <rect x="888" y="386" width="510" height="212" rx="22" fill="none" stroke="#64748b" stroke-dasharray="7 7"/>
-  <text x="910" y="416" class="zone">OPTIONAL EXTERNAL EGRESS</text>
-  <rect x="910" y="442" width="218" height="126" rx="18" class="box"/><text x="934" y="476" class="t">Public web fetch</text><text x="934" y="504" class="c">HTTP(S) only</text><text x="934" y="528" class="c">private ranges denied</text><text x="934" y="552" class="c">DNS rebinding residual</text>
-  <rect x="1154" y="442" width="220" height="126" rx="18" class="box"/><text x="1178" y="476" class="t">Model / telemetry</text><text x="1178" y="504" class="c">explicit configuration</text><text x="1178" y="528" class="c">timeouts + redaction</text><text x="1178" y="552" class="c">cost/privacy owner duty</text>
+  <text x="910" y="416" class="zone">可选外部访问</text>
+  <rect x="910" y="442" width="218" height="126" rx="18" class="box"/><text x="934" y="476" class="t">公网抓取</text><text x="934" y="504" class="c">仅 HTTP(S)</text><text x="934" y="528" class="c">拒绝私网地址</text><text x="934" y="552" class="c">DNS 重绑定残余风险</text>
+  <rect x="1154" y="442" width="220" height="126" rx="18" class="box"/><text x="1178" y="476" class="t">模型 / 遥测</text><text x="1178" y="504" class="c">显式配置</text><text x="1178" y="528" class="c">超时 + 脱敏</text><text x="1178" y="552" class="c">成本与隐私需负责</text>
 
   <path d="M270 240H352" class="line"/><path d="M270 368H608" class="line"/><path d="M270 496H910" class="line"/><path d="M828 252H910" class="line"/><path d="M828 416H1154" class="line"/>
   <rect x="54" y="630" width="1332" height="82" rx="18" class="risk"/>
-  <text x="82" y="664" class="t">Residual risks requiring production work</text>
-  <text x="82" y="690" class="c" fill="#fecdd3">Prompt/content injection · malware scanning · DNS pinning · OIDC/workspace authorization · distributed limits · object-store deletion · capacity and recovery tests</text>
+  <text x="82" y="664" class="t">仍需生产化处理的风险</text>
+  <text x="82" y="690" class="c" fill="#fecdd3">提示/内容注入 · 恶意软件扫描 · DNS 固定 · OIDC/工作区授权 · 分布式限流 · 对象存储删除 · 容量与恢复测试</text>
 </svg>

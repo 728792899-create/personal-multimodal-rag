@@ -32,4 +32,12 @@
 5. 截图前检查页面没有 API Key、私有 URL、真实路径或系统通知。
 6. 更新本清单和 README alt text。
 
+README 直接展示的当前工作台截图（`01`、`13`、`14`、`15`）由离线 Playwright fixture 可重复生成：
+
+```bash
+CAPTURE_README_SCREENSHOTS=1 npm --prefix frontend run test:e2e -- workbench.spec.ts
+```
+
+生成过程只请求本地 Vite 与测试内 mock API，不会连接真实 Provider、生产数据库或用户资料。`16-question-first-sources.png` 展示的是受控样例资料的原始技术片段；其中的英文代码、产品名和协议名按证据原文保留，不作伪造翻译。
+
 截图是人工证据，不能替代 Playwright。界面行为变化时必须先更新自动化测试，再更新截图。
