@@ -6,7 +6,9 @@
 [![许可证：MIT](https://img.shields.io/badge/%E8%AE%B8%E5%8F%AF%E8%AF%81-MIT-0f766e.svg)](LICENSE)
 [![离线优先](https://img.shields.io/badge/%E9%BB%98%E8%AE%A4-%E7%A6%BB%E7%BA%BF%20%2F%20%E9%9B%B6%E5%AF%86%E9%92%A5-7c3aed.svg)](.env.example)
 
-![PDF, URL, image and note evidence flowing through hybrid retrieval and a refusal gate](docs/assets/social-preview.png)
+<!-- Visual assets are pinned to an immutable commit to avoid short-lived GitHub raw/main cache reuse. Update this revision whenever a visual changes. -->
+
+![PDF, URL, image and note evidence flowing through hybrid retrieval and a refusal gate](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/325861226185384a9a4b1803d0224e0eaad98b41/docs/assets/social-preview.png)
 
 **A local-first multimodal RAG workbench where retrieval, refusal and citation quality stay inspectable.**
 
@@ -32,19 +34,19 @@ The private 2026-07-23 production run indexed **200 non-fixture documents from 2
 | Feedback to evaluation draft | Request IDs, timeout, cancel and retry | Health checks and multi-lane CI |
 | Durable local index jobs and source sync | Lease recovery, DLQ boundaries and restore drill | 179 backend passes, 3 skipped + 2 PostgreSQL contracts / 27 frontend / 14 E2E |
 
-![System map from ingestion to evidence-constrained answers and evaluation](docs/assets/system-overview.svg)
+![System map from ingestion to evidence-constrained answers and evaluation](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/325861226185384a9a4b1803d0224e0eaad98b41/docs/assets/system-overview.svg)
 
 ## Interface
 
-![Production Local sign-in boundary](docs/screenshots/13-evidence-ledger-login.png)
+![Production Local sign-in boundary](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/325861226185384a9a4b1803d0224e0eaad98b41/docs/screenshots/13-evidence-ledger-login.png)
 
 The default experience is a **question-first** single canvas. Everyday users see the prompt, answer, and sources; file upload, library management, and retrieval traces live in on-demand drawers. `Cmd/Ctrl + K` focuses the prompt, `Esc` closes a drawer, and BM25, vector, Graph, MMR, and rerank controls only appear in debug mode.
 
 | Question-first home | Retrieval debugging | 390-pixel layout |
 | --- | --- | --- |
-| ![Minimal multimodal knowledge-base question page](docs/screenshots/01-workbench-beta.png) | ![On-demand advanced retrieval parameters](docs/screenshots/15-question-first-debug.png) | ![Question page and bottom shortcuts at a 390-pixel viewport](docs/screenshots/14-evidence-ledger-mobile.png) |
+| ![Minimal multimodal knowledge-base question page](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/325861226185384a9a4b1803d0224e0eaad98b41/docs/screenshots/01-workbench-beta.png) | ![On-demand advanced retrieval parameters](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/325861226185384a9a4b1803d0224e0eaad98b41/docs/screenshots/15-question-first-debug.png) | ![Question page and bottom shortcuts at a 390-pixel viewport](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/325861226185384a9a4b1803d0224e0eaad98b41/docs/screenshots/14-evidence-ledger-mobile.png) |
 
-![Search-only FastAPI reverse-proxy result with five relevant, inspectable sources](docs/screenshots/16-question-first-sources.png)
+![Search-only FastAPI reverse-proxy result with five relevant, inspectable sources](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/325861226185384a9a4b1803d0224e0eaad98b41/docs/screenshots/16-question-first-sources.png)
 
 Simple mode hides provider internals, retrieval weights, and raw scores. It leads with the result and sources; selecting a source opens the evidence and debugging drawer.
 
@@ -110,7 +112,7 @@ previously validated public IP, and response size/time limits are enforced.
 
 ## Architecture and request lifecycle
 
-![Browser, Nginx, middleware, domain routers, services and provider adapters in one request lifecycle](docs/assets/request-lifecycle.svg)
+![Browser, Nginx, middleware, domain routers, services and provider adapters in one request lifecycle](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/325861226185384a9a4b1803d0224e0eaad98b41/docs/assets/request-lifecycle.svg)
 
 The Vue application is split into a page, domain components, the `useWorkbench` composable, and API modules. FastAPI keeps a stable composition root while document, retrieval and quality routes live in separate domain routers. The service layer owns ingestion, retrieval, answer generation and citation audit; provider adapters retain offline fallbacks.
 
@@ -118,7 +120,7 @@ Read the [architecture guide](docs/architecture.md), [code tour](docs/code-tour.
 
 ## Deterministic evaluation
 
-![One-hundred-case offline scorecard covering retrieval, multimodal extraction and graph evidence](docs/assets/evaluation-scorecard.svg)
+![One-hundred-case offline scorecard covering retrieval, multimodal extraction and graph evidence](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/325861226185384a9a4b1803d0224e0eaad98b41/docs/assets/evaluation-scorecard.svg)
 
 | Metric | Recorded result | CI minimum |
 | --- | ---: | ---: |
@@ -156,7 +158,7 @@ is exposed by `GET /api/system/readiness-report`.
 
 ## Security and production boundary
 
-![Trust boundaries between the browser, API, untrusted input, providers and storage](docs/assets/security-boundaries.svg)
+![Trust boundaries between the browser, API, untrusted input, providers and storage](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/325861226185384a9a4b1803d0224e0eaad98b41/docs/assets/security-boundaries.svg)
 
 Implemented controls cover upload type/size/signature checks, SSRF-aware URL validation across redirects, Argon2id session authentication, HttpOnly/Secure/SameSite cookies, CSRF, login rate limiting, timeouts, terminal cooperative cancellation, request IDs and sensitive-log redaction. Production object ingestion uses staged content-addressed keys and an optional ClamAV gate. `scripts/verify_local_restore.py` creates an isolated SQLite snapshot and checks integrity, foreign keys, schema, safe object paths, byte sizes and SHA-256 without changing business rows in the input database.
 
