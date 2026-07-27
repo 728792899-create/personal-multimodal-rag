@@ -20,27 +20,39 @@ The default path remains deterministic and offline: hash embeddings, an in-memor
 
 **0.4.0-rc.1 Production Local** separates three supported paths: `demo` for zero-key review, `local-production` for SQLite/local objects/Chroma/Ollama, and `production` for PostgreSQL/pgvector, S3/MinIO, Redis Streams, ClamAV and a fail-closed real provider. It also adds Argon2id session authentication, CSRF, a server-resolved workspace boundary, transactional outbox/DLQ, checksum-verified SQLite migration, incremental directory/URL/RSS sources, guarded deletion candidates and citation-aware Markdown exports. The project deliberately does not claim “production-ready” before its real-corpus, recovery and 14-day soak gates are met.
 
-The private 2026-07-23 production run indexed **200 non-fixture documents from 21 licensed source groups into 5,159 768-dimensional vectors** and passed destructive PostgreSQL/pgvector/MinIO recovery plus five API/worker/Redis/PostgreSQL/MinIO fault scenarios. A real MinerU job passed. Ollama embeddings passed, while all three `qwen3:8b` generation contracts timed out at 180 seconds on this host. The non-backfillable 14-day chain has started; human review remains 0/200, attested real questions 0/100, and Sentry has no DSN. The release therefore remains an RC. See the [production validation runbook](docs/production-validation.md).
+The private 2026-07-23 production run indexed **200 non-fixture documents from 21 licensed source groups into 5,159 768-dimensional vectors** and passed destructive PostgreSQL/pgvector/MinIO recovery plus five API/worker/Redis/PostgreSQL/MinIO fault scenarios. A real MinerU job passed. Ollama embeddings passed, while all three `qwen3:8b` generation contracts timed out at 180 seconds on this host. The non-backfillable soak chain has honestly retained four host/container-runtime gaps and reset after each excessive interval; as of 2026-07-26 its longest continuous window is 81,984 seconds and the current window started at `2026-07-26T04:57:18Z`. Human review remains 0/200, attested real questions 0/100, and Sentry has no DSN. The release therefore remains an RC. See the [production validation runbook](docs/production-validation.md).
 
 ## What reviewers can verify
 
 | Product behavior | Trust mechanism | Engineering evidence |
 | --- | --- | --- |
 | File upload and guarded URL import | Evidence threshold and explicit refusal | FastAPI, Vue 3, Docker Compose |
-| Ordinary and expert modes | Stage-by-stage retrieval Trace | pytest, Vitest and Playwright |
+| Simple and debug (expert) modes | Stage-by-stage retrieval Trace | pytest, Vitest and Playwright |
 | Precise element citations and context | Citation and graph provenance audit | Fixed 100-case offline golden set |
 | Feedback to evaluation draft | Request IDs, timeout, cancel and retry | Health checks and multi-lane CI |
-| Durable local index jobs and source sync | Lease recovery, DLQ boundaries and restore drill | 174 backend / 22 frontend / 14 E2E tests |
+| Durable local index jobs and source sync | Lease recovery, DLQ boundaries and restore drill | 179 backend passes, 3 skipped + 2 PostgreSQL contracts / 27 frontend / 14 E2E |
 
 ![System map from ingestion to evidence-constrained answers and evaluation](docs/assets/system-overview.svg)
 
 ## Interface
 
-| Workbench | Grounded answer | Mobile refusal |
-| --- | --- | --- |
-| ![Ordinary-mode workbench with knowledge and query panels](docs/screenshots/01-workbench-beta.png) | ![Answer citations and retrieval trace](docs/screenshots/02-grounded-trace.png) | ![Expert-mode refusal at a 390-pixel viewport](docs/screenshots/03-mobile-expert-refusal.png) |
+![Production Local sign-in boundary](docs/screenshots/13-evidence-ledger-login.png)
 
-The extended gallery also shows [URL ingestion](docs/screenshots/04-ingestion-url.png), [neighboring citation context](docs/screenshots/05-citation-context.png), [quality audit](docs/screenshots/06-quality-dashboard.png), [feedback-generated eval drafts](docs/screenshots/07-feedback-eval-draft.png), [retry after an API failure](docs/screenshots/08-error-retry.png), [multimodal query and persistent conversation state](docs/screenshots/09-multimodal-query-trace.jpg), [the accessible Graph evidence workbench](docs/screenshots/10-graph-evidence-workbench.jpg), [precise element citations](docs/screenshots/11-precise-element-citation.jpg), and [the 390-pixel expert layout](docs/screenshots/12-mobile-multimodal-expert.jpg).
+The default experience is a **question-first** single canvas. Everyday users see the prompt, answer, and sources; file upload, library management, and retrieval traces live in on-demand drawers. `Cmd/Ctrl + K` focuses the prompt, `Esc` closes a drawer, and BM25, vector, Graph, MMR, and rerank controls only appear in debug mode.
+
+| Question-first home | Retrieval debugging | 390-pixel layout |
+| --- | --- | --- |
+| ![Minimal multimodal knowledge-base question page](docs/screenshots/01-workbench-beta.png) | ![On-demand advanced retrieval parameters](docs/screenshots/15-question-first-debug.png) | ![Question page and bottom shortcuts at a 390-pixel viewport](docs/screenshots/14-evidence-ledger-mobile.png) |
+
+![Search-only FastAPI reverse-proxy result with five relevant, inspectable sources](docs/screenshots/16-question-first-sources.png)
+
+Simple mode hides provider internals, retrieval weights, and raw scores. It leads with the result and sources; selecting a source opens the evidence and debugging drawer.
+
+### Key workflows
+
+The library drawer owns file upload, URL import, and index status. The source drawer provides neighboring context, quality and citation audits. Feedback creates evaluation drafts, while failure states retain request IDs and retry actions. Multimodal image queries, Graph evidence navigation, and precise element citations all live in the current interface's on-demand drawers rather than mixing historical UI into the project homepage.
+
+See the [case study](docs/case-study.md), [product tour](docs/product-tour.md), and [screenshot verification index](docs/screenshots/README.md) for the full interaction walkthrough.
 
 ## Zero-key quick start
 

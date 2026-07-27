@@ -1,0 +1,233 @@
+:root {
+  color-scheme: light;
+  font-family:
+    "Avenir Next",
+    "SF Pro Text",
+    "Noto Sans SC",
+    "PingFang SC",
+    "Microsoft YaHei",
+    sans-serif;
+  color: #18201e;
+  background: #efeee8;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+
+  --font-display:
+    "Avenir Next",
+    "SF Pro Display",
+    "Noto Sans SC",
+    "PingFang SC",
+    sans-serif;
+  --font-reading:
+    "Songti SC",
+    "Noto Serif SC",
+    "Source Han Serif SC",
+    serif;
+  --font-mono:
+    "SFMono-Regular",
+    "Cascadia Code",
+    "JetBrains Mono",
+    "Roboto Mono",
+    monospace;
+
+  --bg-canvas: #efeee8;
+  --bg-canvas-deep: #e7e5dd;
+  --bg-surface: #fbfaf6;
+  --bg-raised: #ffffff;
+  --bg-subtle: #f4f3ed;
+  --bg-muted: #e9e8e1;
+  --bg-accent-soft: #dceae4;
+  --bg-warning: #f5e8d4;
+  --bg-danger: #f2dfdc;
+  --bg-command: #16201d;
+  --bg-command-soft: #202c28;
+
+  --text-primary: #18201e;
+  --text-secondary: #4f5b56;
+  --text-muted: #69736f;
+  --text-on-dark: #f4f3ed;
+  --text-on-dark-muted: #aab5af;
+
+  --border-default: #d6d2c8;
+  --border-strong: #b6b1a6;
+  --border-dark: rgba(255, 255, 255, 0.12);
+
+  --accent: #166652;
+  --accent-hover: #104d3f;
+  --accent-contrast: #ffffff;
+  --accent-bright: #8bc8ae;
+  --warning: #98601f;
+  --danger: #9d4034;
+  --info: #496a71;
+  --focus: #1d7a65;
+
+  --shadow-soft: 0 16px 48px rgba(31, 38, 35, 0.08);
+  --shadow-overlay: 0 28px 80px rgba(18, 27, 24, 0.18);
+  --shadow-command: 0 18px 50px rgba(13, 21, 18, 0.16);
+
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 40px;
+
+  --transition-fast: 140ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  --transition-base: 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  --z-skip: 60;
+  --z-command: 30;
+  --z-mobile-nav: 40;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  min-height: 100dvh;
+  background:
+    radial-gradient(circle at 18% -12%, rgba(22, 102, 82, 0.09), transparent 31rem),
+    radial-gradient(circle at 92% 12%, rgba(152, 96, 31, 0.045), transparent 24rem),
+    var(--bg-canvas);
+}
+
+body::before {
+  position: fixed;
+  z-index: -1;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(24, 32, 30, 0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(24, 32, 30, 0.018) 1px, transparent 1px);
+  background-size: 48px 48px;
+  content: "";
+  pointer-events: none;
+  mask-image: linear-gradient(to bottom, black, transparent 75%);
+}
+
+::selection {
+  background: rgba(22, 102, 82, 0.2);
+  color: var(--text-primary);
+}
+
+button,
+input,
+select,
+textarea,
+summary,
+a {
+  transition:
+    border-color var(--transition-fast),
+    background-color var(--transition-fast),
+    color var(--transition-fast),
+    box-shadow var(--transition-fast),
+    opacity var(--transition-fast),
+    transform var(--transition-fast);
+}
+
+button:active:not(:disabled),
+.button:active:not(:disabled) {
+  transform: translateY(1px) scale(0.985);
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+}
+
+input,
+select,
+textarea {
+  border-color: var(--border-default);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--text-primary);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #858c88;
+}
+
+input:hover,
+select:hover,
+textarea:hover {
+  border-color: var(--border-strong);
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  letter-spacing: -0.025em;
+  text-wrap: balance;
+}
+
+dd,
+.header-metrics,
+.definition-grid,
+.metric-grid,
+.score-breakdown,
+.stage-index {
+  font-variant-numeric: tabular-nums;
+}
+
+.kicker {
+  margin-bottom: 4px;
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+/* Question-first product shell */
+
+:root {
+  --qa-canvas: #f7f7f5;
+  --qa-surface: #ffffff;
+  --qa-ink: #1d211f;
+  --qa-muted: #6f7672;
+  --qa-line: #e7e7e2;
+  --qa-accent: #155e4b;
+  --qa-accent-soft: #e8f1ed;
+  --z-drawer-backdrop: 70;
+  --z-drawer: 80;
+}
+
+body {
+  background: var(--qa-canvas);
+}
+
+body::before {
+  display: none;
+}
+
+body.workbench-drawer-open {
+  overflow: hidden;
+}

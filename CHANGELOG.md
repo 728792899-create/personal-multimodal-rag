@@ -38,6 +38,9 @@
 
 ### Fixed
 
+- Frontend Nginx now resolves the Docker backend service at request time, so replacing a recovered backend container no longer leaves the public proxy pinned to a stale container IP; CI exercises the replacement path.
+- Soak verification now requires a fresh wall-clock sample and exact state/hash-chain agreement, preventing a valid-but-frozen chain from counting toward release evidence.
+- A newly completed 14-day verified window can satisfy the release gate after earlier retained failures; cumulative historical failures no longer make the candidate permanently unreleasable.
 - pgvector 改为 operation-scoped 连接；PostgreSQL 在混沌演练中重建后 readiness 可自动恢复，不再持有失效长连接。
 - 索引终态重试、去重来源原件、取消清理、部分向量写入与启动 orphan reconciliation 补齐，真实 200 文档恢复/故障注入后保持零孤儿向量。
 - 协作取消现在由 Worker 明确提交 `cancelled` 终态并清除租约；重启时遇到过期的 `cancelling` 任务也会收敛为终态，不再形成无法领取的 `queued` 任务。

@@ -18,7 +18,7 @@
 
 ### 前端/产品
 
-1. [产品巡游](product-tour.md)：三栏信息架构、普通/专家模式和状态设计。
+1. [产品巡游](product-tour.md)：question-first 信息架构、按需抽屉、普通/调试模式和状态设计。
 2. [截图清单](screenshots/README.md)：真实桌面、Trace 与移动拒答证据。
 3. [架构说明](architecture.md)：页面、组件、composable 与 API 分层。
 4. [前端状态机](assets/frontend-state-machine.svg)：loading、error、cancel 与 retry。

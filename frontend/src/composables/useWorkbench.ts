@@ -79,7 +79,7 @@ export function useWorkbench() {
   const selectedDocument = documentViewer.document
   const selectedFile = ref<File | null>(null)
   const urlToImport = ref('')
-  const question = ref('如何优化 RAG 的召回质量？')
+  const question = ref('')
   const answer = ref<AskResponse | null>(null)
   const qualityAudit = useQualityAudit(answer)
   const selectedCitation = ref<ChunkResult | null>(null)
@@ -448,13 +448,17 @@ export function useWorkbench() {
     }
   }
 
-  async function selectDocument(documentId: string) {
+  async function selectDocument(documentId: string): Promise<boolean> {
     clearError()
     try {
       await documentViewer.open(documentId)
       inspectorTab.value = 'document'
+      return true
     } catch (caught) {
-      reportError(caught, '文档详情加载失败', () => selectDocument(documentId))
+      reportError(caught, '文档详情加载失败', async () => {
+        await selectDocument(documentId)
+      })
+      return false
     }
   }
 
@@ -547,9 +551,22 @@ export function useWorkbench() {
   }
 
   async function startNewConversation() {
+    cancelRun()
     conversationState.activeConversationId.value = ''
     conversationState.conversationMessages.value = []
+    question.value = ''
     answer.value = null
+    selectedCitation.value = null
+    citationContext.value = null
+    compareResult.value = null
+    feedbackText.value = ''
+    feedbackMessage.value = ''
+    rewriteResult.value = null
+    cardMessage.value = ''
+    realUsageConsent.value = false
+    inspectorTab.value = 'trace'
+    clearError()
+    await multimodalQuery.clear()
   }
 
   async function openConversation(conversationId: string) {

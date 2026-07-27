@@ -1,7 +1,10 @@
 <script setup lang="ts">
+import { nextTick, ref, watch } from 'vue'
+
 import { useWorkbenchContext } from '../composables/workbenchContext'
 
 const workbench = useWorkbenchContext()
+const questionInput = ref<HTMLTextAreaElement | null>(null)
 
 const presets = [
   '这个 RAG 系统的核心工程亮点是什么？',
@@ -31,66 +34,163 @@ function toggleModality(id: typeof modalities[number]['id']) {
     ? workbench.modalityFilters.value.filter((item) => item !== id)
     : [...workbench.modalityFilters.value, id]
 }
+
+function resizeQuestion() {
+  const input = questionInput.value
+  if (!input) return
+  input.style.height = 'auto'
+  input.style.height = `${Math.min(Math.max(input.scrollHeight, 52), 190)}px`
+}
+
+watch(
+  () => workbench.question.value,
+  () => nextTick(resizeQuestion),
+)
 </script>
 
 <template>
-  <section class="surface query-workspace" aria-labelledby="query-title">
-    <header class="section-heading query-heading">
-      <div>
-        <p class="kicker">Ask with evidence</p>
-        <h2 id="query-title">向知识库提问</h2>
-      </div>
-      <div class="mode-switch small" role="group" aria-label="问答方式">
-        <button
-          type="button"
-          :aria-pressed="workbench.workMode.value === 'answer'"
-          @click="workbench.workMode.value = 'answer'"
-        >问答</button>
-        <button
-          type="button"
-          :aria-pressed="workbench.workMode.value === 'search'"
-          :disabled="Boolean(workbench.queryAttachments.value.length)"
-          title="图片提问需在问答模式中完成审计"
-          @click="workbench.workMode.value = 'search'"
-        >只检索</button>
-      </div>
-    </header>
+  <section class="query-workspace" aria-labelledby="query-title">
+    <h2 id="query-title" class="sr-only">向知识库提问</h2>
 
-    <label class="question-field">
-      <span>问题</span>
-      <textarea
-        v-model="workbench.question.value"
-        name="question"
-        maxlength="4000"
-        placeholder="描述你要确认的事实、范围或来源…"
-        @keydown.meta.enter.prevent="workbench.handleRun"
-        @keydown.ctrl.enter.prevent="workbench.handleRun"
-      ></textarea>
-      <small>⌘/Ctrl + Enter 运行 · {{ workbench.question.value.length }}/4000</small>
-    </label>
-
-    <section class="query-attachments" aria-labelledby="query-attachments-title">
-      <div class="attachment-toolbar">
-        <div>
-          <strong id="query-attachments-title">图片证据</strong>
-          <span>可选·PNG/JPEG/WEBP/非动画 GIF·最多 4 张</span>
+    <section v-if="workbench.appMode.value === 'expert'" class="expert-controls" aria-labelledby="expert-title">
+      <details open>
+        <summary>
+          <span>
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 18V9m5 9V5m6 13v-7m5 7V3"/><path d="M2 18h20"/></svg>
+            检索参数
+          </span>
+          <small>BM25 {{ workbench.bm25Weight.value.toFixed(2) }} / Vector {{ workbench.vectorWeight.value.toFixed(2) }}</small>
+        </summary>
+        <div class="expert-panel-body">
+          <div class="expert-panel-heading">
+            <div>
+              <h3 id="expert-title">调试检索策略</h3>
+              <p>仅影响本次查询。检索过程与引用证据可在右上角“检索调试”中查看。</p>
+            </div>
+            <button type="button" class="button text-button" @click="workbench.resetRetrievalControls">恢复默认</button>
+          </div>
+          <div class="control-grid">
+            <label>
+              <span>检索模式</span>
+              <select v-model="workbench.searchMode.value" name="search-mode">
+                <option value="hybrid">混合检索</option>
+                <option value="keyword">仅 BM25</option>
+                <option value="semantic">仅向量</option>
+              </select>
+            </label>
+            <label>
+              <span>检索 Profile</span>
+              <select v-model="workbench.searchProfile.value" name="search-profile">
+                <option value="balanced">Balanced</option>
+                <option value="precision">Precision</option>
+                <option value="recall">Recall</option>
+              </select>
+            </label>
+            <label>
+              <span>证据策略</span>
+              <select v-model="workbench.retrievalStrategy.value" name="retrieval-strategy">
+                <option value="auto">Auto 自动关系识别</option>
+                <option value="hybrid">Hybrid</option>
+                <option value="hybrid_graph">Hybrid + Graph</option>
+              </select>
+            </label>
+            <label>
+              <span>返回数量 <strong>{{ workbench.topK.value }}</strong></span>
+              <input v-model.number="workbench.topK.value" name="top-k" type="range" min="1" max="12" />
+            </label>
+            <label>
+              <span>候选池</span>
+              <input v-model.number="workbench.candidateK.value" name="candidate-k" type="number" min="1" max="80" />
+            </label>
+            <label>
+              <span>向量权重 <strong>{{ workbench.vectorWeight.value.toFixed(2) }}</strong></span>
+              <input v-model.number="workbench.vectorBalance.value" name="vector-weight" type="range" min="0" max="1" step="0.01" />
+            </label>
+            <label>
+              <span>MMR λ <strong>{{ workbench.mmrLambda.value.toFixed(2) }}</strong></span>
+              <input v-model.number="workbench.mmrLambda.value" name="mmr-lambda" type="range" min="0" max="1" step="0.01" />
+            </label>
+            <label>
+              <span>最低分</span>
+              <input v-model.number="workbench.minScore.value" name="min-score" type="number" min="0" max="1" step="0.01" />
+            </label>
+            <label class="checkbox-field">
+              <input v-model="workbench.queryRewrite.value" name="query-rewrite" type="checkbox" />
+              <span>Query Rewrite</span>
+            </label>
+            <label>
+              <span>Graph 权重 <strong>{{ workbench.graphWeight.value.toFixed(2) }}</strong></span>
+              <input v-model.number="workbench.graphWeight.value" name="graph-weight" type="range" min="0" max="1" step="0.05" />
+            </label>
+            <label>
+              <span>Graph 跳数</span>
+              <input v-model.number="workbench.graphMaxHops.value" name="graph-hops" type="number" min="1" max="4" />
+            </label>
+            <label>
+              <span>父级上下文</span>
+              <input v-model.number="workbench.parentWindow.value" name="parent-window" type="number" min="0" max="3" />
+            </label>
+          </div>
+          <fieldset class="modality-filter">
+            <legend>检索元素</legend>
+            <button
+              v-for="item in modalities"
+              :key="item.id"
+              type="button"
+              :aria-pressed="workbench.modalityFilters.value.includes(item.id)"
+              @click="toggleModality(item.id)"
+            >{{ item.label }}</button>
+          </fieldset>
+          <p v-if="!workbench.expertParametersValid.value" class="parameter-error" role="status">
+            候选池需为 1–80 的整数，最低分需在 0–1 之间。
+          </p>
+          <div class="expert-run-actions">
+            <button
+              type="button"
+              class="button secondary-button"
+              :disabled="workbench.comparing.value || workbench.loading.value || !workbench.question.value.trim() || !workbench.expertParametersValid.value"
+              @click="workbench.handleCompare"
+            >
+              {{ workbench.comparing.value ? '对比中…' : '对比检索策略' }}
+            </button>
+          </div>
         </div>
-        <label class="button secondary-button attachment-picker" :class="{ disabled: workbench.queryAttachmentUploading.value || workbench.queryAttachments.value.length >= 4 }">
-          <span>{{ workbench.queryAttachmentUploading.value ? '正在处理…' : '添加图片' }}</span>
-          <input
-            type="file"
-            multiple
-            accept="image/png,image/jpeg,image/webp,image/gif"
-            :disabled="workbench.queryAttachmentUploading.value || workbench.queryAttachments.value.length >= 4"
-            data-testid="query-image-input"
-            @change="onQueryImages"
-          />
-        </label>
+      </details>
+    </section>
+
+    <div v-if="workbench.error.value" class="error-banner" role="alert">
+      <div>
+        <strong>请求没有完成</strong>
+        <p>{{ workbench.error.value }}</p>
+        <small v-if="workbench.errorRequestId.value">请求 ID：{{ workbench.errorRequestId.value }}</small>
       </div>
+      <div class="banner-actions">
+        <button type="button" class="button secondary-button" @click="workbench.retryLast">重试</button>
+        <button type="button" class="button text-button" @click="workbench.clearError">关闭</button>
+      </div>
+    </div>
+
+    <div v-if="workbench.loading.value" class="query-loading" aria-live="polite">
+      <span class="phase-indicator" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span v-if="workbench.streamPhase.value === 'enriching'">正在理解图片与查询上下文…</span>
+      <span v-else-if="workbench.streamPhase.value === 'retrieving'">正在检索并筛选证据…</span>
+      <span v-else-if="workbench.streamPhase.value === 'streaming'">正在生成回答…</span>
+      <span v-else-if="workbench.streamPhase.value === 'auditing'">正在核验引用与覆盖率…</span>
+      <span v-else>正在处理你的问题…</span>
+    </div>
+
+    <form class="question-composer" aria-label="知识库问答" @submit.prevent="workbench.handleRun">
+      <div class="composer-context" aria-label="当前检索上下文">
+        <span class="live-dot" aria-hidden="true"></span>
+        <span>{{ workbench.scopeLabel.value }}</span>
+        <span aria-hidden="true">·</span>
+        <span>{{ workbench.workMode.value === 'answer' ? '回答并引用' : '仅检索' }}</span>
+      </div>
+
       <div v-if="workbench.queryAttachments.value.length" class="attachment-list" aria-live="polite">
         <article v-for="asset in workbench.queryAttachments.value" :key="asset.id">
           <img :src="asset.preview_url" :alt="`待查询图片：${asset.filename}`" />
-          <div><strong>{{ asset.filename }}</strong><span>{{ asset.width }}×{{ asset.height }}·{{ Math.ceil(asset.size_bytes / 1024) }} KB</span></div>
+          <div><strong>{{ asset.filename }}</strong><span>{{ asset.width }}×{{ asset.height }}</span></div>
           <button type="button" class="button icon-button danger-button" :aria-label="`移除 ${asset.filename}`" @click="workbench.removeQueryAttachment(asset.id)">×</button>
         </article>
         <label class="attachment-detail">
@@ -103,10 +203,81 @@ function toggleModality(id: typeof modalities[number]['id']) {
           </select>
         </label>
       </div>
-      <p v-if="workbench.queryAttachmentError.value" class="parameter-error" role="status">{{ workbench.queryAttachmentError.value }}</p>
-    </section>
 
-    <div class="preset-row" aria-label="示例问题">
+      <label class="question-field">
+        <span class="sr-only">问题</span>
+        <textarea
+          ref="questionInput"
+          v-model="workbench.question.value"
+          name="question"
+          maxlength="4000"
+          rows="1"
+          placeholder="询问你的资料，系统会给出带引用的回答"
+          @input="resizeQuestion"
+          @keydown.meta.enter.prevent="workbench.handleRun"
+          @keydown.ctrl.enter.prevent="workbench.handleRun"
+        ></textarea>
+      </label>
+
+      <div class="composer-toolbar">
+        <div class="composer-tools">
+          <label
+            class="composer-icon-button"
+            :class="{ disabled: workbench.queryAttachmentUploading.value || workbench.queryAttachments.value.length >= 4 }"
+            title="添加图片"
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+            <span class="sr-only">{{ workbench.queryAttachmentUploading.value ? '正在处理图片' : '添加图片' }}</span>
+            <input
+              type="file"
+              multiple
+              accept="image/png,image/jpeg,image/webp,image/gif"
+              :disabled="workbench.queryAttachmentUploading.value || workbench.queryAttachments.value.length >= 4"
+              data-testid="query-image-input"
+              @change="onQueryImages"
+            />
+          </label>
+          <div class="mode-switch small" role="group" aria-label="问答方式">
+            <button
+              type="button"
+              :aria-pressed="workbench.workMode.value === 'answer'"
+              @click="workbench.workMode.value = 'answer'"
+            >回答</button>
+            <button
+              type="button"
+              :aria-pressed="workbench.workMode.value === 'search'"
+              :disabled="Boolean(workbench.queryAttachments.value.length)"
+              @click="workbench.workMode.value = 'search'"
+            >检索</button>
+          </div>
+          <span class="keyboard-hint">⌘ K 聚焦 · ⌘ Enter 发送</span>
+        </div>
+        <div class="composer-submit">
+          <small>{{ workbench.question.value.length }}/4000</small>
+          <button
+            v-if="workbench.loading.value"
+            type="button"
+            class="stop-button"
+            aria-label="停止生成"
+            @click="workbench.cancelRun"
+          ><span aria-hidden="true"></span></button>
+          <button
+            v-else
+            type="button"
+            class="send-button"
+            data-testid="run-query"
+            :aria-label="workbench.workMode.value === 'answer' ? '发送问题并生成回答' : '开始检索证据'"
+            :disabled="!workbench.question.value.trim() || !workbench.expertParametersValid.value || workbench.queryAttachmentUploading.value"
+            @click="workbench.handleRun"
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 19V5M6.5 10.5 12 5l5.5 5.5"/></svg>
+          </button>
+        </div>
+      </div>
+      <p v-if="workbench.queryAttachmentError.value" class="parameter-error" role="status">{{ workbench.queryAttachmentError.value }}</p>
+    </form>
+
+    <div v-if="!workbench.answer.value && !workbench.question.value" class="preset-row" aria-label="示例问题">
       <button
         v-for="item in presets"
         :key="item"
@@ -118,168 +289,19 @@ function toggleModality(id: typeof modalities[number]['id']) {
       </button>
     </div>
 
-    <section v-if="workbench.appMode.value === 'expert'" class="expert-controls" aria-labelledby="expert-title">
-      <header>
-        <div>
-          <p class="kicker">Expert controls</p>
-          <h3 id="expert-title">检索参数</h3>
-        </div>
-        <button type="button" class="button text-button" @click="workbench.resetRetrievalControls">恢复默认</button>
-      </header>
-      <div class="control-grid">
-        <label>
-          <span>检索模式</span>
-          <select v-model="workbench.searchMode.value" name="search-mode">
-            <option value="hybrid">混合检索</option>
-            <option value="keyword">仅 BM25</option>
-            <option value="semantic">仅向量</option>
-          </select>
-        </label>
-        <label>
-          <span>检索 Profile</span>
-          <select v-model="workbench.searchProfile.value" name="search-profile">
-            <option value="balanced">Balanced</option>
-            <option value="precision">Precision</option>
-            <option value="recall">Recall</option>
-          </select>
-        </label>
-        <label>
-          <span>证据策略</span>
-          <select v-model="workbench.retrievalStrategy.value" name="retrieval-strategy">
-            <option value="auto">Auto 自动关系识别</option>
-            <option value="hybrid">Hybrid</option>
-            <option value="hybrid_graph">Hybrid + Graph</option>
-          </select>
-        </label>
-        <label>
-          <span>返回数量 <strong>{{ workbench.topK.value }}</strong></span>
-          <input v-model.number="workbench.topK.value" name="top-k" type="range" min="1" max="12" />
-        </label>
-        <label>
-          <span>候选池</span>
-          <input v-model.number="workbench.candidateK.value" name="candidate-k" type="number" min="1" max="80" />
-        </label>
-        <label>
-          <span>向量权重 <strong>{{ workbench.vectorWeight.value.toFixed(2) }}</strong></span>
-          <input v-model.number="workbench.vectorBalance.value" name="vector-weight" type="range" min="0" max="1" step="0.01" />
-        </label>
-        <label>
-          <span>MMR λ <strong>{{ workbench.mmrLambda.value.toFixed(2) }}</strong></span>
-          <input v-model.number="workbench.mmrLambda.value" name="mmr-lambda" type="range" min="0" max="1" step="0.01" />
-        </label>
-        <label>
-          <span>最低分</span>
-          <input v-model.number="workbench.minScore.value" name="min-score" type="number" min="0" max="1" step="0.01" />
-        </label>
-        <label class="checkbox-field">
-          <input v-model="workbench.queryRewrite.value" name="query-rewrite" type="checkbox" />
-          <span>启用 Query Rewrite</span>
-        </label>
-        <label>
-          <span>Graph 权重 <strong>{{ workbench.graphWeight.value.toFixed(2) }}</strong></span>
-          <input v-model.number="workbench.graphWeight.value" name="graph-weight" type="range" min="0" max="1" step="0.05" />
-        </label>
-        <label>
-          <span>Graph 最大跳数</span>
-          <input v-model.number="workbench.graphMaxHops.value" name="graph-hops" type="number" min="1" max="4" />
-        </label>
-        <label>
-          <span>父级上下文窗口</span>
-          <input v-model.number="workbench.parentWindow.value" name="parent-window" type="number" min="0" max="3" />
-        </label>
-      </div>
-      <fieldset class="modality-filter">
-        <legend>元素类型过滤（留空表示全部）</legend>
-        <button
-          v-for="item in modalities"
-          :key="item.id"
-          type="button"
-          :aria-pressed="workbench.modalityFilters.value.includes(item.id)"
-          @click="toggleModality(item.id)"
-        >{{ item.label }}</button>
-      </fieldset>
-      <p class="control-summary">
-        BM25 {{ workbench.bm25Weight.value.toFixed(2) }} / Vector {{ workbench.vectorWeight.value.toFixed(2) }} ·
-        {{ workbench.scopeLabel.value }}
-      </p>
-      <p v-if="!workbench.expertParametersValid.value" class="parameter-error" role="status">
-        候选池需为 1–80 的整数，最低分需在 0–1 之间。
-      </p>
-    </section>
-
-    <div v-else class="default-profile-note">
-      <div>
-        <strong>自动证据策略已启用</strong>
-        <span>混合召回为基线，仅在有 provenance 的关系问题中启用 Graph，并继续执行 MMR、Rerank 与拒答保护。</span>
-      </div>
-      <button type="button" class="button text-button" @click="workbench.appMode.value = 'expert'">调整参数</button>
-    </div>
-
-    <div v-if="workbench.error.value" class="error-banner" role="alert">
-      <div>
-        <strong>操作未完成</strong>
-        <p>{{ workbench.error.value }}</p>
-        <small v-if="workbench.errorRequestId.value">请求 ID：{{ workbench.errorRequestId.value }}</small>
-      </div>
-      <div class="banner-actions">
-        <button type="button" class="button secondary-button" @click="workbench.retryLast">重试</button>
-        <button type="button" class="button text-button" @click="workbench.clearError">关闭</button>
-      </div>
-    </div>
-
-    <div class="run-bar">
-      <div class="run-context">
-        <span>{{ workbench.scopeLabel.value }}</span>
-        <span>{{ workbench.workMode.value === 'answer' ? '生成证据回答' : '只返回证据' }}</span>
-        <label v-if="workbench.workMode.value === 'answer'" class="usage-attestation">
-          <input v-model="workbench.realUsageConsent.value" type="checkbox" />
-          <span>
-            这是我本人此刻提出的真实问题
-            <small>
-              明确确认后才计入 1.0 使用证据 ·
-              {{ workbench.realUsageSummary.value?.human_originated_questions ?? 0 }}/100
-            </small>
-          </span>
-        </label>
-      </div>
-      <div class="run-actions">
-        <button
-          v-if="workbench.appMode.value === 'expert'"
-          type="button"
-          class="button secondary-button"
-          :disabled="workbench.comparing.value || workbench.loading.value || !workbench.question.value.trim() || !workbench.expertParametersValid.value"
-          @click="workbench.handleCompare"
-        >
-          {{ workbench.comparing.value ? '对比中…' : '策略对比' }}
-        </button>
-        <button
-          v-if="workbench.loading.value"
-          type="button"
-          class="button danger-outline-button"
-          @click="workbench.cancelRun"
-        >取消请求</button>
-        <button
-          v-else
-          type="button"
-          class="button primary-button run-button"
-          data-testid="run-query"
-          :disabled="!workbench.question.value.trim() || !workbench.expertParametersValid.value || workbench.queryAttachmentUploading.value"
-          @click="workbench.handleRun"
-        >
-          {{ workbench.workMode.value === 'answer' ? '检索并回答' : '检索证据' }}
-          <span aria-hidden="true">→</span>
-        </button>
-      </div>
-    </div>
-
-    <div v-if="workbench.loading.value" class="query-loading" aria-live="polite">
-      <span class="spinner" aria-hidden="true"></span>
-      <span v-if="workbench.streamPhase.value === 'enriching'">正在读取图片、OCR 并构建查询上下文…</span>
-      <span v-else-if="workbench.streamPhase.value === 'retrieving'">正在召回、融合与去重证据…</span>
-      <span v-else-if="workbench.streamPhase.value === 'streaming'">证据已就绪，正在生成回答…</span>
-      <span v-else-if="workbench.streamPhase.value === 'auditing'">正在流式生成，最终引用审计尚未完成…</span>
-      <span v-else>正在召回、去重并审计证据…</span>
-    </div>
+    <details
+      v-if="workbench.appMode.value === 'expert' && workbench.workMode.value === 'answer'"
+      class="usage-evidence"
+    >
+      <summary>1.0 使用证据记录</summary>
+      <label class="usage-attestation">
+        <input v-model="workbench.realUsageConsent.value" type="checkbox" />
+        <span>
+          这是我本人此刻提出的真实问题
+          <small>仅明确确认后计入验收 · {{ workbench.realUsageSummary.value?.human_originated_questions ?? 0 }}/100</small>
+        </span>
+      </label>
+    </details>
 
     <section v-if="workbench.compareResult.value" class="comparison" aria-labelledby="comparison-title">
       <header class="subsection-heading">

@@ -87,7 +87,7 @@ flowchart TB
 | 引用审计 | `backend/app/services/citation_audit.py` | 引用覆盖率、unsupported claims |
 | 知识工具 | `backend/app/services/knowledge_tools.py` | 改写、知识卡片、缺口分析 |
 | 系统指标 | `backend/app/services/system_metrics.py` | 文档质量、置信度、反馈和日志统计 |
-| 前端页面 | `frontend/src/pages/WorkbenchPage.vue` | 普通/专家模式与三栏信息架构 |
+| 前端页面 | `frontend/src/pages/WorkbenchPage.vue` | question-first 画布、按需抽屉与普通/调试模式 |
 | 前端状态 | `frontend/src/composables/useWorkbench.ts` | 请求取消、重试、状态与领域动作 |
 | 领域状态 | `frontend/src/composables/use{KnowledgeBases,IngestionJobs,Conversations,ProviderStatus,MultimodalQuery,DocumentViewer,GraphTrace,QualityAudit}.ts` | KB、任务、SSE、图片、元素、Graph 与审计 |
 | 前端 API | `frontend/src/api/` | 超时/错误 client 与 documents/retrieval/quality API |

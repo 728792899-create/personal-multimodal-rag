@@ -6,6 +6,9 @@ import RetrievalTrace from './RetrievalTrace.vue'
 import GraphExplorer from './GraphExplorer.vue'
 
 const workbench = useWorkbenchContext()
+const emit = defineEmits<{
+  focusQuestion: []
+}>()
 
 const tabs = [
   { id: 'trace', label: 'Trace' },
@@ -24,6 +27,23 @@ function elementDomId(id: string) {
   return `element-${id.replace(/[^A-Za-z0-9_-]/g, '-')}`
 }
 
+async function selectInspectorTab(id: typeof tabs[number]['id']) {
+  workbench.inspectorTab.value = id
+  await nextTick()
+  document.getElementById(`tab-${id}`)?.focus()
+}
+
+function onInspectorTabKeydown(event: KeyboardEvent, index: number) {
+  let targetIndex = index
+  if (event.key === 'ArrowRight') targetIndex = (index + 1) % tabs.length
+  else if (event.key === 'ArrowLeft') targetIndex = (index - 1 + tabs.length) % tabs.length
+  else if (event.key === 'Home') targetIndex = 0
+  else if (event.key === 'End') targetIndex = tabs.length - 1
+  else return
+  event.preventDefault()
+  void selectInspectorTab(tabs[targetIndex].id)
+}
+
 watch(() => workbench.focusedElementId.value, async (id) => {
   if (!id) return
   await nextTick()
@@ -34,11 +54,17 @@ watch(() => workbench.focusedElementId.value, async (id) => {
 <template>
   <aside class="surface inspector-panel" aria-labelledby="inspector-title">
     <header class="section-heading">
-      <div>
-        <p class="kicker">Inspect & improve</p>
-        <h2 id="inspector-title">验证与质量</h2>
+      <div class="section-identity">
+        <span class="section-index" aria-hidden="true">03</span>
+        <div>
+          <p class="kicker">Evidence inspector</p>
+          <h2 id="inspector-title">验证与质量</h2>
+        </div>
       </div>
-      <span class="status-badge neutral">{{ workbench.appMode.value === 'expert' ? '专家视图' : '摘要视图' }}</span>
+      <span class="view-state">
+        <i aria-hidden="true"></i>
+        {{ workbench.appMode.value === 'expert' ? '分析视图' : '摘要视图' }}
+      </span>
     </header>
 
     <div class="inspector-tabs" role="tablist" aria-label="验证面板">
@@ -50,7 +76,9 @@ watch(() => workbench.focusedElementId.value, async (id) => {
         role="tab"
         :aria-selected="workbench.inspectorTab.value === tab.id"
         :aria-controls="`panel-${tab.id}`"
+        :tabindex="workbench.inspectorTab.value === tab.id ? 0 : -1"
         @click="workbench.inspectorTab.value = tab.id"
+        @keydown="onInspectorTabKeydown($event, tabs.indexOf(tab))"
       >{{ tab.label }}</button>
     </div>
 
@@ -61,9 +89,18 @@ watch(() => workbench.focusedElementId.value, async (id) => {
       aria-labelledby="tab-trace"
     >
       <RetrievalTrace v-if="workbench.answer.value" :trace="workbench.answer.value.retrieval_trace" />
-      <div v-else class="empty-state compact-empty">
+      <div v-else class="empty-state compact-empty inspector-empty">
+        <div class="empty-chain" aria-hidden="true">
+          <span>B</span><span>V</span><i></i><strong>RRF</strong><i></i><span>G</span>
+        </div>
         <strong>尚无检索过程</strong>
         <p>完成一次问答后，这里会解释查询增强、混合召回、Graph、父级上下文、排序、拒答与引用审计。</p>
+        <ol>
+          <li><span>Recall</span><small>BM25 + Vector + Graph</small></li>
+          <li><span>Reduce</span><small>RRF + Parent + MMR</small></li>
+          <li><span>Verify</span><small>Rerank + Gate + Citation</small></li>
+        </ol>
+        <button type="button" class="button text-button" @click="emit('focusQuestion')">前往提问</button>
       </div>
     </section>
 

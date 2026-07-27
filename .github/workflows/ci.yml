@@ -191,6 +191,13 @@ jobs:
           curl --fail --show-error http://127.0.0.1:8010/ready
           curl --fail --show-error http://127.0.0.1:5173/healthz
           curl --fail --show-error http://127.0.0.1:5173/api/documents
+      - name: Verify frontend survives backend container replacement
+        run: |
+          docker compose up -d --no-deps --force-recreate --wait --wait-timeout 180 backend
+          sleep 12
+          curl --fail --show-error http://127.0.0.1:8010/ready
+          curl --fail --show-error http://127.0.0.1:5173/ready
+          curl --fail --show-error http://127.0.0.1:5173/api/documents
       - name: Print service logs
         if: failure()
         run: docker compose logs --no-color

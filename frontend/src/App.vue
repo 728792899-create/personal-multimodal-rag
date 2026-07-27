@@ -36,16 +36,10 @@ onMounted(refresh)
     :error="error"
     @submit="signIn"
   />
-  <template v-else>
-    <button
-      v-if="session?.required"
-      class="session-logout button secondary"
-      type="button"
-      :disabled="submitting"
-      @click="signOut"
-    >
-      退出登录
-    </button>
-    <WorkbenchPage />
-  </template>
+  <WorkbenchPage
+    v-else
+    :show-logout="Boolean(session?.required)"
+    :signing-out="submitting"
+    @sign-out="signOut"
+  />
 </template>

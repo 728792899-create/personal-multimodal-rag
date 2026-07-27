@@ -10,9 +10,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 try:
-    from scripts.soak_monitor import verify_chain
+    from scripts.soak_monitor import verify_evidence
 except ModuleNotFoundError:  # Direct `python scripts/...` execution.
-    from soak_monitor import verify_chain
+    from soak_monitor import verify_evidence
 
 
 QUALITY_KEYS = (
@@ -50,9 +50,7 @@ def build(evidence_dir: Path, corpus_manifest: Path) -> dict:
     soak_state = load(evidence_dir / "soak-state.json")
     chain_valid = False
     try:
-        chain_valid = bool(
-            verify_chain(evidence_dir / "soak-events.jsonl").get("valid")
-        )
+        chain_valid = bool(verify_evidence(evidence_dir).get("eligible"))
     except (FileNotFoundError, ValueError, json.JSONDecodeError):
         pass
     continuous_seconds = (
@@ -95,7 +93,7 @@ def build(evidence_dir: Path, corpus_manifest: Path) -> dict:
             "no_data_loss_defect": (
                 restore.get("passed") is True
                 and chaos.get("passed") is True
-                and soak_state.get("failure_count", 0) == 0
+                and chain_valid
                 and continuous_seconds >= 14 * 86_400
             ),
         },

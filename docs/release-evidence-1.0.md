@@ -22,7 +22,7 @@
 | 非 fixture 索引文档 | 200 份 | passed：200 文档 / 200 jobs / 5,159 vectors |
 | 人工标注问题 | 200 条 | blocked：200 draft，人工确认 0 |
 | 真实使用问题 | 100 次 | blocked：明确来源声明计数 0 |
-| 连续运行 | 14 天 | in progress：2026-07-23T10:25:17Z 开始，不能回填 |
+| 连续运行 | 14 天 | in progress：历史间隔均保留；最长连续 81,984 秒，当前窗口于 2026-07-26T04:57:18Z 自然重置，不能回填 |
 | 完整生产恢复 | 1 次且无数据丢失 | passed：PostgreSQL/pgvector/MinIO 破坏性恢复对账通过 |
 | 数据丢失级缺陷 | 0 个未关闭 | blocked：需 soak 期确认 |
 | Recall@5 / MRR | ≥ 0.85 / ≥ 0.75 | blocked：需真实语料报告 |

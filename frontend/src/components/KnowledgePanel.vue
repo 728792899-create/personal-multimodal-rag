@@ -1,13 +1,32 @@
 <script setup lang="ts">
+import { computed, ref, watch } from 'vue'
+
 import { exportConversationUrl, exportKnowledgeCardUrl } from '../api'
 import { useWorkbenchContext } from '../composables/workbenchContext'
 import SourceManager from './SourceManager.vue'
 
 const workbench = useWorkbenchContext()
+const emit = defineEmits<{
+  openInspector: []
+}>()
+const fileInput = ref<HTMLInputElement | null>(null)
+const visibleDocumentLimit = ref(40)
+const visibleDocuments = computed(() => workbench.filteredDocuments.value.slice(0, visibleDocumentLimit.value))
+const remainingDocumentCount = computed(
+  () => Math.max(0, workbench.filteredDocuments.value.length - visibleDocumentLimit.value),
+)
 
 function onFileChange(event: Event) {
   const input = event.target as HTMLInputElement
   workbench.selectedFile.value = input.files?.[0] ?? null
+}
+
+function onFileDrop(event: DragEvent) {
+  workbench.selectedFile.value = event.dataTransfer?.files?.[0] ?? null
+}
+
+async function openDocument(documentId: string) {
+  if (await workbench.selectDocument(documentId)) emit('openInspector')
 }
 
 function qualityLabel(score?: number) {
@@ -20,14 +39,31 @@ function qualityLabel(score?: number) {
 function onKnowledgeBaseChange(event: Event) {
   workbench.selectKnowledgeBase((event.target as HTMLSelectElement).value)
 }
+
+watch(
+  () => workbench.selectedFile.value,
+  (file) => {
+    if (!file && fileInput.value) fileInput.value.value = ''
+  },
+)
+
+watch(
+  () => [workbench.documentFilter.value, workbench.selectedKnowledgeBaseId.value],
+  () => {
+    visibleDocumentLimit.value = 40
+  },
+)
 </script>
 
 <template>
   <aside class="surface knowledge-panel" aria-labelledby="knowledge-title">
     <header class="section-heading">
-      <div>
-        <p class="kicker">Knowledge</p>
-        <h2 id="knowledge-title">知识库</h2>
+      <div class="section-identity">
+        <span class="section-index" aria-hidden="true">LIB</span>
+        <div>
+          <p class="kicker">Evidence library</p>
+          <h2 id="knowledge-title">知识与会话</h2>
+        </div>
       </div>
       <button
         v-if="workbench.scopedDocumentIds.value.length"
@@ -40,7 +76,10 @@ function onKnowledgeBaseChange(event: Event) {
     </header>
 
     <section class="knowledge-base-switcher" aria-labelledby="knowledge-base-title">
-      <label id="knowledge-base-title" for="knowledge-base-select">当前知识库</label>
+      <div class="switcher-heading">
+        <label id="knowledge-base-title" for="knowledge-base-select">当前知识库</label>
+        <span>{{ workbench.documents.value.length }} 份资料</span>
+      </div>
       <select
         id="knowledge-base-select"
         :value="workbench.selectedKnowledgeBaseId.value"
@@ -59,13 +98,20 @@ function onKnowledgeBaseChange(event: Event) {
 
     <section class="ingest-group" aria-labelledby="upload-title">
       <h3 id="upload-title" class="sr-only">上传文件</h3>
-      <label class="file-drop" :class="{ selected: workbench.selectedFile.value }">
-        <span class="file-icon" aria-hidden="true">↑</span>
+      <label
+        class="file-drop"
+        :class="{ selected: workbench.selectedFile.value }"
+        @dragenter.prevent
+        @dragover.prevent
+        @drop.prevent="onFileDrop"
+      >
+        <span class="file-icon" aria-hidden="true"><i></i></span>
         <span>
-          <strong>{{ workbench.selectedFile.value?.name || '选择文件' }}</strong>
+          <strong>{{ workbench.selectedFile.value?.name || '拖入或选择资料' }}</strong>
           <small>PDF、DOCX、Markdown、文本或图片 · 最大 20 MB</small>
         </span>
         <input
+          ref="fileInput"
           data-testid="file-input"
           type="file"
           accept=".pdf,.docx,.md,.markdown,.txt,.png,.jpg,.jpeg"
@@ -79,12 +125,12 @@ function onKnowledgeBaseChange(event: Event) {
         :disabled="!workbench.selectedFile.value || workbench.uploading.value"
         @click="workbench.handleUpload"
       >
-        {{ workbench.uploading.value ? '正在解析并索引…' : '上传并索引' }}
+        {{ workbench.uploading.value ? '正在解析并索引…' : '加入证据库' }}
       </button>
     </section>
 
     <form class="url-form" aria-label="导入网页资料" @submit.prevent="workbench.handleImportUrl">
-      <label for="url-import">网页地址</label>
+      <label for="url-import">从网页采集证据</label>
       <div class="field-action">
         <input
           id="url-import"
@@ -144,7 +190,7 @@ function onKnowledgeBaseChange(event: Event) {
         id="document-filter"
         v-model="workbench.documentFilter.value"
         type="search"
-        placeholder="筛选文档"
+        placeholder="搜索知识库资料"
       />
       <button
         type="button"
@@ -166,7 +212,7 @@ function onKnowledgeBaseChange(event: Event) {
       <p>{{ workbench.documentFilter.value ? '清除筛选条件后重试。' : '上传文件或导入公开 URL 开始构建证据。' }}</p>
     </div>
     <ul v-else class="document-list" aria-label="知识库文档">
-      <li v-for="doc in workbench.filteredDocuments.value" :key="doc.id" :class="{ scoped: workbench.scopeSet.value.has(doc.id) }">
+      <li v-for="doc in visibleDocuments" :key="doc.id" :class="{ scoped: workbench.scopeSet.value.has(doc.id) }">
         <button
           type="button"
           class="scope-toggle"
@@ -176,7 +222,7 @@ function onKnowledgeBaseChange(event: Event) {
         >
           <span aria-hidden="true"></span>
         </button>
-        <button type="button" class="document-summary" @click="workbench.selectDocument(doc.id)">
+        <button type="button" class="document-summary" @click="openDocument(doc.id)">
           <strong>{{ doc.filename }}</strong>
           <span>{{ doc.source_type }} · {{ doc.chunk_count }} 片段</span>
           <small>{{ qualityLabel(doc.quality?.score) }} · Q {{ doc.quality?.score ?? '—' }}</small>
@@ -198,8 +244,16 @@ function onKnowledgeBaseChange(event: Event) {
         </div>
       </li>
     </ul>
+    <button
+      v-if="remainingDocumentCount"
+      type="button"
+      class="button text-button full-width document-load-more"
+      @click="visibleDocumentLimit += 40"
+    >
+      再显示 {{ Math.min(40, remainingDocumentCount) }} 份资料
+    </button>
 
-    <details class="conversation-section" open>
+    <details class="conversation-section">
       <summary>持久化会话 <span>{{ workbench.conversations.value.length }}</span></summary>
       <button type="button" class="button secondary-button full-width new-conversation" @click="workbench.startNewConversation">
         新建会话

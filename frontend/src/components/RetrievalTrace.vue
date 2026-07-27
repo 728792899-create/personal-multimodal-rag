@@ -101,24 +101,72 @@ const stages = computed(() => {
     },
   ]
 })
+
+const chainSummary = computed(() => {
+  const pipeline = props.trace.pipeline || {}
+  return {
+    bm25: pipeline.bm25?.candidates ?? props.trace.bm25_candidates ?? 0,
+    vector: pipeline.vector?.candidates ?? props.trace.vector_candidates ?? 0,
+    graph: pipeline.graph?.status === 'success' ? pipeline.graph.paths?.length || 0 : 0,
+    fused: pipeline.fusion?.deduped ?? props.trace.deduped_candidates ?? 0,
+    selected: pipeline.mmr?.selected ?? props.trace.mmr_selected ?? 0,
+    returned: pipeline.rerank?.returned ?? props.trace.returned ?? 0,
+    refused: Boolean(pipeline.decision?.status === 'refused' || props.trace.refusal_reason),
+    coverage: Math.round((pipeline.citation_audit?.coverage ?? 0) * 100),
+  }
+})
 </script>
 
 <template>
   <section class="trace-visual" aria-labelledby="trace-title">
     <header class="section-heading compact">
       <div>
-        <p class="kicker">Retrieval trace</p>
-        <h2 id="trace-title">检索阶段</h2>
+        <p class="kicker">Evidence chain</p>
+        <h2 id="trace-title">检索证据链</h2>
       </div>
       <span class="status-badge neutral">{{ trace.search_profile }}</span>
     </header>
 
+    <section class="chain-map" aria-label="检索链路摘要">
+      <div class="chain-sources">
+        <div><span>BM25</span><strong>{{ chainSummary.bm25 }}</strong><small>关键词候选</small></div>
+        <div><span>Vector</span><strong>{{ chainSummary.vector }}</strong><small>语义候选</small></div>
+        <div :class="{ inactive: !chainSummary.graph }"><span>Graph</span><strong>{{ chainSummary.graph || '—' }}</strong><small>证据路径</small></div>
+      </div>
+      <div class="chain-connector" aria-hidden="true">
+        <i></i><i></i><i></i><span></span>
+      </div>
+      <div class="chain-gates">
+        <div><span>RRF</span><strong>{{ chainSummary.fused }}</strong><small>融合去重</small></div>
+        <span class="chain-arrow" aria-hidden="true">→</span>
+        <div><span>MMR</span><strong>{{ chainSummary.selected }}</strong><small>多样保留</small></div>
+        <span class="chain-arrow" aria-hidden="true">→</span>
+        <div><span>Rerank</span><strong>{{ chainSummary.returned }}</strong><small>最终证据</small></div>
+      </div>
+      <div :class="['chain-decision', { refused: chainSummary.refused }]">
+        <span class="status-signal" aria-hidden="true"></span>
+        <div>
+          <small>Evidence gate</small>
+          <strong>{{ chainSummary.refused ? '已拒答' : '允许回答' }}</strong>
+        </div>
+        <div>
+          <small>引用覆盖</small>
+          <strong>{{ chainSummary.coverage }}%</strong>
+        </div>
+      </div>
+    </section>
+
+    <div class="trace-detail-heading">
+      <span>完整阶段</span>
+      <small>从查询增强到引用审计</small>
+    </div>
     <ol class="trace-stages" aria-label="从召回到引用审计的检索流程">
       <li
         v-for="stage in stages"
         :key="stage.id"
         data-trace-stage
         :data-stage="stage.id"
+        :data-status="stage.status"
         :class="['trace-stage', `is-${stage.status}`]"
       >
         <span class="stage-index" aria-hidden="true">{{ stage.number }}</span>

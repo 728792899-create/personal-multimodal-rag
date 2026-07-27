@@ -60,8 +60,16 @@ def main() -> int:
     ):
         raise SystemExit("postgres must initialize the vector extension from a read-only script")
     nginx = Path("frontend/nginx.conf").read_text(encoding="utf-8")
-    if "location = /ready" not in nginx or "backend:8010/ready" not in nginx:
+    if "location = /ready" not in nginx or "$backend_upstream/ready" not in nginx:
         raise SystemExit("frontend must proxy the public readiness endpoint to backend")
+    if (
+        "resolver 127.0.0.11" not in nginx
+        or "set $backend_upstream backend:8010;" not in nginx
+        or "proxy_pass http://$backend_upstream" not in nginx
+    ):
+        raise SystemExit(
+            "frontend must resolve the backend at request time after container recovery"
+        )
     print("Production Compose contract passed: fail-closed config, pinned images, read-only app containers.")
     return 0
 

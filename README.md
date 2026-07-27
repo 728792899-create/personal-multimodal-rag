@@ -22,7 +22,7 @@
 
 **0.4.0-rc.1 Production Local** 开始把“演示能力”和“受支持运行路径”明确分开：保留零 Key Demo，同时增加失败关闭的 Local Production 与 Production profile、Argon2id 会话认证、CSRF、登录限流、PostgreSQL metadata adapter、pgvector、S3/MinIO、ClamAV、Redis Streams、事务 outbox、DLQ 和带 checksum 的 SQLite→PostgreSQL 迁移。RC 不使用 `production-ready` 宣称；完成真实资料基准、恢复演练与 14 天持续运行门槛后才会发布 1.0。
 
-2026-07-23 的私有 Production 验收已索引 **21 组有许可证来源 / 200 份非 fixture 文档 / 5,159 个 768 维向量**，并真实通过 PostgreSQL + pgvector + MinIO 破坏性恢复及 API、worker、Redis、PostgreSQL、MinIO 五类故障注入。MinerU 高级解析真实任务通过；Ollama embedding 通过，但 `qwen3:8b` 三类生成接口在本机 180 秒超时。14 天不可回填观测已从首个健康样本开始；人工标注仍为 0/200、本人真实问题仍为 0/100，Sentry 因无 DSN 未验收。因此版本仍是 RC，完整证据与复现命令见[现场验收手册](docs/production-validation.md)。
+2026-07-23 的私有 Production 验收已索引 **21 组有许可证来源 / 200 份非 fixture 文档 / 5,159 个 768 维向量**，并真实通过 PostgreSQL + pgvector + MinIO 破坏性恢复及 API、worker、Redis、PostgreSQL、MinIO 五类故障注入。MinerU 高级解析真实任务通过；Ollama embedding 通过，但 `qwen3:8b` 三类生成接口在本机 180 秒超时。持续观测如实记录了四次宿主机/容器运行时长间隔，并在每次超限后自然重置；截至 2026-07-26，最长连续窗口为 81,984 秒，当前窗口从 `2026-07-26T04:57:18Z` 重新开始。人工标注仍为 0/200、本人真实问题仍为 0/100，Sentry 因无 DSN 未验收。因此版本仍是 RC，完整证据与复现命令见[现场验收手册](docs/production-validation.md)。
 
 同一版本还补齐日常使用闭环：可以订阅服务端白名单内的本地目录、URL 列表和 RSS/Atom，以内容 hash、ETag、Last-Modified 和稳定 external ID 做增量同步；空结果或部分失败不会触发批量删除，条目连续两次完整同步仍消失才进入人工确认。回答、会话和知识卡片均可导出带引用 Markdown。实现与安全边界见[持续数据源与增量同步](docs/source-sync.md)。
 
@@ -32,8 +32,8 @@
 
 | 默认体验 | 可信度机制 | 工程证据 | 生产边界 |
 | --- | --- | --- | --- |
-| 零 Key、离线可运行 | 无证据拒答 | 174 个后端测试 | Argon2id session 与可选 Sentry |
-| 多知识库、DOCX 与图片提问 | 十阶段检索 Trace | 22 个前端测试 | Chroma / pgvector adapter |
+| 零 Key、离线可运行 | 无证据拒答 | 179 个后端通过、3 个跳过 + 2 个 PostgreSQL contract | Argon2id session 与可选 Sentry |
+| 多知识库、DOCX 与图片提问 | 十阶段检索 Trace | 27 个前端测试 | Chroma / pgvector adapter |
 | 持久会话与流式回答 | 精确元素引用与 Graph provenance | 14 个 Browser E2E | Redis Streams / S3 / ClamAV |
 | 可恢复索引任务 | 反馈 → eval draft | 100 条黄金回归 case | Demo、Local Production、Production 明确分层 |
 
@@ -44,7 +44,7 @@
 - 在本地管理个人或小团队资料，并获得带引用回答。
 - 演示一个可解释、可测试、能安全拒答的 RAG 工程作品集。
 - 用固定黄金集回归 Recall@5、MRR、首条引用准确率和拒答准确率。
-- 在同一界面比较普通模式与专家模式，定位召回、排序、生成或引用问题。
+- 在同一界面比较简洁（普通）与调试（专家）模式，定位召回、排序、生成或引用问题。
 
 它目前不是多租户 SaaS，也没有宣称默认 hash embedding 具备生产语义检索质量。三个运行模式、失败关闭规则和迁移步骤见 [Production Local 运行手册](docs/production-local.md)；扩展边界见 [生产适配方案](docs/production-adapters.md) 与 [已知边界](docs/known-limitations.md)。
 
@@ -167,8 +167,8 @@ npm run verify
 
 | 检查 | 当前本地结果 | CI 门槛 |
 | --- | ---: | ---: |
-| 后端测试 | 152 passed、3 skipped + 2 PostgreSQL contract passed | 全部通过 |
-| 前端单元/组件 | 19 passed | 全部通过 |
+| 后端测试 | 179 passed、3 skipped + 2 PostgreSQL contract passed | 全部通过 |
+| 前端单元/组件 | 27 passed | 全部通过 |
 | Browser E2E | 14 passed | 桌面与移动全部通过 |
 | Recall@5 | 1.0000 | ≥ 0.90 |
 | MRR | 0.9888 | ≥ 0.75 |
@@ -186,34 +186,26 @@ npm run verify
 
 ### 界面图集
 
-| 工作台 | 可解释回答 | 窄屏拒答 |
+![Production Local 安全登录页](docs/screenshots/13-evidence-ledger-login.png)
+
+默认首页采用 **Question-first** 单画布：普通使用者只看到问题、回答与来源；文件上传和知识库管理收进资料库抽屉，检索 Trace 收进检索调试抽屉。`⌘/Ctrl + K` 可随时聚焦问题，`Esc` 关闭抽屉，调试模式才展开 BM25、向量、Graph、MMR 与 rerank 参数。
+
+| 问答首页 | 检索调试 | 390px 窄屏 |
 | --- | --- | --- |
-| ![普通模式三栏工作台](docs/screenshots/01-workbench-beta.png) | ![回答、引用与检索 Trace](docs/screenshots/02-grounded-trace.png) | ![390px 专家模式与无证据拒答](docs/screenshots/03-mobile-expert-refusal.png) |
-| 管理资料、提问与系统概览 | 检查 BM25、向量、排序和引用 | 无横向溢出，保留完整状态 |
+| ![极简的多模态知识库问答首页](docs/screenshots/01-workbench-beta.png) | ![按需展开的高级检索参数](docs/screenshots/15-question-first-debug.png) | ![390px 问答页与底部快捷导航](docs/screenshots/14-evidence-ledger-mobile.png) |
+| 单一问题画布，系统信息默认隐藏 | 仅在调试模式展示检索策略 | 上传、资料和调试入口始终可达，无横向溢出 |
 
-| 上传与 URL 导入 | 引用相邻上下文 | 质量与引用审计 |
-| --- | --- | --- |
-| ![上传、URL 表单和索引资料](docs/screenshots/04-ingestion-url.png) | ![展开引用及前后 chunk](docs/screenshots/05-citation-context.png) | ![检索质量、引用覆盖和系统指标](docs/screenshots/06-quality-dashboard.png) |
-| 两条入库路径状态独立 | 从片段返回完整证据 | 诊断召回、排序和覆盖 |
+![FastAPI 反向代理问题的仅检索结果与五条相关来源](docs/screenshots/16-question-first-sources.png)
 
-| 反馈生成 eval draft | 504 错误与重试 |
-| --- | --- |
-| ![负反馈和自动生成的评测草稿](docs/screenshots/07-feedback-eval-draft.png) | ![保留最后成功结果的 504 错误与重试入口](docs/screenshots/08-error-retry.png) |
-| 失败进入人工审查闭环 | 请求 ID、错误说明和恢复动作 |
+简洁模式不会暴露 Provider、召回权重或原始检索分值；结果首先呈现匹配状态和来源，点击来源后才进入证据与调试抽屉。
 
-| 图片提问与持久会话 | Graph 证据工作台 |
-| --- | --- |
-| ![图片证据入口、持久多模态会话和回答状态](docs/screenshots/09-multimodal-query-trace.jpg) | ![Graph SVG 与带原文证据的键盘表格](docs/screenshots/10-graph-evidence-workbench.jpg) |
-| 临时 Query Asset 进入类型化 SSE | 43 节点、72 条带 provenance 的边 |
+### 关键工作流
 
-| 精确元素引用 | 390px 多模态专家模式 |
-| --- | --- |
-| ![引用跳转到高亮的 heading 元素](docs/screenshots/11-precise-element-citation.jpg) | ![390px 下图片提问与专家检索参数](docs/screenshots/12-mobile-multimodal-expert.jpg) |
-| 从 citation 回到 IR 元素与相邻上下文 | 无横向溢出并保留完整控制层级 |
+资料库抽屉承载文件上传、URL 导入和索引状态；来源抽屉提供相邻上下文、质量与引用审计；反馈可生成评测草稿；失败状态保留请求 ID 和重试动作。多模态图片提问、Graph 证据导航及精确元素引用均在当前界面的按需抽屉中完成，不再在首页混入历史 UI。
 
-完整的逐步说明见[端到端案例](docs/case-study.md)与[产品巡游](docs/product-tour.md)。
+完整的逐步说明见[端到端案例](docs/case-study.md)、[产品巡游](docs/product-tour.md)与[截图验证索引](docs/screenshots/README.md)。
 
-### 普通模式
+### 简洁（普通）模式
 
 - 创建/切换知识库，上传 PDF、DOCX、Markdown、文本、PNG/JPEG，或导入公开 URL。
 - 在任务中心查看排队、分块、嵌入、写入、失败、取消与重试状态。
@@ -223,7 +215,7 @@ npm run verify
 - 负反馈一键生成 eval draft。
 - 可添加最多 4 张临时图片，离线 OCR/元数据或视觉 Provider 会在检索前扩展查询。
 
-### 专家模式
+### 调试（专家）模式
 
 - 调整 `search_mode`、profile、Top K、candidate K、向量权重、MMR λ 与最低分。
 - 比较 BM25-only、Vector-only、Hybrid、Hybrid + Rerank。
