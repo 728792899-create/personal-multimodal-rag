@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 
 import ProductMark from '../components/ProductMark.vue'
+import { localizedSystemText } from '../localization'
 
 defineProps<{
   submitting: boolean
@@ -66,7 +67,7 @@ function handleSubmit() {
         <footer class="login-identity-footer">
           <span>本地生产模式</span>
           <span>单一工作区</span>
-          <span>0.4.0 RC</span>
+          <span>0.4.0 候选版</span>
         </footer>
       </aside>
 
@@ -93,7 +94,7 @@ function handleSubmit() {
             autofocus
             required
           >
-          <p v-if="error" class="login-error" role="alert">{{ error }}</p>
+          <p v-if="error" class="login-error" role="alert">{{ localizedSystemText(error, '登录失败，请重试。') }}</p>
           <button class="button primary login-submit" type="submit" :disabled="submitting || !password">
             <span>{{ submitting ? '正在验证…' : '登录工作台' }}</span>
             <span aria-hidden="true">↗</span>
@@ -103,7 +104,7 @@ function handleSubmit() {
         <div class="login-security" aria-label="会话安全说明">
           <div>
             <span>会话</span>
-            <strong>HttpOnly Cookie</strong>
+            <strong>仅 HTTP 可访问的会话令牌</strong>
           </div>
           <div>
             <span>写入权限</span>

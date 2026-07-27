@@ -3,6 +3,7 @@ import { computed } from 'vue'
 
 import { exportHistoryUrl, type ChunkResult } from '../api'
 import { useWorkbenchContext } from '../composables/workbenchContext'
+import { localizedSystemText } from '../localization'
 
 const workbench = useWorkbenchContext()
 const emit = defineEmits<{
@@ -52,7 +53,7 @@ function openCitation(item: ChunkResult) {
     </section>
     <section v-else-if="workbench.trust.value" :class="['trust-summary', `trust-${workbench.trust.value.level}`]">
       <div>
-        <span class="trust-label">{{ workbench.trust.value.label }}</span>
+        <span class="trust-label">{{ localizedSystemText(workbench.trust.value.label, '证据状态') }}</span>
         <strong>
           {{
             workbench.workMode.value === 'search'
@@ -62,7 +63,7 @@ function openCitation(item: ChunkResult) {
                 : '已通过引用核验'
           }}
         </strong>
-        <p>{{ workbench.trust.value.reason }}</p>
+        <p>{{ localizedSystemText(workbench.trust.value.reason, '请查看引用证据后再判断。') }}</p>
       </div>
       <dl>
         <div><dt>{{ workbench.workMode.value === 'search' ? '匹配度' : '可信度' }}</dt><dd>{{ percent(workbench.answer.value.confidence || 0) }}</dd></div>
@@ -88,8 +89,8 @@ function openCitation(item: ChunkResult) {
       <div>
         <article v-for="item in workbench.diagnostics.value" :key="`${item.level}-${item.title}`" :class="['diagnostic-item', item.level]">
           <div>
-            <strong>{{ item.title }}</strong>
-            <p>{{ item.message }}</p>
+            <strong>{{ localizedSystemText(item.title, '检索诊断') }}</strong>
+            <p>{{ localizedSystemText(item.message, '请检查检索设置后重试。') }}</p>
           </div>
           <div v-if="item.actions?.length" class="inline-actions">
             <button
@@ -98,7 +99,7 @@ function openCitation(item: ChunkResult) {
               type="button"
               class="button secondary-button"
               @click="workbench.handleDiagnosticAction(action)"
-            >{{ action.label }}</button>
+            >{{ localizedSystemText(action.label, '执行建议') }}</button>
           </div>
         </article>
       </div>
@@ -124,7 +125,7 @@ function openCitation(item: ChunkResult) {
               <strong>{{ item.filename }}</strong>
               <span>{{ item.snippet || item.text }}</span>
               <small v-if="workbench.appMode.value === 'expert'">
-                片段 {{ item.index + 1 }} · rerank {{ item.rerank_score.toFixed(3) }} · BM25 {{ item.bm25_score.toFixed(3) }} · vector {{ item.vector_score.toFixed(3) }}
+                片段 {{ item.index + 1 }} · 重排序 {{ item.rerank_score.toFixed(3) }} · BM25 {{ item.bm25_score.toFixed(3) }} · 向量 {{ item.vector_score.toFixed(3) }}
               </small>
             </span>
             <span class="citation-open" aria-hidden="true">↗</span>
@@ -151,7 +152,7 @@ function openCitation(item: ChunkResult) {
         >导出</a>
       </div>
       <div v-if="workbench.rewriteResult.value" class="rewrite-result">
-        <strong>{{ workbench.rewriteResult.value.label }}</strong>
+        <strong>{{ localizedSystemText(workbench.rewriteResult.value.label, '整理后的回答') }}</strong>
         <p>{{ workbench.rewriteResult.value.rewritten }}</p>
       </div>
       <p v-if="workbench.cardMessage.value" class="success-copy">{{ workbench.cardMessage.value }}</p>

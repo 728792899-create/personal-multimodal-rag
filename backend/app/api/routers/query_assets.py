@@ -15,7 +15,10 @@ async def create_query_assets(
     knowledge_base_id: str = Form("default"),
 ):
     if not files or len(files) > query_asset_service.max_count:
-        raise HTTPException(status_code=400, detail=f"Upload between 1 and {query_asset_service.max_count} query images")
+        raise HTTPException(
+            status_code=400,
+            detail=f"请上传 1 至 {query_asset_service.max_count} 张查询图片。",
+        )
     assets = []
     try:
         for file in files:
@@ -34,5 +37,5 @@ async def create_query_assets(
 @router.delete("/{asset_id}")
 def delete_query_asset(asset_id: str):
     if not query_asset_service.delete(asset_id):
-        raise HTTPException(status_code=404, detail="Query image not found")
+        raise HTTPException(status_code=404, detail="查询图片不存在或已被删除。")
     return {"deleted": True, "id": asset_id}

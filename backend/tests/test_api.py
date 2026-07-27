@@ -23,6 +23,20 @@ def test_create_query_rewriter_returns_rewriter_instance(monkeypatch):
     assert rewriter.name == "responses"
 
 
+def test_validation_and_not_found_errors_are_localized_for_browser_clients():
+    client = TestClient(app)
+
+    invalid = client.post("/api/ask", json={})
+    missing = client.get("/api/documents/does-not-exist")
+
+    assert invalid.status_code == 422
+    assert invalid.json()["detail"][0]["type"] == "missing"
+    assert invalid.json()["detail"][0]["loc"][-1] == "question"
+    assert invalid.json()["detail"][0]["msg"] == "缺少必填字段。"
+    assert missing.status_code == 404
+    assert missing.json()["detail"] == "文档不存在或已被删除。"
+
+
 def test_ingest_ask_and_delete(monkeypatch, tmp_path):
     monkeypatch.setattr(documents, "DATA_DIR", tmp_path)
     client = TestClient(app)

@@ -23,7 +23,7 @@ def search(q: str, top_k: int = 5, search_mode: str = "hybrid"):
 def chunk_context(chunk_id: str, window: int = 1):
     result = build_citation_context(list(retriever.vector_store.chunks.values()), chunk_id, window=max(0, min(window, 3)))
     if not result.get("found"):
-        raise HTTPException(status_code=404, detail="Chunk not found")
+        raise HTTPException(status_code=404, detail="证据片段不存在或已被删除。")
     return result
 
 
@@ -62,7 +62,7 @@ def ask(payload: AskRequest):
         if not settings.provider_fallback_allowed and settings.answer_provider.lower() not in {"template", "local", "none"}:
             raise HTTPException(
                 status_code=503,
-                detail="Configured answer provider is unavailable; inspect provider status and request logs.",
+                detail="当前配置的回答 Provider 暂时不可用，请检查 Provider 状态后重试。",
             ) from exc
         raise
     response["gap_report"] = analyze_knowledge_gaps(

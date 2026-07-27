@@ -52,15 +52,18 @@ class QueryAssetService:
     def create(self, payload: bytes, filename: str, knowledge_base_id: str) -> dict:
         self.cleanup_expired()
         if not payload:
-            raise QueryAssetError("Query image is empty")
+            raise QueryAssetError("查询图片为空。")
         if len(payload) > self.max_bytes:
-            raise QueryAssetError(f"Query image exceeds the {self.max_bytes}-byte limit", status_code=413)
+            raise QueryAssetError(
+                f"查询图片超过 {self.max_bytes} bytes 的大小上限。",
+                status_code=413,
+            )
         if not self.registry.get_knowledge_base(knowledge_base_id):
-            raise QueryAssetError("Knowledge base not found", status_code=404)
+            raise QueryAssetError("知识库不存在或已被删除。", status_code=404)
 
         image_format, width, height, frame_count = self._inspect_image(payload)
         if frame_count > 1:
-            raise QueryAssetError("Animated GIF images are not supported")
+            raise QueryAssetError("不支持动态 GIF 图片。")
         media_type, suffix = ALLOWED_IMAGE_FORMATS[image_format]
         stored = self.object_store.put_bytes(payload)
         try:
@@ -92,7 +95,7 @@ class QueryAssetService:
             # no database row references after OCR or registry persistence fails.
             if self.registry.asset_reference_count(stored.object_key) == 0:
                 self.object_store.delete(stored.object_key)
-            raise QueryAssetError("Query image processing failed", status_code=503) from exc
+            raise QueryAssetError("查询图片处理失败，请稍后重试。", status_code=503) from exc
         return self.public_payload(asset)
 
     def delete(self, asset_id: str) -> bool:
@@ -120,7 +123,7 @@ class QueryAssetService:
         if not attachments:
             return question, []
         if len(attachments) > self.max_count:
-            raise QueryAssetError(f"A query accepts at most {self.max_count} images")
+            raise QueryAssetError(f"每次提问最多添加 {self.max_count} 张图片。")
         allowed_bases = set(knowledge_base_ids or ["default"])
         summaries: list[dict] = []
         query_parts: list[str] = [question]
@@ -133,19 +136,19 @@ class QueryAssetService:
                 detail = str(getattr(reference, "detail", "auto"))
             asset = self.registry.get_asset(asset_id, include_private=True)
             if not asset or asset.get("kind") != "query":
-                raise QueryAssetError("Query image not found", status_code=404)
+                raise QueryAssetError("查询图片不存在或已被删除。", status_code=404)
             if asset["knowledge_base_id"] not in allowed_bases:
-                raise QueryAssetError("Query image does not belong to the selected knowledge base", status_code=403)
+                raise QueryAssetError("查询图片不属于当前选择的知识库。", status_code=403)
             try:
                 expires_at = datetime.fromisoformat(asset["expires_at"])
             except ValueError as exc:
-                raise QueryAssetError("Query image expiry metadata is invalid", status_code=410) from exc
+                raise QueryAssetError("查询图片的过期信息无效，请重新上传。", status_code=410) from exc
             if expires_at <= datetime.utcnow():
                 self.delete(asset_id)
-                raise QueryAssetError("Query image expired; upload it again", status_code=410)
+                raise QueryAssetError("查询图片已过期，请重新上传。", status_code=410)
             path = self.object_store.path_for(asset["object_key"])
             if not path.is_file():
-                raise QueryAssetError("Query image content is unavailable", status_code=410)
+                raise QueryAssetError("查询图片内容不可用，请重新上传。", status_code=410)
             metadata = asset.get("metadata") or {}
             ocr_text = str(metadata.get("ocr_text") or "").strip()
             image_data_url = f"data:{asset['media_type']};base64,{base64.b64encode(path.read_bytes()).decode('ascii')}"
@@ -168,7 +171,7 @@ class QueryAssetService:
             description = str(enriched.get("description") or ocr_text or asset["original_name"]).strip()[:2_000]
             keywords = [str(item)[:120] for item in enriched.get("keywords", []) if str(item).strip()][:16]
             query_parts.append(
-                f"[Query image {index}: {asset['original_name']}]\n{description}\nKeywords: {', '.join(keywords)}"
+                f"[查询图片 {index}：{asset['original_name']}]\n{description}\n关键词：{', '.join(keywords)}"
             )
             summaries.append({
                 **self.public_payload(asset),
@@ -202,14 +205,14 @@ class QueryAssetService:
                 width, height = image.size
                 frame_count = int(getattr(image, "n_frames", 1) or 1)
                 if image_format not in ALLOWED_IMAGE_FORMATS:
-                    raise QueryAssetError("Only PNG, JPEG, WEBP and non-animated GIF images are supported")
+                    raise QueryAssetError("仅支持 PNG、JPEG、WEBP 和非动态 GIF 图片。")
                 if width <= 0 or height <= 0 or width * height > self.max_pixels:
-                    raise QueryAssetError("Query image dimensions exceed the configured pixel limit", status_code=413)
+                    raise QueryAssetError("查询图片尺寸超过像素上限。", status_code=413)
                 image.verify()
         except QueryAssetError:
             raise
         except (OSError, UnidentifiedImageError, ValueError) as exc:
-            raise QueryAssetError("Query image signature or content is invalid") from exc
+            raise QueryAssetError("查询图片签名或内容无效。") from exc
         return image_format, width, height, frame_count
 
     def _ocr(self, object_path: Path, suffix: str):

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Derive the private 1.0 readiness manifest from auditable local artifacts."""
+"""根据可审计的本地产物生成私有 1.0 就绪度清单。"""
 
 from __future__ import annotations
 
@@ -123,7 +123,7 @@ def atomic_write(path: Path, payload: dict) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Build release evidence from real artifacts"
+        description="根据真实产物生成发布证据"
     )
     parser.add_argument(
         "--evidence-dir", type=Path, default=Path("data/validation")

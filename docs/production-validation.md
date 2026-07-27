@@ -1,4 +1,4 @@
-# Production Validation 现场验收手册
+# 生产现场验收手册
 
 本文说明如何把 `0.4.0-rc.1` 的实现契约转成可审计的真实运行证据。所有证据写入被 Git 忽略的 `data/validation/`；仓库只提交采集器、校验规则和脱敏汇总格式，不提交密码、问题正文、私有 URL 或第三方原文。
 
@@ -20,7 +20,7 @@
 | `real-benchmark.json` | 人工标注集评测 | 六项 1.0 质量阈值 |
 | `release-evidence.json` | `npm run evidence:build` | `/api/system/readiness-report` 的发布门输入 |
 
-## 1. 初始化真实 Production Compose
+## 1. 初始化真实生产 Compose
 
 生成本机 secret files；命令默认拒绝覆盖已有文件：
 
@@ -30,9 +30,9 @@ docker compose -f compose.production.yml config --quiet
 docker compose -f compose.production.yml up --build --wait -d
 ```
 
-生产模式要求真实 embedding/answer provider，且 `PROVIDER_FALLBACK_ALLOWED=0`。Provider、metadata、pgvector、对象存储、队列、认证或隔离 fetch worker 不健康时 `/ready` 返回 503，不会静默切换到 template。
+生产模式要求真实嵌入/回答模型提供方，且 `PROVIDER_FALLBACK_ALLOWED=0`。模型提供方、元数据、pgvector、对象存储、队列、认证或隔离抓取工作进程不健康时 `/ready` 返回 503，不会静默切换到模板回答。
 
-验证版 overlay 将私有 evidence 以只读方式提供给 API，并为 soak monitor 单独提供可写目录：
+验证版覆盖配置将私有证据以只读方式提供给 API，并为稳定性监控器单独提供可写目录：
 
 ```bash
 docker compose \
@@ -43,7 +43,7 @@ docker compose \
 
 ## 2. 真实语料与人工标注
 
-语料清单必须包含 200 个唯一 SHA-256、来源 URL 和许可证信息。下载后先做离线校验，再通过目录 connector 进入与日常同步相同的任务、解析、embedding、pgvector 和引用链路：
+语料清单必须包含 200 个唯一 SHA-256、来源 URL 和许可证信息。下载后先做离线校验，再通过目录连接器进入与日常同步相同的任务、解析、嵌入、pgvector 和引用链路：
 
 ```bash
 npm run corpus:real
@@ -51,7 +51,7 @@ npm run corpus:verify
 npm run corpus:validate-production
 ```
 
-`corpus:validate-production` 是增量且幂等的。短暂 502/503/504 会重试；终态失败会执行一次人工重试。最终必须同时满足 200 个成功任务、200 个 active source item、200 个文档以及完整 hash 集相等。
+`corpus:validate-production` 是增量且幂等的。短暂 502/503/504 会重试；终态失败会执行一次人工重试。最终必须同时满足 200 个成功任务、200 个活跃数据源条目、200 个文档以及完整哈希集合相等。
 
 机器可预生成 200 条候选，但候选固定为 `draft`，不计入人工标注：
 
@@ -59,11 +59,11 @@ npm run corpus:validate-production
 npm run annotations:prepare -- --seed
 ```
 
-随后在“质量审计 → 人工评测队列”逐条补全预期答案/关键词、Reviewer ID，并确认人工声明。系统只统计带 reviewer、review 时间和明确 attestation 的记录；批量 seed 不会增加 `human_reviewed`。
+随后在“质量审计 → 人工评测队列”逐条补全预期答案/关键词、审核人 ID，并确认人工声明。系统只统计带审核人、审核时间和明确声明的记录；批量种子不会增加 `human_reviewed`。
 
 ## 3. 真实问题
 
-生产问答区的“这是我本人此刻提出的真实问题”默认关闭。只有生产模式、已认证会话、用户主动勾选并发送的问题才记录匿名聚合证据；自动化 E2E 必须保持关闭。
+生产问答区的“这是我本人此刻提出的真实问题”默认关闭。只有生产模式、已认证会话、用户主动勾选并发送的问题才记录匿名聚合证据；自动化端到端测试必须保持关闭。
 
 ```bash
 npm run usage:snapshot
@@ -71,7 +71,7 @@ npm run usage:snapshot
 
 输出只包含计数、会话数和首末时间，不包含问题或答案正文。
 
-## 4. Provider 与高级解析器
+## 4. 模型提供方与高级解析器
 
 对本机 Ollama 同时执行原生 API 和 OpenAI-compatible API：
 
@@ -81,9 +81,9 @@ ollama pull nomic-embed-text
 npm run providers:validate
 ```
 
-验收覆盖 `/api/version`、`/api/tags`、`/api/embed`、`/api/chat`、`/v1/models`、`/v1/embeddings`、`/v1/chat/completions` 和 `/v1/responses`。Responses 请求显式使用 `store:false`；报告不保存响应正文或凭据。远程 OpenAI-compatible endpoint 必须显式增加 `--allow-remote`，Key 仅从 `EXTERNAL_PROVIDER_API_KEY` 读取。
+验收覆盖 `/api/version`、`/api/tags`、`/api/embed`、`/api/chat`、`/v1/models`、`/v1/embeddings`、`/v1/chat/completions` 和 `/v1/responses`。Responses 请求显式使用 `store:false`；报告不保存响应正文或凭据。远程 OpenAI-compatible 端点必须显式增加 `--allow-remote`，密钥仅从 `EXTERNAL_PROVIDER_API_KEY` 读取。
 
-高级解析器是可选隔离 profile，不进入默认镜像：
+高级解析器是可选隔离配置，不进入默认镜像：
 
 ```bash
 docker compose --profile advanced-parser build parser-worker
@@ -91,7 +91,7 @@ docker compose --profile advanced-parser up --wait -d parser-worker
 npm run parser:validate-advanced
 ```
 
-Capability 只能证明依赖可导入；验收还必须提交真实 PDF/DOCX/图片任务，等待终态并记录 parser 版本、耗时、失败类型和是否发生 fallback。模型下载、系统库、架构或内存导致的失败必须保留为失败证据。
+能力状态只能证明依赖可导入；验收还必须提交真实 PDF/DOCX/图片任务，等待终态并记录解析器版本、耗时、失败类型和是否发生回退。模型下载、系统库、架构或内存导致的失败必须保留为失败证据。
 
 ## 5. 破坏性恢复与混沌演练
 
@@ -137,17 +137,17 @@ npm run soak:verify
 npm run evidence:build
 ```
 
-间隔超过配置上限、readiness 非 200、模式不是 `production` 或任一必要组件不健康都会中断连续时间。脚本不会回填历史，也不会依据容器启动时间推断缺失样本。
+间隔超过配置上限、就绪状态非 200、模式不是 `production` 或任一必要组件不健康都会中断连续时间。脚本不会回填历史，也不会依据容器启动时间推断缺失样本。
 
 ## 7. Sentry
 
-应用只在提供真实 `SENTRY_DSN` 时初始化 SDK，并在发送前移除 Authorization、Cookie、Key、DSN、问题正文和私有 URL 参数。真实验收必须在目标 Sentry 项目中看到一条带 release/environment、无敏感正文的测试事件，并验证关闭 DSN 后应用仍正常启动。
+应用只在提供真实 `SENTRY_DSN` 时初始化 SDK，并在发送前移除 Authorization、Cookie、密钥、DSN、问题正文和私有 URL 参数。真实验收必须在目标 Sentry 项目中看到一条带发布版本/环境、无敏感正文的测试事件，并验证关闭 DSN 后应用仍正常启动。
 
 ```bash
 npm run sentry:validate
 ```
 
-自托管 Sentry 必须先满足其官方资源下限。资源不足不是“通过”；应记录主机/Docker 内存、所用 profile、安装器输出和所需人工扩容步骤。
+自托管 Sentry 必须先满足其官方资源下限。资源不足不是“通过”；应记录主机/Docker 内存、所用配置、安装器输出和所需人工扩容步骤。
 
 ## 8. 发布判定
 
@@ -156,22 +156,22 @@ npm run evidence:build
 curl --fail http://127.0.0.1:5173/api/system/readiness-report
 ```
 
-只有 13 道 gate 全部通过，且 14 天期间没有数据丢失级缺陷，才可以发布 `1.0.0`。`production_ready_claim` 在 RC 中固定为 `false`；缺少任何真实证据时项目仍应展示为 `0.4.0-rc.1 Production Local`。
+只有 13 道发布门全部通过，且 14 天期间没有数据丢失级缺陷，才可以发布 `1.0.0`。`production_ready_claim` 在 RC 中固定为 `false`；缺少任何真实证据时项目仍应展示为 `0.4.0-rc.1 本地生产候选版`。
 
 ## 2026-07-23 实际执行快照
 
 | 验收项 | 实际结果 |
 | --- | --- |
-| 真实语料 | 21 组许可证来源、200 文档、200 active source items、200 succeeded jobs |
-| 向量与对象 | 5,159 个 768 维 pgvector；200 个内容寻址 MinIO 原件；manifest hash 全相等 |
+| 真实语料 | 21 组许可证来源、200 文档、200 个活跃数据源条目、200 个成功任务 |
+| 向量与对象 | 5,159 个 768 维 pgvector；200 个内容寻址 MinIO 原件；清单哈希全相等 |
 | 破坏性恢复 | 通过；数据库哨兵移除，被删除对象按 SHA-256 恢复，恢复前后计数一致 |
 | 混沌 | API、worker、Redis、PostgreSQL、MinIO 五类 kill/recreate 全通过，无重复文档/任务 |
-| 高级 parser | MinerU 3.4.4 + RAG-Anything 1.3.1 真实 PNG 任务通过，3 elements；Docling/PaddleOCR 未安装 |
-| Provider | Ollama 0.32.1 原生/兼容 embedding 通过且为 768 维；三类 `qwen3:8b` 生成请求均 180 秒超时 |
-| Sentry | 阻断：无 DSN，未发送真实事件；Docker 7.8 GiB，不满足 14 GiB full profile 内存门 |
-| 人工标注 / 真实问题 | 0/200、0/100；200 条机器候选只计 draft |
-| 14 天观测 | 四次真实宿主机/运行时间隔均已入链并自然重置；截至 `2026-07-26T05:27:19Z` 共 636 个样本、22 个失败样本，最长连续 81,984 秒，当前窗口从 `2026-07-26T04:57:18Z` 开始，尚未达标 |
+| 高级解析器 | MinerU 3.4.4 + RAG-Anything 1.3.1 真实 PNG 任务通过，3 个元素；Docling/PaddleOCR 未安装 |
+| 模型提供方 | Ollama 0.32.1 原生/兼容嵌入通过且为 768 维；三类 `qwen3:8b` 生成请求均 180 秒超时 |
+| Sentry | 阻断：无 DSN，未发送真实事件；Docker 7.8 GiB，不满足 14 GiB 完整配置内存门 |
+| 人工标注 / 真实问题 | 0/200、0/100；200 条机器候选只计 `draft` |
+| 14 天观测 | 五次真实宿主机/运行时间隔均已入链并自然重置；截至 `2026-07-27T10:26:11Z` 共 943 个样本、23 个失败样本，最长连续 81,984 秒。链中保留 `2026-07-27T10:10:58Z` 的真实 `TimeoutError`，当前窗口从 `2026-07-27T10:16:11Z` 开始，尚未达标且不能回填 |
 
-第四次恢复还复现了 Nginx 在 backend 容器重建后保留旧 Docker IP、导致前端 `/ready` 返回 502 的问题。前端现使用 Docker embedded DNS 按请求重新解析 backend，CI 会强制替换 backend 后再次检查代理路径；soak verifier 同时增加宿主机 wall-clock freshness 与 state/chain 一致性门。修复没有删除卷、回填样本或抹去历史失败。
+第四次恢复还复现了 Nginx 在后端容器重建后保留旧 Docker IP、导致前端 `/ready` 返回 502 的问题。前端现使用 Docker embedded DNS 按请求重新解析后端，CI 会强制替换后端后再次检查代理路径；稳定性校验器同时增加宿主机真实时间新鲜度与状态/链一致性门。修复没有删除卷、回填样本或抹去历史失败。
 
 私有 JSON 证据和第三方原文受 `.gitignore` 保护；仓库只提交采集器、门槛和本脱敏摘要。

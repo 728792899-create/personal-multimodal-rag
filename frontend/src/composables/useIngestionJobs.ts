@@ -9,6 +9,7 @@ import {
   retryIndexJob,
   type IndexJob,
 } from '../api'
+import { localizedSystemText } from '../localization'
 
 
 const TERMINAL = new Set(['succeeded', 'failed', 'cancelled'])
@@ -50,7 +51,7 @@ export function useIngestionJobs() {
       mergeJob(current)
     }
     if (!TERMINAL.has(current.status)) throw new Error('索引任务等待超时，请在任务中心继续查看。')
-    if (current.status === 'failed') throw new Error(current.error_message || '索引任务失败')
+    if (current.status === 'failed') throw new Error(localizedSystemText(current.error_message, '索引任务失败'))
     if (current.status === 'cancelled') throw new DOMException('Request cancelled', 'AbortError')
     return current
   }

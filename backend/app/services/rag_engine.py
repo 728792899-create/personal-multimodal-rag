@@ -6,7 +6,7 @@ from app.services.answer_generator import BaseAnswerGenerator, TemplateAnswerGen
 from app.services.citation_audit import audit_answer
 from app.services.embeddings import MockEmbeddingProvider
 from app.services.retriever import HybridRetriever
-from app.services.safe_logging import redact_private_metadata, redact_sensitive_text
+from app.services.safe_logging import public_error_message, redact_private_metadata
 
 
 LOW_INFORMATION_MATCHES = {
@@ -109,7 +109,10 @@ class RagEngine:
                 **generated.get("generation_trace", {}),
                 "answer_provider": "template",
                 "fallback_from": self.answer_generator.name,
-                "fallback_reason": redact_sensitive_text(exc),
+                "fallback_reason": public_error_message(
+                    exc,
+                    "回答 Provider 暂时不可用，已使用离线 template。",
+                ),
                 "grounded": True,
             }
         generation_ended = time.perf_counter()
@@ -222,7 +225,10 @@ class RagEngine:
             generation_trace = {
                 **fallback.get("generation_trace", {}),
                 "fallback_from": self.answer_generator.name,
-                "fallback_reason": redact_sensitive_text(exc),
+                "fallback_reason": public_error_message(
+                    exc,
+                    "回答 Provider 暂时不可用，已使用离线 template。",
+                ),
             }
         else:
             generation_trace = {

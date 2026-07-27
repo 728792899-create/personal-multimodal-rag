@@ -3,6 +3,12 @@ import { computed, ref, watch } from 'vue'
 
 import { exportConversationUrl, exportKnowledgeCardUrl } from '../api'
 import { useWorkbenchContext } from '../composables/workbenchContext'
+import {
+  localizedSystemText,
+  localizedIndexStage,
+  localizedSourceType,
+  localizedStatus,
+} from '../localization'
 import SourceManager from './SourceManager.vue'
 
 const workbench = useWorkbenchContext()
@@ -59,9 +65,9 @@ watch(
   <aside class="surface knowledge-panel" aria-labelledby="knowledge-title">
     <header class="section-heading">
       <div class="section-identity">
-        <span class="section-index" aria-hidden="true">LIB</span>
+        <span class="section-index" aria-hidden="true">资料</span>
         <div>
-          <p class="kicker">Evidence library</p>
+          <p class="kicker">证据资料库</p>
           <h2 id="knowledge-title">知识与会话</h2>
         </div>
       </div>
@@ -158,10 +164,10 @@ watch(
         <article v-for="job in workbench.indexJobs.value.slice(0, 6)" :key="job.id">
           <div>
             <strong>{{ job.source_name }}</strong>
-            <span>{{ job.stage }} · {{ job.progress }}% · 第 {{ job.attempts }}/{{ job.max_attempts }} 次</span>
+            <span>{{ localizedIndexStage(job.stage) }} · {{ job.progress }}% · 第 {{ job.attempts }}/{{ job.max_attempts }} 次</span>
           </div>
           <progress :value="job.progress" max="100">{{ job.progress }}%</progress>
-          <p v-if="job.error_message" class="task-error">{{ job.error_message }}</p>
+          <p v-if="job.error_message" class="task-error">{{ localizedSystemText(job.error_message, '索引任务失败，请重试。') }}</p>
           <div class="inline-actions">
             <button
               v-if="['queued', 'running', 'cancelling'].includes(job.status)"
@@ -175,7 +181,7 @@ watch(
               class="button text-button"
               @click="workbench.retryIndexJob(job.id)"
             >重试</button>
-            <span :class="['job-status', job.status]">{{ job.status }}</span>
+            <span :class="['job-status', job.status]">{{ localizedStatus(job.status) }}</span>
           </div>
         </article>
       </div>
@@ -224,8 +230,8 @@ watch(
         </button>
         <button type="button" class="document-summary" @click="openDocument(doc.id)">
           <strong>{{ doc.filename }}</strong>
-          <span>{{ doc.source_type }} · {{ doc.chunk_count }} 片段</span>
-          <small>{{ qualityLabel(doc.quality?.score) }} · Q {{ doc.quality?.score ?? '—' }}</small>
+          <span>{{ localizedSourceType(doc.source_type) }} · {{ doc.chunk_count }} 片段</span>
+          <small>{{ qualityLabel(doc.quality?.score) }} · 质量 {{ doc.quality?.score ?? '—' }}</small>
         </button>
         <div class="row-actions">
           <button

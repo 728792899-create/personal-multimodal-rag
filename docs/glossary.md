@@ -2,36 +2,36 @@
 
 | 术语 | 在本项目中的含义 |
 | --- | --- |
-| RAG | Retrieval-Augmented Generation；先检索资料，再在证据约束下回答 |
-| Chunk | 从文档切分的最小检索片段，保留文档、页码、标题路径等 metadata |
+| RAG | 检索增强生成；先检索资料，再在证据约束下回答 |
+| 分块（Chunk） | 从文档切分的最小检索片段，保留文档、页码、标题路径等元数据 |
 | BM25 | 基于词项频率的稀疏检索，对专有名词和精确词面有效 |
-| Embedding | 把文本映射为向量；默认 hash embedding 只用于离线可复现 |
-| Vector store | 保存/搜索向量与 chunk 的 adapter：memory、Chroma 或 pgvector |
-| Hybrid retrieval | 合并 BM25 与向量分支的检索方式 |
-| Fusion | 对多个召回分支的候选进行权重合并和去重 |
-| Candidate K | 进入融合/排序前的候选池规模 |
-| Top K | 最终返回给回答阶段的证据条数 |
+| 嵌入（Embedding） | 把文本映射为向量；默认哈希嵌入只用于离线可复现 |
+| 向量库（Vector store） | 保存/搜索向量与分块的适配器：内存、Chroma 或 pgvector |
+| 混合检索（Hybrid retrieval） | 合并 BM25 与向量分支的检索方式 |
+| 融合（Fusion） | 对多个召回分支的候选进行权重合并和去重 |
+| 候选数（Candidate K） | 进入融合/排序前的候选池规模 |
+| 返回数（Top K） | 最终返回给回答阶段的证据条数 |
 | MMR | Maximum Marginal Relevance；在相关性和结果多样性间取舍 |
-| Rerank | 对已召回候选重新排序；不能补回初始召回遗漏 |
-| No-answer gate | 判断证据是否足够；不足时输出拒答而非生成结论 |
-| Citation | 指向真实 chunk 的引用，包含来源、片段、页码和分数 |
-| Citation audit | 对回答主张、引用覆盖和 grounding 的生成后检查 |
-| Retrieval Trace | 从 BM25 到引用审计的阶段化诊断记录 |
-| Query rewrite | 生成检索改写；失败时回退原查询并进入 Trace |
-| Fallback | 外部 provider 失败时采用的本地替代路径，必须可见且脱敏 |
+| 重排（Rerank） | 对已召回候选重新排序；不能补回初始召回遗漏 |
+| 无答案门（No-answer gate） | 判断证据是否足够；不足时输出拒答而非生成结论 |
+| 引用（Citation） | 指向真实分块的引用，包含来源、片段、页码和分数 |
+| 引用审计（Citation audit） | 对回答主张、引用覆盖和依据的生成后检查 |
+| 检索追踪（Retrieval Trace） | 从 BM25 到引用审计的阶段化诊断记录 |
+| 查询改写（Query rewrite） | 生成检索改写；失败时回退原查询并进入检索追踪 |
+| 回退（Fallback） | 外部模型提供方失败时采用的本地替代路径，必须可见且脱敏 |
 | Recall@K | 前 K 条结果是否包含目标证据的比例 |
 | MRR | 第一个相关结果排名倒数的平均值 |
-| Eval draft | 由反馈或人工创建、尚未进入固定黄金集的候选 case |
-| Golden set | 固定、脱敏、可重复执行并设有阈值的评测集 |
-| Registry | SQLite 中保存的知识库、文档、会话、任务、历史、反馈和操作数据 |
-| Knowledge base | 检索前的数据范围；本地组织能力，不是多租户授权边界 |
-| Index job | 文件/URL 入库的持久状态，含阶段、进度、租约、尝试和取消 |
-| Lease | worker 对任务的限时 claim；过期后可恢复排队 |
-| Idempotency key | KB、内容、chunker 与 index 配置生成的稳定键，避免重复入库 |
-| SSE | 服务端事件流；按递增 sequence 发送 retrieval、delta、completed/refusal/error、done |
-| Workspace | 生产多团队隔离单位；当前 Beta 尚未实现完整边界 |
-| Trust boundary | 数据或控制权跨越不同信任级别的位置，必须重新校验和授权 |
-| State machine | idle、pending、success、error、cancel、retry 等可见且可恢复的前端状态 |
-| Social preview | GitHub 分享链接时显示的 1280×640 项目预览图，不是产品截图 |
-| Responses provider | 使用 OpenAI `/v1/responses` typed streaming events 且 `store:false` 的回答 adapter |
-| Offline default | mock embedding + memory vector + template answer 的零 Key 路径 |
+| 评测草稿（Eval draft） | 由反馈或人工创建、尚未进入固定黄金集的候选案例 |
+| 黄金集（Golden set） | 固定、脱敏、可重复执行并设有阈值的评测集 |
+| 注册表（Registry） | SQLite 中保存的知识库、文档、会话、任务、历史、反馈和操作数据 |
+| 知识库（Knowledge base） | 检索前的数据范围；本地组织能力，不是多租户授权边界 |
+| 索引任务（Index job） | 文件/URL 入库的持久状态，含阶段、进度、租约、尝试和取消 |
+| 租约（Lease） | 工作进程对任务的限时认领；过期后可恢复排队 |
+| 幂等键（Idempotency key） | 知识库、内容、分块器与索引配置生成的稳定键，避免重复入库 |
+| SSE | 服务端事件流；按递增序号发送检索、增量、完成/拒答/错误和结束事件 |
+| 工作区（Workspace） | 生产多团队隔离单位；当前候选版尚未实现完整边界 |
+| 信任边界（Trust boundary） | 数据或控制权跨越不同信任级别的位置，必须重新校验和授权 |
+| 状态机（State machine） | 空闲、进行中、成功、错误、取消、重试等可见且可恢复的前端状态 |
+| 社交预览图（Social preview） | GitHub 分享链接时显示的 1280×640 项目预览图，不是产品截图 |
+| Responses 模型提供方 | 使用 OpenAI `/v1/responses` 类型化流式事件且 `store:false` 的回答适配器 |
+| 默认离线路径（Offline default） | 模拟嵌入 + 内存向量 + 模板回答的零密钥路径 |

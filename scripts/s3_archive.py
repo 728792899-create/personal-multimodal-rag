@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stream an S3-compatible bucket to/from a tar archive without local staging."""
+"""无需本地暂存，以流式方式备份或恢复 S3 兼容 bucket。"""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ def safe_object_key(value: str) -> str:
         or "\\" in value
         or any(part in {"", ".", ".."} for part in path.parts)
     ):
-        raise ValueError("unsafe S3 object key in archive")
+        raise ValueError("归档中包含不安全的 S3 对象 key。")
     return path.as_posix()
 
 
@@ -28,7 +28,7 @@ def create_client():
     from app.config import settings
 
     if not settings.s3_bucket:
-        raise ValueError("S3_BUCKET is required")
+        raise ValueError("必须配置 S3_BUCKET。")
     import boto3
 
     client = boto3.client(
@@ -85,14 +85,14 @@ def restore_bucket(client, bucket: str, source) -> tuple[int, int]:
     with tarfile.open(fileobj=source, mode="r|*") as archive:
         for member in archive:
             if not member.isfile():
-                raise ValueError("S3 archive may contain only regular files")
+                raise ValueError("S3 归档中只允许包含普通文件。")
             key = safe_object_key(member.name)
             payload = archive.extractfile(member)
             if payload is None:
-                raise ValueError("S3 archive member is unreadable")
+                raise ValueError("S3 归档成员无法读取。")
             body = payload.read()
             if len(body) != member.size:
-                raise ValueError("S3 archive member size does not match its header")
+                raise ValueError("S3 归档成员大小与 header 不一致。")
             metadata = {}
             digest = PurePosixPath(key).name
             if len(digest) == 64 and all(char in "0123456789abcdef" for char in digest.lower()):
@@ -108,16 +108,16 @@ def restore_bucket(client, bucket: str, source) -> tuple[int, int]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Stream an S3 bucket backup or restore")
+    parser = argparse.ArgumentParser(description="以流式方式备份或恢复 S3 bucket")
     parser.add_argument("action", choices=("export", "restore"))
     args = parser.parse_args()
     client, bucket = create_client()
     if args.action == "export":
         count = export_bucket(client, bucket, sys.stdout.buffer)
-        print(f"exported {count} S3 objects", file=sys.stderr)
+        print(f"已导出 {count} 个 S3 对象。", file=sys.stderr)
     else:
         deleted, restored = restore_bucket(client, bucket, sys.stdin.buffer)
-        print(f"deleted {deleted} and restored {restored} S3 objects", file=sys.stderr)
+        print(f"已删除 {deleted} 个并恢复 {restored} 个 S3 对象。", file=sys.stderr)
     return 0
 
 
@@ -125,5 +125,5 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except Exception as exc:
-        print(f"S3 archive failed: {exc}", file=sys.stderr)
+        print(f"S3 归档操作失败：{exc}", file=sys.stderr)
         raise SystemExit(1)

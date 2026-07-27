@@ -4,6 +4,15 @@ import { nextTick, watch } from 'vue'
 import { useWorkbenchContext } from '../composables/workbenchContext'
 import RetrievalTrace from './RetrievalTrace.vue'
 import GraphExplorer from './GraphExplorer.vue'
+import {
+  localizedElementType,
+  localizedFailureType,
+  localizedOperationType,
+  localizedParserProfile,
+  localizedSourceType,
+  localizedStatus,
+  localizedSystemText,
+} from '../localization'
 
 const workbench = useWorkbenchContext()
 const emit = defineEmits<{
@@ -11,7 +20,7 @@ const emit = defineEmits<{
 }>()
 
 const tabs = [
-  { id: 'trace', label: 'Trace' },
+  { id: 'trace', label: '过程' },
   { id: 'graph', label: '图谱' },
   { id: 'citation', label: '引用' },
   { id: 'document', label: '文档' },
@@ -57,7 +66,7 @@ watch(() => workbench.focusedElementId.value, async (id) => {
       <div class="section-identity">
         <span class="section-index" aria-hidden="true">03</span>
         <div>
-          <p class="kicker">Evidence inspector</p>
+          <p class="kicker">证据核验</p>
           <h2 id="inspector-title">验证与质量</h2>
         </div>
       </div>
@@ -91,14 +100,14 @@ watch(() => workbench.focusedElementId.value, async (id) => {
       <RetrievalTrace v-if="workbench.answer.value" :trace="workbench.answer.value.retrieval_trace" />
       <div v-else class="empty-state compact-empty inspector-empty">
         <div class="empty-chain" aria-hidden="true">
-          <span>B</span><span>V</span><i></i><strong>RRF</strong><i></i><span>G</span>
+          <span>词</span><span>向</span><i></i><strong>RRF</strong><i></i><span>图</span>
         </div>
         <strong>尚无检索过程</strong>
-        <p>完成一次问答后，这里会解释查询增强、混合召回、Graph、父级上下文、排序、拒答与引用审计。</p>
+        <p>完成一次问答后，这里会解释查询增强、混合召回、图谱、父级上下文、排序、拒答与引用审计。</p>
         <ol>
-          <li><span>Recall</span><small>BM25 + Vector + Graph</small></li>
-          <li><span>Reduce</span><small>RRF + Parent + MMR</small></li>
-          <li><span>Verify</span><small>Rerank + Gate + Citation</small></li>
+          <li><span>召回</span><small>BM25 + 向量 + 图谱</small></li>
+          <li><span>筛选</span><small>RRF + 父级上下文 + MMR</small></li>
+          <li><span>核验</span><small>重排序 + 证据门槛 + 引用</small></li>
         </ol>
         <button type="button" class="button text-button" @click="emit('focusQuestion')">前往提问</button>
       </div>
@@ -132,13 +141,13 @@ watch(() => workbench.focusedElementId.value, async (id) => {
             <h3>{{ workbench.selectedCitation.value.filename }}</h3>
             <span>片段 {{ workbench.selectedCitation.value.index + 1 }}</span>
           </div>
-          <small>rerank {{ workbench.selectedCitation.value.rerank_score.toFixed(3) }}</small>
+          <small>重排序 {{ workbench.selectedCitation.value.rerank_score.toFixed(3) }}</small>
         </header>
         <p class="long-copy">{{ workbench.selectedCitation.value.text }}</p>
         <div class="score-breakdown">
           <span>BM25 {{ workbench.selectedCitation.value.bm25_score.toFixed(3) }}</span>
-          <span>Vector {{ workbench.selectedCitation.value.vector_score.toFixed(3) }}</span>
-          <span>Base {{ workbench.selectedCitation.value.score.toFixed(3) }}</span>
+          <span>向量 {{ workbench.selectedCitation.value.vector_score.toFixed(3) }}</span>
+          <span>基础分 {{ workbench.selectedCitation.value.score.toFixed(3) }}</span>
         </div>
         <button
           v-if="workbench.selectedCitation.value.element_ids?.length"
@@ -181,15 +190,15 @@ watch(() => workbench.focusedElementId.value, async (id) => {
         <header class="subsection-heading stacked-heading">
           <div>
             <h3>{{ workbench.selectedDocument.value.document.filename }}</h3>
-            <span>{{ workbench.selectedDocument.value.document.source_type }}</span>
+            <span>{{ localizedSourceType(workbench.selectedDocument.value.document.source_type) }}</span>
           </div>
-          <span class="status-badge">Q {{ workbench.selectedDocument.value.document.quality?.score ?? '—' }}</span>
+          <span class="status-badge">质量 {{ workbench.selectedDocument.value.document.quality?.score ?? '—' }}</span>
         </header>
         <dl class="definition-grid">
           <div><dt>页数</dt><dd>{{ workbench.selectedDocument.value.document.page_count }}</dd></div>
           <div><dt>片段</dt><dd>{{ workbench.selectedDocument.value.document.chunk_count }}</dd></div>
           <div><dt>字符</dt><dd>{{ workbench.selectedDocument.value.document.char_count }}</dd></div>
-          <div><dt>Parser</dt><dd>{{ workbench.selectedDocument.value.document.metadata.parser || '—' }}</dd></div>
+          <div><dt>解析器</dt><dd>{{ localizedParserProfile(workbench.selectedDocument.value.document.metadata.parser) }}</dd></div>
         </dl>
         <section v-if="workbench.selectedDocument.value.document.summary" class="inspector-subsection">
           <h3>自动摘要</h3>
@@ -208,7 +217,7 @@ watch(() => workbench.focusedElementId.value, async (id) => {
               :class="['document-element', `element-${element.type}`, { focused: element.id === workbench.focusedElementId.value }]"
               :tabindex="element.id === workbench.focusedElementId.value ? 0 : -1"
             >
-              <header><span class="status-badge neutral">{{ element.type }}</span><small>顺序 {{ element.order + 1 }}{{ element.page_number ? ` · 第 ${element.page_number} 页` : '' }}</small></header>
+              <header><span class="status-badge neutral">{{ localizedElementType(element.type) }}</span><small>顺序 {{ element.order + 1 }}{{ element.page_number ? ` · 第 ${element.page_number} 页` : '' }}</small></header>
               <img v-if="element.type === 'image' && element.asset_id" :src="`/api/assets/${element.asset_id}`" :alt="element.caption || element.text || '文档图像元素'" />
               <div v-else-if="element.type === 'table' && element.table.length" class="element-table-wrap" tabindex="0">
                 <table><tbody><tr v-for="(row, rowIndex) in element.table" :key="rowIndex"><component :is="rowIndex === 0 ? 'th' : 'td'" v-for="(cell, cellIndex) in row" :key="cellIndex">{{ cell }}</component></tr></tbody></table>
@@ -219,7 +228,7 @@ watch(() => workbench.focusedElementId.value, async (id) => {
               <footer v-if="element.confidence !== null"><small>解析置信度 {{ percent(element.confidence) }}</small></footer>
             </article>
           </div>
-          <p v-else class="muted-copy">当前文档尚无元素 IR，可重建索引生成。</p>
+          <p v-else class="muted-copy">当前文档尚无结构化元素，可重建索引生成。</p>
         </details>
         <details class="document-source">
           <summary>查看原文与切片</summary>
@@ -247,11 +256,11 @@ watch(() => workbench.focusedElementId.value, async (id) => {
         <dl class="metric-grid">
           <div><dt>平均置信度</dt><dd>{{ percent(workbench.metrics.value.answering.avg_confidence) }}</dd></div>
           <div><dt>拒答</dt><dd>{{ workbench.metrics.value.answering.no_answer_count }}</dd></div>
-          <div><dt>Fallback</dt><dd>{{ workbench.metrics.value.answering.fallback_count }}</dd></div>
+          <div><dt>降级处理</dt><dd>{{ workbench.metrics.value.answering.fallback_count }}</dd></div>
           <div><dt>负反馈</dt><dd>{{ workbench.metrics.value.feedback.negative }}</dd></div>
           <div><dt>索引队列</dt><dd>{{ workbench.metrics.value.ingestion?.queue_depth ?? 0 }}</dd></div>
           <div><dt>索引失败</dt><dd>{{ workbench.metrics.value.ingestion?.failed_count ?? 0 }}</dd></div>
-          <div><dt>首 Token</dt><dd>{{ workbench.metrics.value.answering.avg_first_token_ms ? `${workbench.metrics.value.answering.avg_first_token_ms} ms` : '—' }}</dd></div>
+          <div><dt>首个词元</dt><dd>{{ workbench.metrics.value.answering.avg_first_token_ms ? `${workbench.metrics.value.answering.avg_first_token_ms} 毫秒` : '—' }}</dd></div>
           <div><dt>索引不兼容</dt><dd>{{ workbench.metrics.value.ingestion?.index_version_mismatch_count ?? 0 }}</dd></div>
         </dl>
         <section class="inspector-subsection">
@@ -277,10 +286,10 @@ watch(() => workbench.focusedElementId.value, async (id) => {
           <h3>多模态解析质量</h3>
           <dl class="definition-grid">
             <div><dt>OCR</dt><dd>{{ percent(workbench.selectedDocument.value.document.quality.multimodal.ocr_confidence ?? 0) }}</dd></div>
-            <div><dt>Caption 对齐</dt><dd>{{ percent(workbench.selectedDocument.value.document.quality.multimodal.caption_alignment) }}</dd></div>
+            <div><dt>图注对齐</dt><dd>{{ percent(workbench.selectedDocument.value.document.quality.multimodal.caption_alignment) }}</dd></div>
             <div><dt>表格结构</dt><dd>{{ percent(workbench.selectedDocument.value.document.quality.multimodal.table_structure_accuracy) }}</dd></div>
             <div><dt>公式提取</dt><dd>{{ percent(workbench.selectedDocument.value.document.quality.multimodal.formula_extraction_accuracy) }}</dd></div>
-            <div><dt>Graph 证据</dt><dd>{{ percent(workbench.selectedDocument.value.document.quality.multimodal.graph_evidence_coverage) }}</dd></div>
+            <div><dt>图谱证据</dt><dd>{{ percent(workbench.selectedDocument.value.document.quality.multimodal.graph_evidence_coverage) }}</dd></div>
             <div><dt>孤立资产</dt><dd>{{ workbench.selectedDocument.value.document.quality.multimodal.orphan_asset_count }}</dd></div>
           </dl>
         </section>
@@ -289,7 +298,7 @@ watch(() => workbench.focusedElementId.value, async (id) => {
           <ul class="operation-list">
             <li v-for="item in workbench.operations.value.slice(0, 6)" :key="item.id">
               <span :class="['level-dot', item.level]" aria-hidden="true"></span>
-              <div><strong>{{ item.event_type }}</strong><p>{{ item.message }}</p></div>
+              <div><strong>{{ localizedOperationType(item.event_type) }}</strong><p>{{ localizedSystemText(item.message, '系统操作已完成。') }}</p></div>
             </li>
           </ul>
         </section>
@@ -314,7 +323,7 @@ watch(() => workbench.focusedElementId.value, async (id) => {
           <input v-model="workbench.evalKeywords.value" type="text" placeholder="用逗号分隔" />
         </label>
         <div class="inline-actions">
-          <button type="submit" class="button secondary-button" :disabled="!workbench.evalQuestion.value.trim()">添加 Case</button>
+          <button type="submit" class="button secondary-button" :disabled="!workbench.evalQuestion.value.trim()">添加评测项</button>
           <button type="button" class="button primary-button" :disabled="workbench.evalRunning.value" @click="workbench.handleRunEvalDrafts">
             {{ workbench.evalRunning.value ? '评测中…' : '运行草稿' }}
           </button>
@@ -322,7 +331,7 @@ watch(() => workbench.focusedElementId.value, async (id) => {
       </form>
       <section class="eval-review-summary" aria-live="polite">
         <strong>1.0 人工复核：{{ workbench.evalReviewSummary.value?.human_reviewed || 0 }}/200</strong>
-        <span>剩余 {{ workbench.evalReviewSummary.value?.remaining_for_1_0 ?? 200 }} 条；只有逐条确认并留存 reviewer ID 的 case 才计数。</span>
+        <span>剩余 {{ workbench.evalReviewSummary.value?.remaining_for_1_0 ?? 200 }} 条；只有逐条确认并留存复核人 ID 的评测项才计数。</span>
         <label>
           <span>复核人 ID</span>
           <input v-model="workbench.evalReviewerId.value" type="text" autocomplete="off" placeholder="使用团队内稳定的非敏感 ID" />
@@ -330,7 +339,7 @@ watch(() => workbench.focusedElementId.value, async (id) => {
       </section>
       <div v-if="workbench.evalDrafts.value.length" class="eval-list">
         <article v-for="item in workbench.evalDrafts.value.slice(0, 200)" :key="`${item.id}-${item.question}`">
-          <span class="status-badge neutral">{{ item.failure_type || item.status }}</span>
+          <span class="status-badge neutral">{{ item.failure_type ? localizedFailureType(item.failure_type) : localizedStatus(item.status) }}</span>
           <strong>{{ item.question }}</strong>
           <template v-if="item.status !== 'reviewed'">
             <label>

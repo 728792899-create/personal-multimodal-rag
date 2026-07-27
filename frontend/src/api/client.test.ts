@@ -9,7 +9,7 @@ describe('apiRequest', () => {
     vi.useRealTimers()
   })
 
-  it('surfaces backend detail, status, request id, and retry-after', async () => {
+  it('maps backend detail to Chinese while preserving status, request id, and retry-after', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(
       JSON.stringify({ detail: 'Rate limit exceeded' }),
       {
@@ -26,7 +26,7 @@ describe('apiRequest', () => {
 
     expect(error).toBeInstanceOf(ApiError)
     expect(error).toMatchObject({
-      message: 'Rate limit exceeded',
+      message: '请求过于频繁，请稍后重试。',
       status: 429,
       requestId: 'req-123',
       retryAfterSeconds: 17,
@@ -40,7 +40,7 @@ describe('apiRequest', () => {
     )))
 
     await expect(apiRequest('/api/ask')).rejects.toMatchObject({
-      message: '参数校验失败：candidate_k：请输入有效整数',
+      message: '参数校验失败：候选池：请输入有效整数',
       status: 422,
     })
   })

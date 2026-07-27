@@ -29,9 +29,9 @@ def _markdown_response(content: str, filename: str) -> Response:
 def export_history(history_id: str):
     history = registry.get_history(history_id)
     if not history:
-        raise HTTPException(status_code=404, detail="History item not found")
+        raise HTTPException(status_code=404, detail="问答历史不存在或已被删除。")
     return _markdown_response(
-        export_answer_markdown(history, title=history.get("question") or "RAG answer"),
+        export_answer_markdown(history, title=history.get("question") or "RAG 回答"),
         f"answer-{history_id}",
     )
 
@@ -40,7 +40,7 @@ def export_history(history_id: str):
 def export_conversation(conversation_id: str):
     conversation = registry.get_conversation(conversation_id)
     if not conversation:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+        raise HTTPException(status_code=404, detail="会话不存在或已被删除。")
     return _markdown_response(
         export_conversation_markdown(
             conversation,
@@ -54,7 +54,7 @@ def export_conversation(conversation_id: str):
 def export_knowledge_card(card_id: str):
     card = registry.get_knowledge_card(card_id)
     if not card:
-        raise HTTPException(status_code=404, detail="Knowledge card not found")
+        raise HTTPException(status_code=404, detail="知识卡片不存在或已被删除。")
     return _markdown_response(
         export_card_markdown(card),
         f"knowledge-card-{card_id}",

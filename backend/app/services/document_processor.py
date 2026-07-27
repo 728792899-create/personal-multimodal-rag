@@ -12,6 +12,7 @@ import fitz
 
 from app.models.domain import Chunk, Document, DocumentElement, DocumentPage
 from app.services.ocr import ImageOCRAdapter
+from app.services.safe_logging import public_error_message
 
 
 SUPPORTED_EXTENSIONS = {".txt", ".md", ".markdown", ".pdf", ".docx", ".png", ".jpg", ".jpeg"}
@@ -42,7 +43,7 @@ class DocumentProcessor:
         suffix = Path(filename).suffix.lower()
         document_id = str(uuid.uuid4())
         if suffix not in SUPPORTED_EXTENSIONS:
-            raise ValueError(f"Unsupported file type: {suffix}")
+            raise ValueError(f"不支持的文件类型：{suffix}")
 
         if suffix == ".pdf":
             pages, metadata, elements = self._parse_pdf(file_path, document_id)
@@ -54,7 +55,7 @@ class DocumentProcessor:
             pages, metadata, elements = self._parse_text_file(file_path, suffix, document_id)
 
         if not any(page.text.strip() for page in pages):
-            raise ValueError("No readable text extracted from document")
+            raise ValueError("未能从文档中提取可读文本。")
 
         metadata.update(
             {
@@ -87,7 +88,7 @@ class DocumentProcessor:
     ) -> Document:
         normalized = self.normalize_text(text)
         if not normalized:
-            raise ValueError("No readable text extracted from document")
+            raise ValueError("未能从文档中提取可读文本。")
         payload = {
             "parser": parser,
             "index_status": "parsed",
@@ -192,7 +193,7 @@ class DocumentProcessor:
                             document_id=document_id,
                             type="image",
                             order=len(elements),
-                            text=f"Embedded image on page {index}",
+                            text=f"第 {index} 页的内嵌图片",
                             page_number=index,
                             confidence=None,
                             metadata={"xref": int(image[0]), "page_image_index": image_index, "asset_status": "pending_materialization"},
@@ -211,7 +212,7 @@ class DocumentProcessor:
             pdf.close()
             return pages, metadata, elements
         except Exception as exc:
-            raise ValueError(f"Failed to parse PDF: {exc}") from exc
+            raise ValueError(f"PDF 解析失败（{type(exc).__name__}）。") from exc
 
     def _parse_text_file(self, file_path: Path, suffix: str, document_id: str) -> tuple[list[DocumentPage], dict, list[DocumentElement]]:
         text = self.normalize_text(file_path.read_text(encoding="utf-8", errors="ignore"))
@@ -223,7 +224,7 @@ class DocumentProcessor:
         try:
             from docx import Document as WordDocument
         except ImportError as exc:
-            raise ValueError("DOCX support requires python-docx") from exc
+            raise ValueError("解析 DOCX 需要安装 python-docx。") from exc
 
         try:
             word = WordDocument(str(file_path))
@@ -292,7 +293,7 @@ class DocumentProcessor:
                         if node.tag == qn("a:blip") and node.get(qn("r:embed"))
                     ]
                     for relationship_id in relationship_ids:
-                        rendered = f"Embedded image near paragraph {len(elements) + 1}"
+                        rendered = f"段落 {len(elements) + 1} 附近的内嵌图片"
                         blocks.append(rendered)
                         elements.append(
                             DocumentElement(
@@ -338,30 +339,30 @@ class DocumentProcessor:
         except ValueError:
             raise
         except Exception as exc:
-            raise ValueError(f"Failed to parse DOCX: {exc}") from exc
+            raise ValueError(f"DOCX 解析失败（{type(exc).__name__}）。") from exc
 
     def _validate_docx_archive(self, file_path: Path) -> None:
         if not zipfile.is_zipfile(file_path):
-            raise ValueError("DOCX is not a valid Office document archive")
+            raise ValueError("DOCX 不是有效的 Office 文档压缩包。")
         try:
             with zipfile.ZipFile(file_path) as archive:
                 entries = archive.infolist()
                 names = {entry.filename for entry in entries}
                 if "[Content_Types].xml" not in names or "word/document.xml" not in names:
-                    raise ValueError("DOCX is not a valid Office document archive")
+                    raise ValueError("DOCX 不是有效的 Office 文档压缩包。")
                 if len(entries) > self.docx_max_entries:
-                    raise ValueError("DOCX contains too many archive entries")
+                    raise ValueError("DOCX 压缩包包含过多条目。")
                 expanded_size = sum(max(0, entry.file_size) for entry in entries)
                 if expanded_size > self.docx_max_uncompressed_bytes:
-                    raise ValueError("DOCX expanded size exceeds the configured limit")
+                    raise ValueError("DOCX 解压后大小超过配置上限。")
                 for entry in entries:
                     if entry.file_size <= 4096:
                         continue
                     ratio = entry.file_size / max(entry.compress_size, 1)
                     if ratio > self.docx_max_compression_ratio:
-                        raise ValueError("DOCX compression ratio is suspicious")
+                        raise ValueError("DOCX 压缩比异常，已拒绝解析。")
         except zipfile.BadZipFile as exc:
-            raise ValueError("DOCX is not a valid Office document archive") from exc
+            raise ValueError("DOCX 不是有效的 Office 文档压缩包。") from exc
 
     def _parse_image(
         self,
@@ -382,7 +383,16 @@ class DocumentProcessor:
                 f"图片文件：{display_name}。\n"
                 "当前环境未完成 OCR 文本提取，已记录图片元数据；安装 tesseract + pytesseract 后可自动提取图片文本。"
             )
-        public_error = result.error if result.status == "unavailable" else ("OCR extraction failed" if result.error else "")
+        public_error = (
+            public_error_message(
+                result.error,
+                "OCR 运行环境不可用。"
+                if result.status == "unavailable"
+                else "OCR 文本提取失败。",
+            )
+            if result.error
+            else ""
+        )
         page = DocumentPage(
             page_number=None,
             text=text,

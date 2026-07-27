@@ -144,7 +144,7 @@ def test_soak_monitor_rejects_tampered_evidence(tmp_path, monkeypatch):
     event = json.loads(path.read_text(encoding="utf-8"))
     event["healthy"] = False
     path.write_text(json.dumps(event) + "\n", encoding="utf-8")
-    with pytest.raises(ValueError, match="hash chain"):
+    with pytest.raises(ValueError, match="哈希链"):
         soak_monitor.verify_chain(path)
 
 
@@ -281,7 +281,7 @@ def test_real_usage_requires_explicit_human_attestation():
             question="A question",
             record_as_real_usage=True,
         )
-    with pytest.raises(ValidationError, match="only valid"):
+    with pytest.raises(ValidationError, match="只有启用 record_as_real_usage"):
         ConversationMessageRequest(
             question="A question",
             usage_attestation="human-originated",
@@ -351,7 +351,7 @@ def test_usage_snapshot_rejects_question_content():
                 "question": "private text",
             }, {}
 
-    with pytest.raises(ValueError, match="unsupported fields"):
+    with pytest.raises(ValueError, match="不受支持的字段"):
         snapshot_usage_evidence.snapshot(Session())
 
 

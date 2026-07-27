@@ -161,7 +161,8 @@ describe('WorkbenchPage workflows', () => {
 
     expect(wrapper.get('.library-drawer').classes()).toContain('open')
     expect(wrapper.get('.inspector-drawer').classes()).not.toContain('open')
-    expect(wrapper.text()).toContain('document unavailable')
+    expect(wrapper.text()).toContain('服务暂时不可用，请稍后重试。')
+    expect(wrapper.text()).not.toContain('document unavailable')
   })
 
   it('submits expert parameters, opens citation context, and turns feedback into an eval draft', async () => {

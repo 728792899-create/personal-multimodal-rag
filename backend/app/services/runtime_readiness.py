@@ -29,33 +29,33 @@ _REAL_ANSWERS = {
 def validate_runtime_settings(settings: Settings) -> None:
     mode = settings.runtime_mode.strip().lower()
     if mode not in {"demo", "local-production", "production"}:
-        raise ValueError("RAG_RUNTIME_MODE must be demo, local-production, or production")
+        raise ValueError("RAG_RUNTIME_MODE 必须是 demo、local-production 或 production")
     if mode == "demo":
         return
 
     errors: list[str] = []
     if settings.embedding_provider.lower() not in _REAL_EMBEDDINGS:
-        errors.append("EMBEDDING_PROVIDER must select a real embedding provider")
+        errors.append("EMBEDDING_PROVIDER 必须选择真实的 embedding Provider")
     if settings.answer_provider.lower() not in _REAL_ANSWERS:
-        errors.append("ANSWER_PROVIDER must select a real answer provider")
+        errors.append("ANSWER_PROVIDER 必须选择真实的回答 Provider")
     if settings.provider_fallback_allowed:
-        errors.append("PROVIDER_FALLBACK_ALLOWED=0 is required outside demo mode")
+        errors.append("非 demo 模式必须设置 PROVIDER_FALLBACK_ALLOWED=0")
     if settings.auth_mode.lower() == "session":
         if not settings.admin_password_hash.startswith("$argon2"):
-            errors.append("ADMIN_PASSWORD_HASH must contain an Argon2id hash")
+            errors.append("ADMIN_PASSWORD_HASH 必须包含 Argon2id hash")
         if len(settings.session_secret) < 32:
-            errors.append("SESSION_SECRET must be at least 32 characters")
+            errors.append("SESSION_SECRET 至少需要 32 个字符")
 
     if mode == "local-production":
         if settings.vector_store.lower() not in {"chroma", "pgvector"}:
-            errors.append("VECTOR_STORE must be chroma or pgvector in local-production")
+            errors.append("local-production 模式的 VECTOR_STORE 必须是 chroma 或 pgvector")
     else:
         if settings.metadata_backend.lower() != "postgres" or not settings.metadata_dsn:
-            errors.append("METADATA_BACKEND=postgres and METADATA_DSN are required")
+            errors.append("必须配置 METADATA_BACKEND=postgres 和 METADATA_DSN")
         if settings.vector_store.lower() != "pgvector" or not settings.pgvector_dsn:
-            errors.append("VECTOR_STORE=pgvector and PGVECTOR_DSN are required")
+            errors.append("必须配置 VECTOR_STORE=pgvector 和 PGVECTOR_DSN")
         if settings.object_store_backend.lower() != "s3":
-            errors.append("OBJECT_STORE_BACKEND=s3 is required")
+            errors.append("必须配置 OBJECT_STORE_BACKEND=s3")
         if not all(
             [
                 settings.s3_endpoint_url,
@@ -64,13 +64,13 @@ def validate_runtime_settings(settings: Settings) -> None:
                 settings.s3_secret_key,
             ]
         ):
-            errors.append("S3 endpoint, bucket, access key, and secret key are required")
+            errors.append("必须配置 S3 endpoint、bucket、access key 和 secret key")
         if settings.job_queue_backend.lower() != "redis" or not settings.redis_url:
-            errors.append("JOB_QUEUE_BACKEND=redis and REDIS_URL are required")
+            errors.append("必须配置 JOB_QUEUE_BACKEND=redis 和 REDIS_URL")
         if settings.auth_mode.lower() != "session":
-            errors.append("AUTH_MODE=session is required")
+            errors.append("必须配置 AUTH_MODE=session")
         if not settings.fetch_worker_url:
-            errors.append("FETCH_WORKER_URL is required to isolate production URL fetching")
+            errors.append("必须配置 FETCH_WORKER_URL，以隔离 production URL 抓取")
 
     if errors:
         raise ValueError("; ".join(errors))

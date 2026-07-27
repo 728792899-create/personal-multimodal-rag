@@ -89,6 +89,8 @@ def test_retriever_falls_back_when_reranker_fails(tmp_path: Path):
     assert results
     assert trace["rerank_status"] == "fallback"
     assert trace["fallbacks"][0]["stage"] == "rerank"
+    assert trace["fallbacks"][0]["reason"] == "Rerank 暂时不可用，已使用基础相关性排序。"
+    assert "reranker unavailable" not in str(trace)
     assert "rerank_score" in results[0]
 
 
@@ -114,3 +116,5 @@ def test_retriever_falls_back_to_keyword_when_vector_fails(tmp_path: Path):
     assert trace["vector_status"] == "fallback"
     assert trace["bm25_weight"] == 1.0
     assert trace["vector_weight"] == 0.0
+    assert trace["fallbacks"][0]["reason"] == "向量检索暂时不可用，已回退到 BM25 关键词检索。"
+    assert "embedding unavailable" not in str(trace)

@@ -42,6 +42,24 @@ def test_index_job_and_outbox_commit_together_and_dispatch_once():
     assert queue.events[0]["aggregate_id"] == first["id"]
 
 
+def test_outbox_dispatch_failure_stores_localized_operator_message():
+    class FailingQueue:
+        def publish(self, _event: dict) -> str:
+            raise RuntimeError("redis auth token=secret")
+
+    registry = DocumentRegistry(":memory:")
+    _job(registry, "localized-outbox-error")
+
+    assert OutboxDispatcher(registry, FailingQueue()).dispatch_once() == 0
+    with registry._connection() as connection:
+        stored = connection.execute(
+            "SELECT error_message FROM outbox_events WHERE status = 'pending'"
+        ).fetchone()["error_message"]
+
+    assert stored == "任务投递暂时失败，将自动重试。"
+    assert "secret" not in stored
+
+
 def test_terminal_job_failure_is_retained_in_dead_letter_queue():
     registry = DocumentRegistry(":memory:")
     job = registry.create_index_job(

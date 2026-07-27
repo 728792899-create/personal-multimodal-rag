@@ -23,14 +23,14 @@ def create_knowledge_base(payload: KnowledgeBaseCreate):
 def update_knowledge_base(knowledge_base_id: str, payload: KnowledgeBaseUpdate):
     updated = registry.update_knowledge_base(knowledge_base_id, payload.name, payload.description)
     if not updated:
-        raise HTTPException(status_code=404, detail="Knowledge base not found")
+        raise HTTPException(status_code=404, detail="知识库不存在或已被删除。")
     return {"knowledge_base": updated}
 
 
 @router.get("/{knowledge_base_id}/graph")
 def get_knowledge_base_graph(knowledge_base_id: str, limit: int = Query(500, ge=1, le=2000)):
     if not registry.get_knowledge_base(knowledge_base_id):
-        raise HTTPException(status_code=404, detail="Knowledge base not found")
+        raise HTTPException(status_code=404, detail="知识库不存在或已被删除。")
     return graph_store.snapshot(knowledge_base_id, limit=limit)
 
 
@@ -45,10 +45,10 @@ def delete_knowledge_base(knowledge_base_id: str, force: bool = Query(False)):
     try:
         deleted = registry.delete_knowledge_base(knowledge_base_id, force=force)
     except ValueError as exc:
-        status = 409 if "contains documents" in str(exc) or "index jobs" in str(exc) else 400
+        status = 409 if "文档" in str(exc) or "索引任务" in str(exc) else 400
         raise HTTPException(status_code=status, detail=str(exc)) from exc
     if not deleted:
-        raise HTTPException(status_code=404, detail="Knowledge base not found")
+        raise HTTPException(status_code=404, detail="知识库不存在或已被删除。")
     for document in documents:
         retriever.delete_document(document.document_id)
     for asset in assets:

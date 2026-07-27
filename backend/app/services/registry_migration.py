@@ -85,7 +85,7 @@ def migrate_sqlite_to_postgres(
 ) -> dict:
     source_path = Path(sqlite_path).expanduser().resolve()
     if not source_path.is_file():
-        raise FileNotFoundError(f"SQLite registry not found: {source_path}")
+        raise FileNotFoundError(f"未找到 SQLite registry：{source_path}")
     source = DocumentRegistry(str(source_path))
     snapshots: dict[str, list[dict]] = {}
     counts: dict[str, dict[str, int]] = {}
@@ -139,12 +139,12 @@ def migrate_sqlite_to_postgres(
                         tuple(source_row[column] for column in primary_keys),
                     ).fetchone()
                     if not found:
-                        raise RuntimeError(f"Migration verification failed for table {table}")
+                        raise RuntimeError(f"迁移后未能在目标端验证数据表 {table}。")
                     destination_rows.append(_row_dict(found))
                 source_hash = _fingerprint(rows)
                 destination_hash = _fingerprint(destination_rows)
                 if source_hash != destination_hash:
-                    raise RuntimeError(f"Migration checksum failed for table {table}")
+                    raise RuntimeError(f"数据表 {table} 的迁移校验和不一致。")
                 verification[table] = {
                     "verified": len(destination_rows),
                     "source_sha256": source_hash,

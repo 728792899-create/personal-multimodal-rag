@@ -51,6 +51,7 @@ import {
   type WorkMode,
   type ConversationStreamEvent,
 } from '../api'
+import { localizedSystemText } from '../localization'
 import { useConversations } from './useConversations'
 import { useIngestionJobs } from './useIngestionJobs'
 import { useKnowledgeBases } from './useKnowledgeBases'
@@ -130,6 +131,7 @@ export function useWorkbench() {
   const rewriting = ref(false)
   const evalRunning = ref(false)
   const error = ref('')
+  const errorCode = ref('')
   const errorRequestId = ref('')
   const inspectorTab = ref<'trace' | 'graph' | 'citation' | 'document' | 'quality' | 'eval'>('trace')
   const lastRetry = shallowRef<null | (() => Promise<void>)>(null)
@@ -179,6 +181,7 @@ export function useWorkbench() {
 
   function clearError() {
     error.value = ''
+    errorCode.value = ''
     errorRequestId.value = ''
     lastRetry.value = null
   }
@@ -186,7 +189,8 @@ export function useWorkbench() {
   function reportError(caught: unknown, fallback: string, retry?: () => Promise<void>) {
     if (caught instanceof DOMException && caught.name === 'AbortError') return
     const typed = caught as ApiError
-    error.value = caught instanceof Error ? caught.message : fallback
+    error.value = localizedSystemText(caught instanceof Error ? caught.message : '', fallback)
+    errorCode.value = typed?.code || ''
     errorRequestId.value = typed?.requestId || ''
     lastRetry.value = retry || null
   }
@@ -763,7 +767,7 @@ export function useWorkbench() {
     graphMaxHops, parentWindow, modalityFilters, topK, candidateK, vectorBalance,
     mmrLambda, minScore, queryRewrite, scopedDocumentIds, documentFilter, inspectorTab,
     booting, loading, uploading, importingUrl, comparing, rebuildingId, loadingDocument,
-    loadingContext, feedbackSubmitting, rewriting, evalRunning, error, errorRequestId,
+    loadingContext, feedbackSubmitting, rewriting, evalRunning, error, errorCode, errorRequestId,
     totalChunks, totalChars, avgQualityLabel, bm25Weight, vectorWeight, scopeSet,
     scopeLabel, filteredDocuments, isRefusal, diagnostics, citationAudit, trust,
     expertParametersValid,

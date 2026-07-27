@@ -52,8 +52,8 @@ def test_restore_drill_uses_isolated_snapshot_and_verifies_objects(tmp_path: Pat
 @pytest.mark.parametrize(
     ("unsafe_key", "expected_error"),
     [
-        (None, "referenced object is missing"),
-        ("../outside", "unsafe object key"),
+        (None, "缺少数据库引用的对象"),
+        ("../outside", "不安全的对象 key"),
     ],
 )
 def test_restore_drill_rejects_incomplete_or_unsafe_object_snapshots(

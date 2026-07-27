@@ -24,9 +24,9 @@ def test_answer_export_keeps_citations_and_audit():
     )
 
     assert markdown.startswith("# Production evidence")
-    assert "## Question" in markdown
-    assert "**operations.md**, page 2" in markdown
-    assert "Confidence: 0.92" in markdown
+    assert "## 问题" in markdown
+    assert "**operations.md**，第 2 页" in markdown
+    assert "置信度：0.92" in markdown
 
 
 def test_conversation_export_includes_message_level_citations():
@@ -46,8 +46,8 @@ def test_conversation_export_includes_message_level_citations():
         ],
     )
 
-    assert "## User" in markdown
-    assert "## Assistant" in markdown
+    assert "## 用户" in markdown
+    assert "## 助手" in markdown
     assert "14-day soak required" in markdown
 
 

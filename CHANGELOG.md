@@ -1,46 +1,46 @@
-# Changelog
+# 更新日志
 
-本项目遵循面向 Beta 的语义化版本记录。当前尚未发布正式稳定 API。
+本项目遵循面向候选版的语义化版本记录。当前尚未发布正式稳定 API。
 
-## Unreleased
+## 未发布
 
-### Added
+### 新增
 
-- 0.4 Production Local 三模式配置：零 Key Demo、Ollama + Chroma Local Production，以及 PostgreSQL/pgvector + S3 + Redis Streams Production Compose。
-- Argon2id 管理员登录、HttpOnly session、CSRF、会话撤销、独立登录限流，以及服务端默认 workspace/owner/membership 边界。
-- PostgreSQL metadata adapter、S3 内容寻址对象存储、ClamAV 入库扫描、事务 outbox、Redis Streams consumer group 和失败任务 DLQ。
-- 原子 SQLite→PostgreSQL 迁移 CLI：自动备份、ID 保留、逐表 checksum 对账和失败回滚。
-- 失败关闭的运行配置校验与 live readiness；生产依赖异常不再静默降级到 template。
-- 非 root/read-only Production 镜像、secret-file 配置与 [Production Local 运行手册](docs/production-local.md)。
-- 白名单本地目录、URL 列表和 RSS/Atom connector registry；内容 hash、ETag/Last-Modified、稳定 external ID 与持久 `sync_runs` 增量闭环。
+- 0.4 本地生产三模式配置：零密钥演示、Ollama + Chroma 本地生产，以及 PostgreSQL/pgvector + S3 + Redis Streams 生产 Compose。
+- Argon2id 管理员登录、HttpOnly 会话、CSRF、会话撤销、独立登录限流，以及服务端默认工作区/所有者/成员关系边界。
+- PostgreSQL 元数据适配器、S3 内容寻址对象存储、ClamAV 入库扫描、事务发件箱、Redis Streams 消费者组和失败任务死信队列。
+- 原子 SQLite→PostgreSQL 迁移命令行工具：自动备份、ID 保留、逐表校验和对账和失败回滚。
+- 故障关闭的运行配置校验与实时就绪状态；生产依赖异常不再静默降级到模板回答。
+- 非 root/只读生产镜像、密钥文件配置与[本地生产运行手册](docs/production-local.md)。
+- 白名单本地目录、URL 列表和 RSS/Atom 连接器注册表；内容哈希、ETag/Last-Modified、稳定外部 ID 与持久 `sync_runs` 增量闭环。
 - 空结果/部分失败删除保护、连续两次缺失候选、人工确认级联删除和重启后可重试的中断同步。
 - 带引用的回答、持久会话和知识卡片 Markdown 导出。
-- Prometheus 低基数指标、可选 OTLP/HTTP 与 Sentry scrubber、预配置 Grafana dashboard。
-- 无凭据/无数据卷隔离 fetch worker、逐跳 DNS pinning、重定向重校验和大小限制。
-- PostgreSQL + MinIO 备份、manifest SHA-256 校验、显式确认恢复和 Compose 故障注入工具。
-- 机器可读 1.0 release readiness gate、真实语料证据模板和拒绝伪造结果的 `benchmark:real`。
-- CodeQL、依赖审计、Trivy、SPDX SBOM、GitHub provenance 与 keyless Cosign 镜像签名工作流。
+- Prometheus 低基数指标、可选 OTLP/HTTP 与 Sentry 脱敏器、预配置 Grafana 仪表盘。
+- 无凭据/无数据卷隔离抓取工作进程、逐跳 DNS 固定、重定向重校验和大小限制。
+- PostgreSQL + MinIO 备份、清单 SHA-256 校验、显式确认恢复和 Compose 故障注入工具。
+- 机器可读 1.0 发布就绪门、真实语料证据模板和拒绝伪造结果的 `benchmark:real`。
+- CodeQL、依赖审计、Trivy、SPDX SBOM、GitHub 来源证明与无密钥 Cosign 镜像签名工作流。
 - 根据远端依赖审计升级 FastAPI/Starlette、python-multipart、PyMuPDF、pytest 与 python-dotenv 安全版本，并固定有效的 Trivy Action release。
 - 同步升级隔离 parser worker 的 FastAPI 与 python-multipart 独立固定版本，关闭文件系统安全扫描发现的遗留 multipart 漏洞。
 - 0.3 多模态统一 IR：text、heading、image、table、equation、code 元素，保留页码、顺序、bbox、标题路径、结构化表格和精确引用 ID。
 - 内容寻址本地对象存储、原件受控下载、PDF/DOCX 内嵌图片物化、引用计数与删除/失败回滚。
-- SQLite schema v4：`assets`、`document_elements`、`parser_runs`、`enrichment_cache`，旧文档明确标记原件可用性。
-- 可选隔离 parser worker，固定 RAG-Anything `1.3.1`/`a8c27f7`，支持 MinerU、Docling、PaddleOCR profile 与 `content_list` 转换。
-- 递归/增量/并发上限/`dry-run` 批量目录导入 CLI，以及解析器能力与元素/资源 API。
+- SQLite 架构 v4：`assets`、`document_elements`、`parser_runs`、`enrichment_cache`，旧文档明确标记原件可用性。
+- 可选隔离解析工作进程，固定 RAG-Anything `1.3.1`/`a8c27f7`，支持 MinerU、Docling、PaddleOCR 配置与 `content_list` 转换。
+- 递归/增量/并发上限/`dry-run` 批量目录导入命令行工具，以及解析器能力与元素/资源 API。
 - [RAG-Anything 固定提交对比审查](docs/comparative-review-rag-anything.md)。
-- SQLite schema v5 provenance-backed Graph-lite、中文/英文显式关系、表格三元组、知识库隔离与受控 LightRAG 导航 adapter。
-- 上下文感知 template/OpenAI Responses/OpenAI-compatible/Ollama vision enrichment、版本化缓存、结构化输出与 `store:false` Responses 契约。
+- SQLite 架构 v5 带来源证明的轻量图谱、中文/英文显式关系、表格三元组、知识库隔离与受控 LightRAG 导航适配器。
+- 上下文感知模板回答/OpenAI Responses/OpenAI-compatible/Ollama 视觉内容增强、版本化缓存、结构化输出与 `store:false` Responses 契约。
 - `hybrid_graph`/`auto`、加权 RRF、模态过滤、可配置 parent context，以及 graph seed/path/evidence Trace。
-- Provider/parser 指数退避、抖动和熔断；版面、OCR、caption、表格、公式、孤立资源与图谱覆盖指标。
-- 24 小时 Query Asset：最多 4 张 PNG/JPEG/WEBP/非动画 GIF，单张 10 MB，支持 OCR/视觉查询增强、过期清理与知识库隔离。
-- 图片提问 SSE 事件、文档元素查看器、精确引用跳转、Graph SVG/键盘表格、十阶段 Trace 与多模态质量面板。
-- 100 条固定黄金集与 12 项阈值；新增 multimodal-eval、graph-eval、parser-contract 和 asset-security CI。
+- 模型提供方/解析器指数退避、抖动和熔断；版面、OCR、图注、表格、公式、孤立资源与图谱覆盖指标。
+- 24 小时查询附件：最多 4 张 PNG/JPEG/WEBP/非动画 GIF，单张 10 MB，支持 OCR/视觉查询增强、过期清理与知识库隔离。
+- 图片提问 SSE 事件、文档元素查看器、精确引用跳转、图谱 SVG/键盘表格、十阶段检索追踪与多模态质量面板。
+- 100 条固定黄金集与 12 项阈值；新增多模态评测、图谱评测、解析器契约和资源安全 CI。
 
-### Fixed
+### 修复
 
-- Frontend Nginx now resolves the Docker backend service at request time, so replacing a recovered backend container no longer leaves the public proxy pinned to a stale container IP; CI exercises the replacement path.
-- Soak verification now requires a fresh wall-clock sample and exact state/hash-chain agreement, preventing a valid-but-frozen chain from counting toward release evidence.
-- A newly completed 14-day verified window can satisfy the release gate after earlier retained failures; cumulative historical failures no longer make the candidate permanently unreleasable.
+- 前端 Nginx 现在在请求时解析 Docker 后端服务，因此替换恢复后的后端容器不再让公开代理固定到旧容器 IP；CI 覆盖该替换路径。
+- 稳定性校验现在要求新鲜的真实时间样本以及精确的状态/哈希链一致性，防止有效但冻结的链计入发布证据。
+- 新完成的 14 天验证窗口可在保留早期失败后满足发布门；累计历史失败不再让候选版永久无法发布。
 - pgvector 改为 operation-scoped 连接；PostgreSQL 在混沌演练中重建后 readiness 可自动恢复，不再持有失效长连接。
 - 索引终态重试、去重来源原件、取消清理、部分向量写入与启动 orphan reconciliation 补齐，真实 200 文档恢复/故障注入后保持零孤儿向量。
 - 协作取消现在由 Worker 明确提交 `cancelled` 终态并清除租约；重启时遇到过期的 `cancelling` 任务也会收敛为终态，不再形成无法领取的 `queued` 任务。
@@ -49,7 +49,7 @@
 
 ## 0.2.0-beta
 
-### Added
+### 新增
 
 - Durable Local 数据层：版本化 SQLite 迁移、默认知识库、持久会话与租约索引任务。
 - 知识库 CRUD、隔离检索、异步文件/URL 入库、进度、取消、三次重试和进程恢复。
@@ -71,7 +71,7 @@
 
 ## 0.1.0-beta
 
-### Added
+### 新增
 
 - PDF、Markdown、文本、图片 OCR 与公开 URL 导入。
 - BM25、向量检索、融合、MMR、rerank、无证据拒答和引用审计。
@@ -80,8 +80,8 @@
 - pytest、Vitest、Playwright、固定黄金集、GitHub Actions 与健康检查。
 - 上传/URL 安全边界、请求 ID、限流、脱敏日志和可选 Sentry。
 
-### Known limitations
+### 已知边界
 
-- 默认 hash embedding 和 template answer 只用于离线演示。
-- 当前是单实例、单 workspace Beta；生产外部服务尚需部署方接入。
+- 默认哈希嵌入和模板回答只用于离线演示。
+- 当前是单实例、单工作区候选版；生产外部服务尚需部署方接入。
 - 固定黄金集规模较小，不代表真实开放域质量。

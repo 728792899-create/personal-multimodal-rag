@@ -10,7 +10,7 @@ from app.models.domain import Document, DocumentElement
 from app.services.context_window import ContextWindowBuilder
 from app.services.responses_client import ResponsesClient
 from app.services.resilience import ResilientExecutor
-from app.services.safe_logging import redact_sensitive_text
+from app.services.safe_logging import public_error_message, redact_sensitive_text
 from app.services.text_utils import tokenize
 
 
@@ -71,12 +71,15 @@ class FallbackMultimodalEnricher:
             result = self.fallback.enrich(element, context, image_data_url="")
             result["warnings"] = [
                 *result.get("warnings", []),
-                f"{self.provider} unavailable; deterministic fallback used",
+                f"{self.provider} 暂时不可用，已使用确定性离线 fallback。",
             ]
             result["fallback"] = {
                 "from": self.provider,
                 "to": self.fallback.provider,
-                "reason": redact_sensitive_text(exc),
+                "reason": public_error_message(
+                    exc,
+                    "Provider 暂时不可用，已使用离线 enrichment。",
+                ),
             }
             return result
 
@@ -90,17 +93,17 @@ class TemplateMultimodalEnricher:
             rows = len(element.table)
             columns = max((len(row) for row in element.table), default=0)
             headers = element.table[0] if element.table else []
-            description = f"Table with {rows} rows and {columns} columns"
+            description = f"包含 {rows} 行、{columns} 列的表格"
             if headers:
-                description += "; headers: " + ", ".join(headers)
+                description += "；表头：" + "、".join(headers)
             keywords = self._dedupe([*headers, *tokenize(element.text)])[:16]
         elif element.type == "equation":
-            description = f"Equation extracted from the document: {element.latex or element.text}".strip()
+            description = f"从文档中提取的公式：{element.latex or element.text}".strip()
             keywords = self._dedupe(tokenize(f"{element.latex} {context.get('text', '')}"))[:16]
         else:
-            description = element.caption or element.text or "Image without extracted text"
+            description = element.caption or element.text or "未提取到文字的图片"
             if context.get("text") and context["text"] not in description:
-                description = f"{description}. Nearby context: {context['text'][:500]}"
+                description = f"{description}。相邻上下文：{context['text'][:500]}"
             keywords = self._dedupe(tokenize(f"{element.caption} {element.text} {context.get('text', '')}"))[:16]
         entities = [item for item in keywords if self._looks_like_entity(item)][:8]
         return {
@@ -109,7 +112,7 @@ class TemplateMultimodalEnricher:
             "entities": entities,
             "relationships": [],
             "confidence": 1.0 if element.text or element.table or element.latex else 0.4,
-            "warnings": [] if element.text or element.table or element.latex else ["No extracted element text"],
+            "warnings": [] if element.text or element.table or element.latex else ["未提取到元素文本。"],
         }
 
     @staticmethod
@@ -314,6 +317,9 @@ def _validate_enrichment(payload: dict) -> dict:
         result["fallback"] = {
             "from": str(fallback.get("from") or "unknown")[:80],
             "to": str(fallback.get("to") or "template")[:80],
-            "reason": redact_sensitive_text(str(fallback.get("reason") or "provider unavailable"))[:300],
+            "reason": public_error_message(
+                fallback.get("reason") or "provider unavailable",
+                "Provider 暂时不可用，已使用离线 enrichment。",
+            )[:300],
         }
     return result

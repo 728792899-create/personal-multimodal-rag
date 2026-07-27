@@ -71,7 +71,7 @@ def test_knowledge_base_delete_requires_force_when_it_contains_documents(tmp_pat
     document = _document("research.md")
     document.metadata["knowledge_base_id"] = knowledge_base["id"]
     registry.save_document(document)
-    with pytest.raises(ValueError, match="contains documents"):
+    with pytest.raises(ValueError, match="仍包含文档"):
         registry.delete_knowledge_base(knowledge_base["id"])
     job = registry.create_index_job(
         source_type="url",
@@ -80,18 +80,18 @@ def test_knowledge_base_delete_requires_force_when_it_contains_documents(tmp_pat
         knowledge_base_id=knowledge_base["id"],
         idempotency_key="research-delete-job",
     )
-    with pytest.raises(ValueError, match="active index jobs"):
+    with pytest.raises(ValueError, match="运行中的索引任务"):
         registry.delete_knowledge_base(knowledge_base["id"], force=True)
 
     registry.request_index_job_cancel(job["id"])
-    with pytest.raises(ValueError, match="contains documents"):
+    with pytest.raises(ValueError, match="仍包含文档"):
         registry.delete_knowledge_base(knowledge_base["id"])
 
     assert registry.delete_knowledge_base(knowledge_base["id"], force=True) is True
     assert registry.get_document(document.document_id) is None
     assert all(item["knowledge_base_id"] != knowledge_base["id"] for item in registry.list_index_jobs())
     assert registry.get_conversation(conversation["id"])["knowledge_base_ids"] == [DEFAULT_KNOWLEDGE_BASE_ID]
-    with pytest.raises(ValueError, match="default"):
+    with pytest.raises(ValueError, match="默认知识库"):
         registry.delete_knowledge_base(DEFAULT_KNOWLEDGE_BASE_ID, force=True)
 
 
@@ -243,7 +243,7 @@ def test_docx_validation_rejects_missing_office_content_types(tmp_path):
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr("word/document.xml", "<document />")
 
-    with pytest.raises(ValueError, match="Office document"):
+    with pytest.raises(ValueError, match="Office 文档"):
         DocumentProcessor().parse_file(path)
 
 
@@ -254,7 +254,7 @@ def test_docx_validation_rejects_suspicious_expansion(tmp_path):
         archive.writestr("word/document.xml", io.BytesIO(b"A" * 2_000_000).getvalue())
 
     processor = DocumentProcessor(docx_max_uncompressed_bytes=128_000)
-    with pytest.raises(ValueError, match="expanded size"):
+    with pytest.raises(ValueError, match="解压后大小"):
         processor.parse_file(path)
 
 
@@ -335,6 +335,42 @@ def test_conversation_sse_has_stable_event_order_and_persists_messages():
         stored = messages.json()["messages"]
         assert [message["role"] for message in stored[-2:]] == ["user", "assistant"]
         assert stored[-1]["status"] == "completed"
+
+
+def test_conversation_sse_localizes_provider_failures(monkeypatch):
+    from app.api.routers import conversations
+    from app.main import app
+
+    def failing_stream(*_args, **_kwargs):
+        raise RuntimeError("provider request failed at https://private.example")
+        yield  # pragma: no cover - keeps this function a generator
+
+    monkeypatch.setattr(conversations.rag_engine, "stream", failing_stream)
+    with TestClient(app) as client:
+        conversation_id = client.post(
+            "/api/conversations",
+            json={"title": "Failure localization", "knowledge_base_ids": ["default"]},
+        ).json()["conversation"]["id"]
+        response = client.post(
+            f"/api/conversations/{conversation_id}/messages:stream",
+            json={"question": "测试失败提示", "query_rewrite": False},
+        )
+        payloads = [
+            json.loads(line.removeprefix("data: "))
+            for line in response.text.splitlines()
+            if line.startswith("data: ")
+        ]
+
+        error = next(item for item in payloads if item["type"] == "error")
+        assert error["code"] == "STREAM_FAILED"
+        assert error["message"] == "流式回答失败，请稍后重试；如问题持续，请查看服务状态。"
+        assert "provider request failed" not in response.text
+        assert payloads[-1]["type"] == "done"
+        assert payloads[-1]["status"] == "failed"
+
+        stored = client.get(f"/api/conversations/{conversation_id}/messages").json()["messages"]
+        assert stored[-1]["status"] == "failed"
+        assert stored[-1]["metadata"]["error"] == error["message"]
 
 
 def test_conversation_follow_up_uses_recent_questions_for_retrieval():

@@ -30,6 +30,22 @@ def redact_sensitive_text(value: object) -> str:
     return cleaned[:1_000]
 
 
+def public_error_message(
+    value: object,
+    fallback: str = "请求处理失败，请稍后重试。",
+) -> str:
+    """Return only an application-owned message for API and SSE responses.
+
+    Exception text is never trusted, even when it already contains Chinese:
+    third-party errors can embed private paths, URLs, filenames, or user input.
+    Callers should keep the redacted exception in internal logs and provide a
+    bounded, context-specific fallback for the public response.
+    """
+
+    _ = value
+    return redact_sensitive_text(fallback)
+
+
 def sanitize_url_for_log(value: str) -> str:
     """Keep only the public routing portion of a URL in logs."""
 

@@ -12,6 +12,7 @@ import {
   type SourceType,
   type SyncRun,
 } from '../api'
+import { localizedSystemText } from '../localization'
 
 
 export function useSourceSync() {
@@ -42,7 +43,7 @@ export function useSourceSync() {
       capabilities.value = sourceResponse.capabilities
       runs.value = nextRuns
     } catch (caught) {
-      error.value = caught instanceof Error ? caught.message : '数据源加载失败'
+      error.value = localizedSystemText(caught instanceof Error ? caught.message : '', '数据源加载失败')
     } finally {
       loading.value = false
     }
@@ -60,7 +61,7 @@ export function useSourceSync() {
       await createSource({ type, name, knowledge_base_id: knowledgeBaseId, config })
       await refresh(knowledgeBaseId)
     } catch (caught) {
-      error.value = caught instanceof Error ? caught.message : '数据源创建失败'
+      error.value = localizedSystemText(caught instanceof Error ? caught.message : '', '数据源创建失败')
       throw caught
     } finally {
       loading.value = false
@@ -75,7 +76,7 @@ export function useSourceSync() {
       await refresh(knowledgeBaseId)
       return result
     } catch (caught) {
-      error.value = caught instanceof Error ? caught.message : '同步失败'
+      error.value = localizedSystemText(caught instanceof Error ? caught.message : '', '同步失败')
       throw caught
     } finally {
       busySourceId.value = ''

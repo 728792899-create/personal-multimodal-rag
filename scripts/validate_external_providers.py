@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise real Ollama and OpenAI-compatible HTTP contracts without paid APIs."""
+"""在不调用付费 API 的前提下验证真实 Ollama 与 OpenAI-compatible HTTP 契约。"""
 
 from __future__ import annotations
 
@@ -183,7 +183,7 @@ def validate(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Validate external provider contracts")
+    parser = argparse.ArgumentParser(description="验证外部 Provider 契约")
     parser.add_argument("--base-url", default="http://127.0.0.1:11434")
     parser.add_argument("--chat-model", default="qwen3:8b")
     parser.add_argument("--embedding-model", default="nomic-embed-text")
@@ -196,7 +196,7 @@ def main() -> int:
     args = parser.parse_args()
     host = urlparse(args.base_url).hostname
     if host not in LOCAL_HOSTS and not args.allow_remote:
-        raise SystemExit("remote provider validation requires --allow-remote")
+        raise SystemExit("验证远程 Provider 时必须显式传入 --allow-remote")
     report = validate(
         base_url=args.base_url,
         chat_model=args.chat_model,

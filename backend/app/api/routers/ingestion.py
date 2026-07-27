@@ -31,7 +31,7 @@ async def enqueue_file(
     build_graph: bool = Form(True),
 ):
     if not registry.get_knowledge_base(knowledge_base_id):
-        raise HTTPException(status_code=404, detail="Knowledge base not found")
+        raise HTTPException(status_code=404, detail="知识库不存在或已被删除。")
     safe_name = safe_upload_name(file.filename)
     INGESTION_DIR.mkdir(parents=True, exist_ok=True)
     target = INGESTION_DIR / f"{uuid.uuid4().hex}-{safe_name}"
@@ -44,15 +44,18 @@ async def enqueue_file(
             while chunk := await file.read(1024 * 1024):
                 written += len(chunk)
                 if written > settings.max_upload_bytes:
-                    raise HTTPException(status_code=413, detail=f"File is too large; max {settings.max_upload_bytes} bytes")
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"文件过大，最大允许 {settings.max_upload_bytes} bytes。",
+                    )
                 digest.update(chunk)
                 handle.write(chunk)
         if not written:
-            raise HTTPException(status_code=400, detail="Uploaded file is empty")
+            raise HTTPException(status_code=400, detail="上传的文件为空。")
         validate_file_signature(target, safe_name)
         profile = parser_profile.strip().lower() or "builtin"
         if profile not in {"builtin", "mineru", "docling", "paddleocr", "auto"}:
-            raise HTTPException(status_code=400, detail="Unsupported parser profile")
+            raise HTTPException(status_code=400, detail="不支持该解析 profile。")
         stored = object_store.put_file(target)
         stored_object_key = stored.object_key
         asset = registry.create_asset(
@@ -102,7 +105,7 @@ async def enqueue_file(
 @router.post("/ingestions/url", status_code=202)
 def enqueue_url(payload: IngestionUrlRequest):
     if not registry.get_knowledge_base(payload.knowledge_base_id):
-        raise HTTPException(status_code=404, detail="Knowledge base not found")
+        raise HTTPException(status_code=404, detail="知识库不存在或已被删除。")
     key = hashlib.sha256(
         f"{payload.knowledge_base_id}:{payload.url.strip()}:{payload.parser_profile}:{payload.enrich_modalities}:{payload.build_graph}:{settings.enrichment_provider}:{settings.enrichment_prompt_version}:{settings.chunker_version}:{settings.embedding_provider}:{settings.embedding_model}:{settings.index_version}".encode()
     ).hexdigest()
@@ -136,7 +139,7 @@ def list_dead_letter_jobs(limit: int = 50):
 def get_index_job(job_id: str):
     job = registry.get_index_job(job_id)
     if not job:
-        raise HTTPException(status_code=404, detail="Index job not found")
+        raise HTTPException(status_code=404, detail="索引任务不存在或已被删除。")
     return {"job": job}
 
 
@@ -144,7 +147,7 @@ def get_index_job(job_id: str):
 def retry_index_job(job_id: str):
     job = registry.retry_index_job(job_id)
     if not job:
-        raise HTTPException(status_code=409, detail="Only failed or cancelled jobs can be retried")
+        raise HTTPException(status_code=409, detail="只有失败或已取消的索引任务可以重试。")
     return {"job": job}
 
 
@@ -152,5 +155,5 @@ def retry_index_job(job_id: str):
 def cancel_index_job(job_id: str):
     job = registry.request_index_job_cancel(job_id)
     if not job:
-        raise HTTPException(status_code=404, detail="Index job not found")
+        raise HTTPException(status_code=404, detail="索引任务不存在或已被删除。")
     return {"job": job}

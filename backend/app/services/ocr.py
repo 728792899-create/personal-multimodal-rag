@@ -27,7 +27,7 @@ class ImageOCRAdapter:
                 text="",
                 status="unavailable",
                 engine="tesseract",
-                error="tesseract binary is not installed",
+                error="未安装 tesseract 可执行文件。",
             )
         try:
             import pytesseract
@@ -37,7 +37,7 @@ class ImageOCRAdapter:
                 text="",
                 status="unavailable",
                 engine="tesseract",
-                error=f"missing python dependency: {exc.__class__.__name__}",
+                error=f"缺少 Python 依赖：{exc.__class__.__name__}",
             )
 
         try:
@@ -47,6 +47,6 @@ class ImageOCRAdapter:
                 text="",
                 status="failed",
                 engine="tesseract",
-                error=str(exc),
+                error=f"OCR 处理失败（{type(exc).__name__}）。",
             )
         return OCRResult(text=text.strip(), status="ok" if text.strip() else "empty", engine="tesseract")

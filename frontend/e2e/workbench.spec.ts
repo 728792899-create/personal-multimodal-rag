@@ -167,6 +167,33 @@ async function installOfflineApi(page: Page) {
     }
     if (path === '/api/index-jobs') return json({ jobs })
     if (path === '/api/documents') return json({ documents })
+    if (path === '/api/search' && method === 'POST') {
+      const base = answerFixture()
+      const results = Array.from({ length: 5 }, (_, index) => ({
+        ...base.citations[0],
+        id: `search-${index + 1}`,
+        document_id: `search-document-${index + 1}`,
+        filename: `检索证据-${index + 1}.md`,
+        index,
+        text: `第 ${index + 1} 条脱敏检索证据：引用必须能回到原始资料，并说明召回、重排序与拒答门的判定依据。`,
+        snippet: `第 ${index + 1} 条脱敏检索证据：引用必须能回到原始资料，并说明召回、重排序与拒答门的判定依据。`,
+        score: 0.92 - index * 0.03,
+        rerank_score: 0.92 - index * 0.03,
+        matched_terms: ['检索', '引用', '拒答'],
+      }))
+      return json({
+        results,
+        trace: {
+          ...base.retrieval_trace,
+          returned: results.length,
+          pipeline: {
+            ...base.retrieval_trace.pipeline,
+            rerank: { ...base.retrieval_trace.pipeline.rerank, returned: results.length },
+          },
+        },
+        diagnostics: [],
+      })
+    }
     if (path === '/api/knowledge/overview') return json({
       ...overviewFixture,
       document_count: documents.length,
@@ -264,11 +291,11 @@ test('upload, URL import, grounded answer, citation and feedback draft', async (
     name: 'quality-guide.md', mimeType: 'text/markdown', buffer: Buffer.from('# 评测\nRecall@K 与 MRR。'),
   })
   await page.getByTestId('upload-button').click()
-  await expect(page.getByRole('button', { name: /quality-guide\.md markdown/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /quality-guide\.md Markdown 文档/ })).toBeVisible()
 
   await page.getByTestId('url-input').fill('https://example.com/guide')
   await page.getByTestId('url-import-button').click()
-  await expect(page.getByRole('button', { name: /example\.com-guide\.html url/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /example\.com-guide\.html 网页导入/ })).toBeVisible()
   await page.getByRole('button', { name: '关闭资料库' }).click()
 
   await page.getByRole('textbox', { name: '问题' }).fill('RAG 如何评测？')
@@ -329,7 +356,7 @@ test('knowledge-base creation, narrow layout and failed job retry stay usable', 
   const taskSection = page.locator('details.task-section')
   if (!(await taskSection.getAttribute('open'))) await taskSection.locator('summary').click()
   await taskSection.getByRole('button', { name: '重试' }).click()
-  await expect(taskSection.getByText('succeeded')).toBeVisible()
+  await expect(taskSection.getByText('已完成')).toBeVisible()
   await expect(page.locator('#main-workspace')).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 })
@@ -456,7 +483,7 @@ test('URL source subscription creates and reports an incremental sync', async ({
 
   await expect(manager.getByText('产品资料订阅')).toBeVisible()
   await manager.getByRole('button', { name: '立即同步' }).click()
-  await expect(manager.getByText(/最近同步：succeeded/)).toBeVisible()
+  await expect(manager.getByText(/最近同步：已完成/)).toBeVisible()
   await expect(manager.getByText('新增/更新 1')).toBeVisible()
 })
 
@@ -483,6 +510,23 @@ test.describe('README screenshot capture', () => {
     await page.goto('/')
     await expect(page.getByRole('heading', { name: '向你的知识库提问' })).toBeVisible()
     await saveReadmeScreenshot(page, '14-evidence-ledger-mobile.png')
+  })
+
+  test('writes the localized retrieval-only source screenshot', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Desktop screenshots are captured once.')
+    await installOfflineApi(page)
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/')
+    await expect(page.getByRole('heading', { name: '向你的知识库提问' })).toBeVisible()
+    await page.getByRole('button', { name: '检索', exact: true }).click()
+    await page.getByRole('textbox', { name: '问题' }).fill('如何检查混合检索、重排序和拒答门？')
+    await page.getByTestId('run-query').click()
+
+    await expect(page.getByRole('status')).toContainText('检索完成')
+    await expect(page.getByText('当前是只检索模式')).toBeVisible()
+    await expect(page.getByTestId('citation-5')).toBeVisible()
+    await expect(page.locator('.keyboard-hint')).toHaveText('⌘ K 聚焦 · ⌘ 回车发送')
+    await saveReadmeScreenshot(page, '16-question-first-sources.png')
   })
 
   test('writes the localized sign-in screenshot', async ({ page }, testInfo) => {

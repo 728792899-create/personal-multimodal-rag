@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Incrementally enqueue a local folder through the public ingestion API."""
+"""通过公开 ingestion API 增量导入本地目录。"""
 
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ def upload(path: Path, args, headers: dict[str, str]) -> dict:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Incrementally enqueue supported documents")
+    parser = argparse.ArgumentParser(description="增量提交目录中的受支持文档")
     parser.add_argument("folder", type=Path)
     parser.add_argument("--api", default="http://127.0.0.1:8010")
     parser.add_argument("--knowledge-base", default="default")
@@ -56,7 +56,7 @@ def main() -> int:
 
     root = args.folder.expanduser().resolve()
     if not root.is_dir():
-        parser.error(f"Folder does not exist: {root}")
+        parser.error(f"目录不存在：{root}")
     manifest_path = args.manifest or root / ".rag-import-manifest.json"
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))

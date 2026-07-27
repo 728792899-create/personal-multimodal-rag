@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Create and optionally seed a deterministic human-review queue.
+"""创建确定性的人工复核队列，并可选择写入系统。
 
-Generated questions are candidates only. They never count as human annotations
-until a reviewer completes the explicit review workflow in the application.
+生成的问题只作为候选项；在审核人员于应用内完成明确的复核流程之前，
+这些问题不得计入人工标注。
 """
 
 from __future__ import annotations
@@ -52,13 +52,13 @@ def build_queue(manifest_path: Path, output_path: Path, *, limit: int = 200) -> 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     documents = manifest.get("documents")
     if not isinstance(documents, list) or len(documents) < limit:
-        raise ValueError(f"corpus manifest must contain at least {limit} documents")
+        raise ValueError(f"语料清单必须至少包含 {limit} 份文档")
     candidates = [
         candidate_for(document, manifest_path.parent)
         for document in documents[:limit]
     ]
     if len({item["candidate_id"] for item in candidates}) != len(candidates):
-        raise ValueError("annotation candidates must be unique")
+        raise ValueError("标注候选项必须保持唯一")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     temporary = output_path.with_suffix(output_path.suffix + ".tmp")
     with temporary.open("w", encoding="utf-8") as output:
@@ -103,7 +103,7 @@ def seed_queue(
     set_cookie = str(login_headers.get("Set-Cookie") or "")
     cookie = set_cookie.split(";", 1)[0]
     if not csrf or not cookie:
-        raise RuntimeError("production login did not return session and CSRF credentials")
+        raise RuntimeError("生产环境登录未返回会话与 CSRF 凭据")
     response, _ = request_json(
         urljoin(base_url.rstrip("/") + "/", "api/eval/cases:batch"),
         method="POST",
@@ -138,7 +138,7 @@ def seed_queue(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Prepare the 1.0 human annotation queue")
+    parser = argparse.ArgumentParser(description="准备 1.0 人工标注队列")
     parser.add_argument(
         "--manifest",
         type=Path,

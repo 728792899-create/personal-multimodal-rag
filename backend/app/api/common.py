@@ -11,7 +11,11 @@ from app.services.document_quality import (
     lifecycle_event,
     summarize_document,
 )
-from app.services.safe_logging import redact_private_metadata, redact_sensitive_text
+from app.services.safe_logging import (
+    public_error_message,
+    redact_private_metadata,
+    redact_sensitive_text,
+)
 from app.services.text_utils import tokenize
 
 
@@ -43,10 +47,9 @@ def friendly_index_error(exc: Exception) -> str:
         return (
             "向量维度不匹配：当前 Chroma collection 已存入其他 embedding 维度。"
             "请为不同 embedding 模型配置独立的 CHROMA_PATH/CHROMA_COLLECTION，"
-            "或清理旧 collection 后重建索引。原始错误："
-            f"{message}"
+            "或清理旧 collection 后重建索引。"
         )
-    return message
+    return public_error_message(exc, "文档处理失败，请检查文件格式或服务状态后重试。")
 
 
 def chunks_for_document(document_id: str) -> list[Chunk]:

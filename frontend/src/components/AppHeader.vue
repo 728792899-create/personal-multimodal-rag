@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useWorkbenchContext } from '../composables/workbenchContext'
+import { localizedProvider } from '../localization'
 import ProductMark from './ProductMark.vue'
 
 const workbench = useWorkbenchContext()
@@ -60,7 +61,7 @@ const emit = defineEmits<{
       <span
         v-if="workbench.appMode.value === 'expert' && workbench.providerStatus.value"
         :class="['provider-health', workbench.providerStatus.value.status]"
-        :title="`${workbench.providerStatus.value.providers.answer.provider} · ${workbench.providerStatus.value.providers.vector_store.provider}`"
+        :title="`${localizedProvider(workbench.providerStatus.value.providers.answer.provider)} · ${localizedProvider(workbench.providerStatus.value.providers.vector_store.provider)}`"
       >
         <i aria-hidden="true"></i>
         {{ workbench.providerStatus.value.status === 'ready' ? '服务就绪' : '服务降级' }}

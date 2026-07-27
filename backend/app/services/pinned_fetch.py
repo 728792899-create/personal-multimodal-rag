@@ -25,10 +25,10 @@ def resolve_public_addresses(hostname: str) -> list[str]:
     for result in socket.getaddrinfo(hostname, None, type=socket.SOCK_STREAM):
         address = result[4][0].split("%", 1)[0]
         if not ipaddress.ip_address(address).is_global:
-            raise ValueError("URL resolves to a private, special, or blocked address")
+            raise ValueError("URL 解析到私有、特殊或已阻止的地址。")
         addresses.add(address)
     if not addresses:
-        raise ValueError("URL hostname did not resolve")
+        raise ValueError("URL 主机名无法解析。")
     return sorted(addresses)
 
 
@@ -64,13 +64,13 @@ def fetch_raw_url(
     for redirect_index in range(max_redirects + 1):
         parsed = urlsplit(current)
         if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
-            raise ValueError("Only absolute http/https URLs are supported")
+            raise ValueError("仅支持绝对 http/https URL。")
         if parsed.username is not None or parsed.password is not None:
-            raise ValueError("URLs with embedded credentials are not supported")
+            raise ValueError("不支持包含凭据的 URL。")
         try:
             port = parsed.port or (443 if parsed.scheme.lower() == "https" else 80)
         except ValueError as exc:
-            raise ValueError("URL contains an invalid port") from exc
+            raise ValueError("URL 包含无效端口。") from exc
         pinned_ip = resolve_public_addresses(parsed.hostname)[0]
         connection_class = _PinnedHTTPSConnection if parsed.scheme.lower() == "https" else _PinnedHTTPConnection
         connection = connection_class(parsed.hostname, port, pinned_ip, timeout)
@@ -92,14 +92,14 @@ def fetch_raw_url(
                 location = response_headers.get("location", "")
                 response.read()
                 if not location:
-                    raise ValueError("Redirect response did not include Location")
+                    raise ValueError("重定向响应缺少 Location。")
                 if redirect_index >= max_redirects:
-                    raise ValueError("URL exceeded the redirect limit")
+                    raise ValueError("URL 超过允许的重定向次数。")
                 current = urljoin(current, location)
                 continue
             payload = response.read(max_bytes + 1)
             if len(payload) > max_bytes:
-                raise ValueError(f"URL content is too large; max {max_bytes} bytes")
+                raise ValueError(f"URL 内容过大，最大允许 {max_bytes} bytes。")
             return RawFetchResponse(
                 status=response.status,
                 url=current,
@@ -108,4 +108,4 @@ def fetch_raw_url(
             )
         finally:
             connection.close()
-    raise ValueError("URL exceeded the redirect limit")
+    raise ValueError("URL 超过允许的重定向次数。")

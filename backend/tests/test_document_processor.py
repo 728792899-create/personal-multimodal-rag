@@ -29,7 +29,7 @@ def test_empty_document_is_rejected(tmp_path: Path):
     try:
         processor.parse_file(file_path)
     except ValueError as exc:
-        assert "No readable text" in str(exc)
+        assert "未能从文档中提取可读文本" in str(exc)
     else:
         raise AssertionError("empty document should be rejected")
 

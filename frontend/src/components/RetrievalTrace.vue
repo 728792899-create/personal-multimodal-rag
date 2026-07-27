@@ -2,6 +2,14 @@
 import { computed } from 'vue'
 
 import type { RetrievalTrace } from '../api'
+import {
+  localizedRelation,
+  localizedProvider,
+  localizedQueryRewriter,
+  localizedSearchProfile,
+  localizedStatus,
+  localizedSystemText,
+} from '../localization'
 
 
 const props = defineProps<{ trace: RetrievalTrace }>()
@@ -38,7 +46,7 @@ const stages = computed(() => {
       number: '03',
       title: '向量召回',
       value: `${pipeline.vector?.candidates ?? props.trace.vector_candidates ?? 0} 个候选`,
-      detail: `${props.trace.embedding_provider} · 权重 ${(pipeline.vector?.weight ?? props.trace.vector_weight).toFixed(2)}`,
+      detail: `${localizedProvider(props.trace.embedding_provider)} · 权重 ${(pipeline.vector?.weight ?? props.trace.vector_weight).toFixed(2)}`,
       status: pipeline.vector?.status || props.trace.vector_status || 'unknown',
     },
     {
@@ -52,11 +60,11 @@ const stages = computed(() => {
     {
       id: 'graph',
       number: '05',
-      title: 'Graph 导航',
+      title: '图谱导航',
       value: pipeline.graph?.status === 'success' ? `${pipeline.graph.paths?.length || 0} 条路径` : '未启用',
       detail: pipeline.graph?.status === 'success'
-        ? `${pipeline.graph.seed_count || 0} 个 seed · ${pipeline.graph.evidence_element_ids?.length || 0} 个证据元素`
-        : (pipeline.graph?.reason || '当前查询不需要关系导航'),
+        ? `${pipeline.graph.seed_count || 0} 个起点 · ${pipeline.graph.evidence_element_ids?.length || 0} 个证据元素`
+        : localizedSystemText(pipeline.graph?.reason, '当前查询不需要关系导航'),
       status: pipeline.graph?.status || 'skipped',
     },
     {
@@ -78,9 +86,11 @@ const stages = computed(() => {
     {
       id: 'rerank',
       number: '08',
-      title: 'Rerank',
+      title: '重排序',
       value: `${pipeline.rerank?.returned ?? props.trace.returned ?? 0} 个证据`,
-      detail: pipeline.rerank?.provider || props.trace.reranker || 'off',
+      detail: pipeline.rerank?.provider || props.trace.reranker
+        ? localizedProvider(pipeline.rerank?.provider || props.trace.reranker)
+        : '未启用',
       status: pipeline.rerank?.status || props.trace.rerank_status || 'unknown',
     },
     {
@@ -121,17 +131,17 @@ const chainSummary = computed(() => {
   <section class="trace-visual" aria-labelledby="trace-title">
     <header class="section-heading compact">
       <div>
-        <p class="kicker">Evidence chain</p>
+        <p class="kicker">证据链路</p>
         <h2 id="trace-title">检索证据链</h2>
       </div>
-      <span class="status-badge neutral">{{ trace.search_profile }}</span>
+      <span class="status-badge neutral">{{ localizedSearchProfile(trace.search_profile) }}</span>
     </header>
 
     <section class="chain-map" aria-label="检索链路摘要">
       <div class="chain-sources">
         <div><span>BM25</span><strong>{{ chainSummary.bm25 }}</strong><small>关键词候选</small></div>
-        <div><span>Vector</span><strong>{{ chainSummary.vector }}</strong><small>语义候选</small></div>
-        <div :class="{ inactive: !chainSummary.graph }"><span>Graph</span><strong>{{ chainSummary.graph || '—' }}</strong><small>证据路径</small></div>
+        <div><span>向量</span><strong>{{ chainSummary.vector }}</strong><small>语义候选</small></div>
+        <div :class="{ inactive: !chainSummary.graph }"><span>图谱</span><strong>{{ chainSummary.graph || '—' }}</strong><small>证据路径</small></div>
       </div>
       <div class="chain-connector" aria-hidden="true">
         <i></i><i></i><i></i><span></span>
@@ -141,12 +151,12 @@ const chainSummary = computed(() => {
         <span class="chain-arrow" aria-hidden="true">→</span>
         <div><span>MMR</span><strong>{{ chainSummary.selected }}</strong><small>多样保留</small></div>
         <span class="chain-arrow" aria-hidden="true">→</span>
-        <div><span>Rerank</span><strong>{{ chainSummary.returned }}</strong><small>最终证据</small></div>
+        <div><span>重排序</span><strong>{{ chainSummary.returned }}</strong><small>最终证据</small></div>
       </div>
       <div :class="['chain-decision', { refused: chainSummary.refused }]">
         <span class="status-signal" aria-hidden="true"></span>
         <div>
-          <small>Evidence gate</small>
+          <small>证据门槛</small>
           <strong>{{ chainSummary.refused ? '已拒答' : '允许回答' }}</strong>
         </div>
         <div>
@@ -179,11 +189,11 @@ const chainSummary = computed(() => {
     </ol>
 
     <section v-if="trace.pipeline?.graph?.paths?.length" class="graph-path-summary" aria-labelledby="trace-path-title">
-      <h3 id="trace-path-title">Provenance-backed 路径</h3>
+      <h3 id="trace-path-title">带来源依据的路径</h3>
       <ol>
         <li v-for="(path, index) in trace.pipeline.graph.paths.slice(0, 4)" :key="`${path.edge_ids?.join('-')}-${index}`">
           <strong>{{ path.labels.join(' → ') }}</strong>
-          <span>{{ path.relations.join(' / ') }} · {{ path.evidence_element_ids.length }} 个证据元素</span>
+          <span>{{ path.relations.map(localizedRelation).join(' / ') }} · {{ path.evidence_element_ids.length }} 个证据元素</span>
         </li>
       </ol>
     </section>
@@ -193,7 +203,7 @@ const chainSummary = computed(() => {
       <dl class="definition-grid">
         <div>
           <dt>查询改写</dt>
-          <dd>{{ trace.rewrite_status || '—' }}</dd>
+          <dd>{{ localizedStatus(trace.rewrite_status) }} · {{ localizedQueryRewriter(trace.query_rewriter) }}</dd>
         </div>
         <div>
           <dt>候选池</dt>
@@ -205,7 +215,7 @@ const chainSummary = computed(() => {
         </div>
         <div>
           <dt>总耗时</dt>
-          <dd>{{ trace.performance?.total_ms ?? '—' }} ms</dd>
+          <dd>{{ trace.performance?.total_ms ?? '—' }} 毫秒</dd>
         </div>
       </dl>
       <ul class="plain-list query-variants">
@@ -216,7 +226,7 @@ const chainSummary = computed(() => {
     <div v-if="trace.fallbacks?.length" class="inline-notice warning" role="note">
       <strong>链路已降级</strong>
       <span v-for="item in trace.fallbacks" :key="`${item.stage}-${item.action}`">
-        {{ item.stage }}：{{ item.action }}
+        {{ localizedSystemText(item.stage, '检索链路') }}：{{ localizedSystemText(item.action, '已启用降级处理') }}
       </span>
     </div>
   </section>

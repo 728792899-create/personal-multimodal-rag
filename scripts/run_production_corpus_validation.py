@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Sync the licensed corpus into Production Compose and record hash evidence."""
+"""将许可明确的语料同步到 Production Compose，并记录哈希证据。"""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ class Session:
         self.csrf = str(session.get("csrf_token") or "")
         self.cookie = str(headers.get("Set-Cookie") or "").split(";", 1)[0]
         if not self.csrf or not self.cookie:
-            raise RuntimeError("production login did not return session credentials")
+            raise RuntimeError("生产环境登录未返回会话凭据")
 
     def request(
         self,
@@ -63,17 +63,17 @@ class Session:
                 if attempt == 5:
                     raise
             time.sleep(min(2**attempt, 10))
-        raise RuntimeError("unreachable production validation retry state")
+        raise RuntimeError("生产环境验收重试流程进入了不可达状态")
 
 
 def load_manifest(path: Path) -> tuple[dict, set[str]]:
     manifest = json.loads(path.read_text(encoding="utf-8"))
     documents = manifest.get("documents")
     if not isinstance(documents, list) or len(documents) != 200:
-        raise ValueError("production validation requires exactly 200 corpus documents")
+        raise ValueError("生产环境验收要求语料必须恰好包含 200 份文档")
     hashes = {str(item.get("sha256") or "") for item in documents}
     if "" in hashes or len(hashes) != 200:
-        raise ValueError("corpus manifest hashes must be present and unique")
+        raise ValueError("语料清单中的哈希必须完整且唯一")
     return manifest, hashes
 
 
@@ -93,7 +93,7 @@ def ensure_source(session: Session, relative_path: str) -> dict:
         return existing
     roots = payload.get("capabilities", {}).get("directory_roots", [])
     if not roots:
-        raise RuntimeError("production server did not expose an allowed source root")
+        raise RuntimeError("生产服务未提供可用的数据源根目录")
     created, _ = session.request(
         "api/sources",
         method="POST",
@@ -203,7 +203,7 @@ def validate(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Validate the real production corpus")
+    parser = argparse.ArgumentParser(description="验证真实生产语料")
     parser.add_argument("--base-url", default="http://127.0.0.1:5173")
     parser.add_argument(
         "--password-file", type=Path, default=Path("secrets/operator_password")

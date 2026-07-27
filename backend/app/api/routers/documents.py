@@ -30,7 +30,12 @@ from app.models.domain import Document
 from app.models.schemas import UrlImportRequest
 from app.services.document_quality import assess_document_quality, lifecycle_event, summarize_document
 from app.services.document_processor import SUPPORTED_EXTENSIONS
-from app.services.safe_logging import redact_private_metadata, redact_sensitive_text, sanitize_url_for_log
+from app.services.safe_logging import (
+    public_error_message,
+    redact_private_metadata,
+    redact_sensitive_text,
+    sanitize_url_for_log,
+)
 from app.services.multimodal_assets import delete_document_assets, materialize_document_assets
 from app.services.multimodal_enrichment import ProviderUnavailableError
 from app.services.url_importer import fetch_url
@@ -54,7 +59,7 @@ def list_documents(knowledge_base_id: str = ""):
 def get_document(document_id: str):
     doc = registry.get_document(document_id)
     if not doc:
-        raise HTTPException(status_code=404, detail="Document not found")
+        raise HTTPException(status_code=404, detail="文档不存在或已被删除。")
     chunks = sorted(chunks_for_document(document_id), key=lambda item: item.chunk_index)
     return {
         "document": {
@@ -74,7 +79,7 @@ def get_document(document_id: str):
 @router.get("/documents/{document_id}/elements")
 def get_document_elements(document_id: str):
     if not registry.get_document(document_id):
-        raise HTTPException(status_code=404, detail="Document not found")
+        raise HTTPException(status_code=404, detail="文档不存在或已被删除。")
     return {"elements": registry.list_document_elements(document_id)}
 
 
@@ -82,10 +87,13 @@ def get_document_elements(document_id: str):
 def get_document_source(document_id: str):
     doc = registry.get_document(document_id)
     if not doc:
-        raise HTTPException(status_code=404, detail="Document not found")
+        raise HTTPException(status_code=404, detail="文档不存在或已被删除。")
     assets = registry.list_assets(document_id=document_id, kind="source", include_private=True)
     if not assets:
-        raise HTTPException(status_code=404, detail="Original source is unavailable; re-upload the document to enable reparsing")
+        raise HTTPException(
+            status_code=404,
+            detail="原始文件不可用；请重新上传后再执行解析。",
+        )
     return _asset_file_response(assets[0], attachment=True)
 
 
@@ -93,7 +101,7 @@ def get_document_source(document_id: str):
 def get_asset(asset_id: str):
     asset = registry.get_asset(asset_id, include_private=True)
     if not asset:
-        raise HTTPException(status_code=404, detail="Asset not found")
+        raise HTTPException(status_code=404, detail="资源不存在或已被删除。")
     if asset["kind"] == "query":
         try:
             expired = datetime.fromisoformat(asset["expires_at"]) <= datetime.utcnow()
@@ -101,7 +109,7 @@ def get_asset(asset_id: str):
             expired = True
         if expired:
             query_asset_service.delete(asset_id)
-            raise HTTPException(status_code=410, detail="Query image expired; upload it again")
+            raise HTTPException(status_code=410, detail="查询图片已过期，请重新上传。")
     return _asset_file_response(asset, attachment=asset["kind"] == "source")
 
 
@@ -114,7 +122,7 @@ async def upload_document(file: UploadFile = File(...), knowledge_base_id: str =
     safe_name = ""
     try:
         if not registry.get_knowledge_base(knowledge_base_id):
-            raise HTTPException(status_code=404, detail="Knowledge base not found")
+            raise HTTPException(status_code=404, detail="知识库不存在或已被删除。")
         safe_name = safe_upload_name(file.filename)
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         target = DATA_DIR / f"{uuid.uuid4().hex}-{safe_name}"
@@ -126,11 +134,11 @@ async def upload_document(file: UploadFile = File(...), knowledge_base_id: str =
                 if written > settings.max_upload_bytes:
                     raise HTTPException(
                         status_code=413,
-                        detail=f"File is too large; max {settings.max_upload_bytes} bytes",
+                        detail=f"文件过大，最大允许 {settings.max_upload_bytes} bytes。",
                     )
                 handle.write(chunk)
         if written == 0:
-            raise HTTPException(status_code=400, detail="Uploaded file is empty")
+            raise HTTPException(status_code=400, detail="上传的文件为空。")
         validate_file_signature(target, safe_name)
         upload_ended = datetime.utcnow()
         parse_started = datetime.utcnow()
@@ -215,12 +223,18 @@ async def upload_document(file: UploadFile = File(...), knowledge_base_id: str =
         registry.log_operation(
             "document_upload_failed",
             f"文档 enrichment provider 不可用：{safe_name or '未命名文件'}",
-            {"filename": safe_name, "error": redact_sensitive_text(exc)},
+            {
+                "filename": safe_name,
+                "error": public_error_message(
+                    exc,
+                    "多模态 enrichment Provider 暂时不可用。",
+                ),
+            },
             level="error",
         )
         raise HTTPException(
             status_code=503,
-            detail="Configured multimodal enrichment provider is unavailable; inspect provider status.",
+            detail="当前配置的多模态 enrichment Provider 暂时不可用，请检查 Provider 状态后重试。",
         ) from exc
     except ValueError as exc:
         message = friendly_index_error(exc)
@@ -245,13 +259,16 @@ def safe_upload_name(filename: str | None) -> str:
     normalized = (filename or "").strip().replace("\\", "/")
     safe_name = Path(normalized).name
     if not safe_name or safe_name in {".", ".."} or "\x00" in safe_name:
-        raise HTTPException(status_code=400, detail="A valid filename is required")
+        raise HTTPException(status_code=400, detail="请提供有效的文件名。")
     if len(safe_name.encode("utf-8")) > 240:
-        raise HTTPException(status_code=400, detail="Filename is too long")
+        raise HTTPException(status_code=400, detail="文件名过长。")
     suffix = Path(safe_name).suffix.lower()
     if suffix not in SUPPORTED_EXTENSIONS:
         supported = ", ".join(sorted(SUPPORTED_EXTENSIONS))
-        raise HTTPException(status_code=400, detail=f"Unsupported file type: {suffix or '(none)'}; allowed: {supported}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"不支持的文件类型：{suffix or '无扩展名'}；允许类型：{supported}",
+        )
     return safe_name
 
 
@@ -265,7 +282,7 @@ def validate_file_signature(path: Path, filename: str) -> None:
     }
     expected = signatures.get(Path(filename).suffix.lower())
     if expected and not any(path.read_bytes()[:16].startswith(signature) for signature in expected):
-        raise HTTPException(status_code=400, detail="File signature does not match its extension")
+        raise HTTPException(status_code=400, detail="文件内容签名与扩展名不匹配。")
 
 
 @router.post("/imports/url")
@@ -273,7 +290,7 @@ def import_url(payload: UrlImportRequest):
     safe_url = sanitize_url_for_log(payload.url)
     try:
         if not registry.get_knowledge_base(payload.knowledge_base_id):
-            raise HTTPException(status_code=404, detail="Knowledge base not found")
+            raise HTTPException(status_code=404, detail="知识库不存在或已被删除。")
         fetch_started = datetime.utcnow()
         active_fetcher = fetch_worker_client.fetch_url if fetch_worker_client else fetch_url
         imported = active_fetcher(
@@ -319,7 +336,10 @@ def import_url(payload: UrlImportRequest):
     except HTTPException:
         raise
     except Exception as exc:
-        message = redact_sensitive_text(exc)
+        message = public_error_message(
+            exc,
+            "URL 导入失败，请检查地址、内容类型或网络状态后重试。",
+        )
         registry.log_operation("url_import_failed", f"URL 导入失败：{safe_url}", {"url": safe_url, "error": message}, level="error")
         raise HTTPException(status_code=400, detail=message) from exc
 
@@ -328,7 +348,7 @@ def import_url(payload: UrlImportRequest):
 def delete_document(document_id: str):
     doc = registry.get_document(document_id)
     if not doc:
-        raise HTTPException(status_code=404, detail="Document not found")
+        raise HTTPException(status_code=404, detail="文档不存在或已被删除。")
     assets = registry.list_assets(document_id=document_id, include_private=True)
     retriever.delete_document(document_id)
     registry.delete_document(document_id)
@@ -407,7 +427,7 @@ def _rollback_document(document_id: str) -> None:
 def rebuild_document(document_id: str):
     doc = registry.get_document(document_id)
     if not doc:
-        raise HTTPException(status_code=404, detail="Document not found")
+        raise HTTPException(status_code=404, detail="文档不存在或已被删除。")
     try:
         registry.update_document_status(document_id, "indexing")
         rebuilt_doc, chunks = _rebuild(doc)
@@ -423,7 +443,7 @@ def rebuild_document(document_id: str):
         message = friendly_index_error(exc)
         registry.update_document_status(document_id, "failed", message)
         registry.log_operation("document_rebuild_failed", f"重建索引失败：{doc.file_name}", {"document_id": document_id, "filename": doc.file_name, "error": message}, level="error")
-        raise HTTPException(status_code=500, detail=f"Failed to rebuild document: {message}") from exc
+        raise HTTPException(status_code=500, detail=f"文档索引重建失败：{message}") from exc
 
 
 @router.post("/documents/{document_id}/reindex")
@@ -451,9 +471,9 @@ def _asset_file_response(asset: dict, *, attachment: bool) -> FileResponse:
     try:
         path = object_store.path_for(asset["object_key"])
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail="Asset is unavailable") from exc
+        raise HTTPException(status_code=404, detail="资源当前不可用。") from exc
     if not path.is_file():
-        raise HTTPException(status_code=404, detail="Asset is unavailable")
+        raise HTTPException(status_code=404, detail="资源当前不可用。")
     safe_name = Path(str(asset.get("original_name") or "asset")).name
     disposition = "attachment" if attachment else "inline"
     return FileResponse(

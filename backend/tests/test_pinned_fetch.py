@@ -36,7 +36,7 @@ def test_mixed_dns_answer_is_rejected(monkeypatch):
         ],
     )
 
-    with pytest.raises(ValueError, match="private|special|blocked"):
+    with pytest.raises(ValueError, match="私有|特殊|阻止"):
         pinned_fetch.resolve_public_addresses("rebinding.example")
 
 
@@ -66,12 +66,12 @@ def test_redirect_is_resolved_and_validated_as_a_new_hop(monkeypatch):
     def resolve(hostname: str):
         if hostname == "public.example":
             return ["93.184.216.34"]
-        raise ValueError("URL resolves to a private, special, or blocked address")
+        raise ValueError("URL 解析到私有、特殊或已阻止的地址。")
 
     monkeypatch.setattr(pinned_fetch, "_PinnedHTTPConnection", Connection)
     monkeypatch.setattr(pinned_fetch, "resolve_public_addresses", resolve)
 
-    with pytest.raises(ValueError, match="private|special|blocked"):
+    with pytest.raises(ValueError, match="私有|特殊|阻止"):
         pinned_fetch.fetch_raw_url(
             "http://public.example/start",
             timeout=2,

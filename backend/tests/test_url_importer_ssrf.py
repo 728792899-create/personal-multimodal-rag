@@ -22,14 +22,14 @@ def test_public_host_is_allowed_when_dns_resolves_globally(monkeypatch):
 
 
 def test_fetch_rejects_loopback_before_opening_connection():
-    with pytest.raises(ValueError, match="private|special|blocked"):
+    with pytest.raises(ValueError, match="私有|特殊|阻止"):
         fetch_url("http://127.0.0.1/internal")
 
 
 def test_redirect_to_private_address_is_rejected():
     handler = SafeRedirectHandler()
 
-    with pytest.raises(ValueError, match="private|special|blocked"):
+    with pytest.raises(ValueError, match="私有|特殊|阻止"):
         handler.redirect_request(
             req=None,
             fp=None,
@@ -69,5 +69,5 @@ def test_binary_url_content_is_rejected(monkeypatch):
     monkeypatch.setattr("app.services.url_importer.is_blocked_host", lambda hostname: False)
     monkeypatch.setattr("app.services.url_importer.build_opener", lambda *args: FakeOpener())
 
-    with pytest.raises(ValueError, match="content type"):
+    with pytest.raises(ValueError, match="内容类型"):
         fetch_url("https://example.com/payload")

@@ -38,13 +38,13 @@ def test_production_backup_manifest_rejects_tampering(tmp_path):
     )
     database.write_bytes(b"tampered")
 
-    with pytest.raises(ValueError, match="checksum"):
+    with pytest.raises(ValueError, match="校验和"):
         verify_manifest(tmp_path)
 
 
 @pytest.mark.parametrize("key", ["../secret", "/absolute", r"folder\\secret", "folder/../secret"])
 def test_s3_archive_rejects_unsafe_object_keys(key):
-    with pytest.raises(ValueError, match="unsafe"):
+    with pytest.raises(ValueError, match="不安全"):
         safe_object_key(key)
 
 

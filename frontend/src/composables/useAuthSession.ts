@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue'
 
 import { getAuthSession, login, logout, type AuthSession } from '../api'
+import { localizedSystemText } from '../localization'
 
 
 export function useAuthSession() {
@@ -16,7 +17,7 @@ export function useAuthSession() {
     try {
       session.value = await getAuthSession()
     } catch (caught) {
-      error.value = caught instanceof Error ? caught.message : '无法检查登录状态'
+      error.value = localizedSystemText(caught instanceof Error ? caught.message : '', '无法检查登录状态')
     } finally {
       loading.value = false
     }
@@ -28,7 +29,7 @@ export function useAuthSession() {
     try {
       session.value = await login(password)
     } catch (caught) {
-      error.value = caught instanceof Error ? caught.message : '登录失败'
+      error.value = localizedSystemText(caught instanceof Error ? caught.message : '', '登录失败')
     } finally {
       submitting.value = false
     }

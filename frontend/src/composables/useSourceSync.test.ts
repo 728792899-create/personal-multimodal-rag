@@ -52,7 +52,7 @@ describe('useSourceSync', () => {
 
     await state.refresh('default')
 
-    expect(state.error.value).toBe('source service unavailable')
+    expect(state.error.value).toBe('数据源服务暂时不可用，请稍后重试。')
     expect(state.loading.value).toBe(false)
   })
 })

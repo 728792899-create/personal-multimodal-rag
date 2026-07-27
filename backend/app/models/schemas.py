@@ -119,11 +119,11 @@ class ConversationMessageRequest(RetrievalOptions):
     def validate_usage_attestation(self):
         if self.record_as_real_usage and self.usage_attestation != "human-originated":
             raise ValueError(
-                "Recording real usage requires the human-originated attestation"
+                "记录真实使用时，usage_attestation 必须为 human-originated"
             )
         if not self.record_as_real_usage and self.usage_attestation is not None:
             raise ValueError(
-                "usage_attestation is only valid when record_as_real_usage is enabled"
+                "只有启用 record_as_real_usage 时才能填写 usage_attestation"
             )
         return self
 

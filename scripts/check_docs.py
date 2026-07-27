@@ -74,7 +74,7 @@ def check_markdown(path: Path) -> list[str]:
     content = path.read_text(encoding="utf-8")
     for match in IMAGE_LINK.finditer(content):
         if not match.group(1).strip():
-            errors.append(f"{path.relative_to(ROOT)}: image is missing alt text")
+            errors.append(f"{path.relative_to(ROOT)}：图片缺少 alt 文本")
     for match in MARKDOWN_LINK.finditer(content):
         target = clean_target(match.group(2))
         if not target or target.startswith("#") or target.startswith(EXTERNAL_SCHEMES):
@@ -86,10 +86,10 @@ def check_markdown(path: Path) -> list[str]:
         try:
             resolved.relative_to(ROOT.resolve())
         except ValueError:
-            errors.append(f"{path.relative_to(ROOT)}: link escapes repository: {target}")
+            errors.append(f"{path.relative_to(ROOT)}：链接超出仓库范围：{target}")
             continue
         if not resolved.exists():
-            errors.append(f"{path.relative_to(ROOT)}: missing link target: {target}")
+            errors.append(f"{path.relative_to(ROOT)}：链接目标不存在：{target}")
     return errors
 
 
@@ -97,16 +97,16 @@ def check_svg(path: Path) -> list[str]:
     try:
         root = ET.parse(path).getroot()
     except ET.ParseError as exc:
-        return [f"{path.relative_to(ROOT)}: invalid SVG XML: {exc}"]
+        return [f"{path.relative_to(ROOT)}：SVG XML 无效：{exc}"]
     title = root.find("{http://www.w3.org/2000/svg}title")
     description = root.find("{http://www.w3.org/2000/svg}desc")
     errors = []
     if title is None or not (title.text or "").strip():
-        errors.append(f"{path.relative_to(ROOT)}: SVG is missing a title")
+        errors.append(f"{path.relative_to(ROOT)}：SVG 缺少 title")
     if description is None or not (description.text or "").strip():
-        errors.append(f"{path.relative_to(ROOT)}: SVG is missing a description")
+        errors.append(f"{path.relative_to(ROOT)}：SVG 缺少 description")
     if root.get("role") != "img":
-        errors.append(f"{path.relative_to(ROOT)}: SVG role must be img")
+        errors.append(f"{path.relative_to(ROOT)}：SVG role 必须为 img")
     return errors
 
 
@@ -123,9 +123,9 @@ def check_raster(path: Path) -> list[str]:
     header = path.read_bytes()[:8]
     suffix = path.suffix.lower()
     if suffix == ".png" and header != PNG_SIGNATURE:
-        errors.append(f"{path.relative_to(ROOT)}: .png extension does not match PNG content")
+        errors.append(f"{path.relative_to(ROOT)}：.png 扩展名与 PNG 内容不匹配")
     if suffix in {".jpg", ".jpeg"} and not header.startswith(JPEG_SIGNATURE):
-        errors.append(f"{path.relative_to(ROOT)}: JPEG extension does not match JPEG content")
+        errors.append(f"{path.relative_to(ROOT)}：JPEG 扩展名与 JPEG 内容不匹配")
     return errors
 
 
@@ -139,7 +139,7 @@ def check_manifest(directory: Path, manifest: Path, patterns: tuple[str, ...]) -
         and belongs_to_deliverable(path)
     )
     return [
-        f"{manifest.relative_to(ROOT)}: missing asset entry for {asset.name}"
+        f"{manifest.relative_to(ROOT)}：缺少资源清单项 {asset.name}"
         for asset in assets
         if f"`{asset.name}`" not in content
     ]
@@ -148,18 +148,18 @@ def check_manifest(directory: Path, manifest: Path, patterns: tuple[str, ...]) -
 def check_social_preview() -> list[str]:
     errors: list[str] = []
     if not SOCIAL_PREVIEW.exists():
-        return ["docs/assets/social-preview.png: social preview is missing"]
+        return ["docs/assets/social-preview.png：缺少社交预览图"]
     dimensions = png_dimensions(SOCIAL_PREVIEW)
     if dimensions != SOCIAL_PREVIEW_SIZE:
         errors.append(
-            "docs/assets/social-preview.png: expected "
-            f"{SOCIAL_PREVIEW_SIZE[0]}x{SOCIAL_PREVIEW_SIZE[1]}, got {dimensions}"
+            "docs/assets/social-preview.png：预期尺寸为 "
+            f"{SOCIAL_PREVIEW_SIZE[0]}x{SOCIAL_PREVIEW_SIZE[1]}，实际为 {dimensions}"
         )
     size = SOCIAL_PREVIEW.stat().st_size
     if size >= MAX_SOCIAL_PREVIEW_BYTES:
         errors.append(
-            "docs/assets/social-preview.png: expected a file smaller than "
-            f"{MAX_SOCIAL_PREVIEW_BYTES} bytes, got {size}"
+            "docs/assets/social-preview.png：文件应小于 "
+            f"{MAX_SOCIAL_PREVIEW_BYTES} 字节，实际为 {size} 字节"
         )
     return errors
 
@@ -189,13 +189,13 @@ def main() -> int:
     )
     errors.extend(check_social_preview())
     if errors:
-        print("Documentation checks failed:")
+        print("文档检查失败：")
         for error in errors:
             print(f"- {error}")
         return 1
     print(
-        "Documentation checks passed: "
-        f"{len(docs)} Markdown files, {len(svgs)} SVG files, {len(rasters)} raster images"
+        "文档检查通过："
+        f"{len(docs)} 个 Markdown 文件、{len(svgs)} 个 SVG 文件、{len(rasters)} 张栅格图片"
     )
     return 0
 

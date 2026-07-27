@@ -34,7 +34,7 @@ def knowledge_overview():
 @router.post("/evaluate")
 def evaluate(payload: EvaluationRequest):
     results = rag_engine.evaluate([case.model_dump() for case in payload.cases])
-    registry.log_operation("evaluation_run", f"运行评测：{len(payload.cases)} 条 case", {"case_count": len(payload.cases)})
+    registry.log_operation("evaluation_run", f"运行评测：{len(payload.cases)} 条用例", {"case_count": len(payload.cases)})
     return {"results": results}
 
 
@@ -62,7 +62,7 @@ def create_eval_case(payload: EvaluationDraftRequest):
             "status": "draft",
         }
     )
-    registry.log_operation("eval_case_created", f"新增评测 case：{payload.question[:40]}", {"case_id": case["id"]})
+    registry.log_operation("eval_case_created", f"新增评测用例：{payload.question[:40]}", {"case_id": case["id"]})
     return {"case": case, "deduped": False}
 
 
@@ -110,7 +110,7 @@ def review_eval_case(case_id: str, payload: EvaluationReviewRequest):
     ):
         raise HTTPException(
             status_code=422,
-            detail="Answerable cases require an expected answer or expected keywords",
+            detail="可回答样本必须填写期望答案或期望关键词。",
         )
     reviewed = registry.update_eval_case(
         case_id,
@@ -121,10 +121,10 @@ def review_eval_case(case_id: str, payload: EvaluationReviewRequest):
         },
     )
     if not reviewed:
-        raise HTTPException(status_code=404, detail="Evaluation case not found")
+        raise HTTPException(status_code=404, detail="评测样本不存在或已被删除。")
     registry.log_operation(
         "eval_case_human_reviewed",
-        "评测 case 已完成人工复核",
+        "评测用例已完成人工复核",
         {"case_id": case_id, "answerable": payload.answerable},
     )
     return {"case": reviewed, "summary": registry.eval_review_summary()}
@@ -199,7 +199,7 @@ def list_knowledge_cards(limit: int = 50):
 @router.delete("/knowledge/cards/{card_id}")
 def delete_knowledge_card(card_id: str):
     if not registry.delete_knowledge_card(card_id):
-        raise HTTPException(status_code=404, detail="Card not found")
+        raise HTTPException(status_code=404, detail="知识卡片不存在或已被删除。")
     registry.log_operation("knowledge_card_deleted", f"删除知识卡片：{card_id}", {"card_id": card_id}, level="warning")
     return {"deleted": True, "card_id": card_id}
 

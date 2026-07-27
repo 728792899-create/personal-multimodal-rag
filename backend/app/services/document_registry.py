@@ -97,7 +97,7 @@ class DocumentRegistry:
                 from psycopg.rows import dict_row
             except ImportError as exc:
                 raise RuntimeError(
-                    "Install psycopg[binary] to use the PostgreSQL metadata registry"
+                    "使用 PostgreSQL metadata registry 需要安装 psycopg[binary]。"
                 ) from exc
             return _PostgresConnection(psycopg.connect(self._connect_target, row_factory=dict_row))
         connection = sqlite3.connect(
@@ -350,7 +350,7 @@ class DocumentRegistry:
             if document_id and not connection.execute(
                 "SELECT 1 FROM documents WHERE document_id = ?", (document_id,)
             ).fetchone():
-                raise ValueError("Document not found")
+                raise ValueError("文档不存在或已被删除。")
             connection.execute(
                 """
                 INSERT INTO assets
@@ -395,7 +395,7 @@ class DocumentRegistry:
     def link_asset(self, asset_id: str, document_id: str) -> dict | None:
         with self._connection() as connection:
             if not connection.execute("SELECT 1 FROM documents WHERE document_id = ?", (document_id,)).fetchone():
-                raise ValueError("Document not found")
+                raise ValueError("文档不存在或已被删除。")
             cursor = connection.execute(
                 "UPDATE assets SET document_id = ? WHERE asset_id = ?",
                 (document_id, asset_id),
@@ -485,7 +485,7 @@ class DocumentRegistry:
     def create_knowledge_base(self, name: str, description: str = "") -> dict:
         cleaned = " ".join(name.split()).strip()
         if not cleaned:
-            raise ValueError("Knowledge base name is required")
+            raise ValueError("请填写知识库名称。")
         knowledge_base_id = str(uuid.uuid4())
         created_at = _utcnow()
         with self._connection() as connection:
@@ -529,7 +529,7 @@ class DocumentRegistry:
     def update_knowledge_base(self, knowledge_base_id: str, name: str, description: str | None = None) -> dict | None:
         cleaned = " ".join(name.split()).strip()
         if not cleaned:
-            raise ValueError("Knowledge base name is required")
+            raise ValueError("请填写知识库名称。")
         with self._connection() as connection:
             cursor = connection.execute(
                 """
@@ -543,7 +543,7 @@ class DocumentRegistry:
 
     def delete_knowledge_base(self, knowledge_base_id: str, force: bool = False) -> bool:
         if knowledge_base_id == DEFAULT_KNOWLEDGE_BASE_ID:
-            raise ValueError("The default knowledge base cannot be deleted")
+            raise ValueError("默认知识库不能删除。")
         with self._connection() as connection:
             active_jobs = connection.execute(
                 """
@@ -553,19 +553,19 @@ class DocumentRegistry:
                 (knowledge_base_id,),
             ).fetchone()
             if active_jobs and int(active_jobs["count"]):
-                raise ValueError("Knowledge base has active index jobs; cancel them and wait before deletion")
+                raise ValueError("知识库仍有运行中的索引任务；请先取消任务并等待结束。")
             row = connection.execute(
                 "SELECT COUNT(*) AS count FROM documents WHERE knowledge_base_id = ?",
                 (knowledge_base_id,),
             ).fetchone()
             if row and int(row["count"]) and not force:
-                raise ValueError("Knowledge base contains documents; use force=true to delete it")
+                raise ValueError("知识库仍包含文档；如需级联删除，请使用 force=true。")
             jobs = connection.execute(
                 "SELECT COUNT(*) AS count FROM index_jobs WHERE knowledge_base_id = ?",
                 (knowledge_base_id,),
             ).fetchone()
             if jobs and int(jobs["count"]) and not force:
-                raise ValueError("Knowledge base contains index jobs; use force=true to delete it")
+                raise ValueError("知识库仍包含索引任务；如需级联删除，请使用 force=true。")
             if force:
                 connection.execute("DELETE FROM documents WHERE knowledge_base_id = ?", (knowledge_base_id,))
                 connection.execute("DELETE FROM index_jobs WHERE knowledge_base_id = ?", (knowledge_base_id,))
@@ -683,9 +683,9 @@ class DocumentRegistry:
         message_id: str | None = None,
     ) -> dict:
         if role not in {"user", "assistant", "system"}:
-            raise ValueError("Unsupported conversation role")
+            raise ValueError("不支持该会话消息角色。")
         if not self.get_conversation(conversation_id):
-            raise ValueError("Conversation not found")
+            raise ValueError("会话不存在或已被删除。")
         stored_id = message_id or str(uuid.uuid4())
         created_at = _utcnow()
         with self._connection() as connection:
@@ -1530,7 +1530,7 @@ class DocumentRegistry:
                 """
                 UPDATE sync_runs
                 SET status = 'failed', partial = 1,
-                    error_message = 'Sync interrupted before completion; retry is safe',
+                    error_message = '同步在完成前中断，可以安全重试。',
                     completed_at = ?
                 WHERE status = 'running'
                 """,
@@ -2188,7 +2188,7 @@ class DocumentRegistry:
             (knowledge_base_id,),
         ).fetchone()
         if not row:
-            raise ValueError("Knowledge base not found")
+            raise ValueError("知识库不存在或已被删除。")
 
     def _json_row(self, query: str, params: tuple = ()) -> dict | None:
         with self._connection() as connection:

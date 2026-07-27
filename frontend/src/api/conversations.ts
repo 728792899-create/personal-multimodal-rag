@@ -1,5 +1,6 @@
 import { ApiError, apiRequest, formatApiErrorDetail, getCsrfToken, jsonBody } from './client'
 import type { Conversation, ConversationMessage, ConversationStreamEvent, QueryAttachmentRef, RequestOptions, RetrievalOptions } from './types'
+import { localizedSystemText } from '../localization'
 
 
 export async function listConversations(options: RequestOptions = {}): Promise<Conversation[]> {
@@ -80,6 +81,6 @@ export async function streamConversationMessage(
     }
     if (done) break
   }
-  if (streamedError) throw new ApiError(streamedError.message, { code: streamedError.code })
+  if (streamedError) throw new ApiError(localizedSystemText(streamedError.message, '生成回答时发生错误，请重试。'), { code: streamedError.code })
   if (!sawDone) throw new ApiError('流式连接在 done 事件前结束', { code: 'STREAM_INCOMPLETE' })
 }

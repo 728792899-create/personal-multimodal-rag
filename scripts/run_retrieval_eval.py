@@ -43,14 +43,14 @@ def load_jsonl(path: Path) -> list[dict]:
         case = json.loads(line)
         case_id = str(case.get("id") or f"line-{line_number}")
         if case_id in seen:
-            raise ValueError(f"Duplicate eval case id: {case_id}")
+            raise ValueError(f"评测 Case ID 重复：{case_id}")
         if not str(case.get("question", "")).strip():
-            raise ValueError(f"Eval case {case_id} has no question")
+            raise ValueError(f"评测 Case {case_id} 缺少问题")
         seen.add(case_id)
         case["id"] = case_id
         cases.append(case)
     if not cases:
-        raise ValueError(f"No eval cases found in {path}")
+        raise ValueError(f"未在 {path} 中找到评测 Case")
     return cases
 
 
@@ -61,7 +61,7 @@ def build_offline_engine(documents_dir: Path) -> RagEngine:
     retriever = HybridRetriever(graph_store=graph_store)
     paths = sorted(documents_dir.glob("*.md"))
     if not paths:
-        raise ValueError(f"No Markdown fixtures found in {documents_dir}")
+        raise ValueError(f"未在 {documents_dir} 中找到 Markdown fixture")
     for path in paths:
         document = processor.parse_file(path)
         document.metadata["knowledge_base_id"] = "operations" if path.name.startswith(("04-", "05-")) else "default"
@@ -74,7 +74,7 @@ def build_offline_engine(documents_dir: Path) -> RagEngine:
         try:
             from docx import Document as WordDocument
         except ImportError as exc:
-            raise RuntimeError("python-docx is required for DOCX evaluation fixtures") from exc
+            raise RuntimeError("DOCX 评测 fixture 需要安装 python-docx") from exc
         with tempfile.TemporaryDirectory(prefix="rag-eval-docx-") as temp_dir:
             filename = spec_path.name.removesuffix(".json")
             docx_path = Path(temp_dir) / filename
@@ -287,12 +287,12 @@ def markdown_report(report: dict) -> str:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run deterministic offline retrieval regression")
+    parser = argparse.ArgumentParser(description="运行确定性的离线检索回归评测")
     parser.add_argument("--cases", type=Path, default=ROOT / "eval" / "cases.jsonl")
     parser.add_argument("--thresholds", type=Path, default=ROOT / "eval" / "thresholds.json")
     parser.add_argument("--documents", type=Path, default=ROOT / "samples" / "demo-documents")
     parser.add_argument("--report-dir", type=Path, default=ROOT / "eval" / "reports")
-    parser.add_argument("--no-fail", action="store_true", help="Write a baseline report without enforcing thresholds")
+    parser.add_argument("--no-fail", action="store_true", help="写入基线报告，但不强制执行阈值")
     return parser.parse_args()
 
 

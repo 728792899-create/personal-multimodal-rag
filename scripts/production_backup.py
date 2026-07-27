@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create a versioned PostgreSQL + object-store production backup bundle."""
+"""创建带版本信息的 PostgreSQL 与对象存储生产备份包。"""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ def capture(command: list[str], destination: Path) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Back up the production data plane")
+    parser = argparse.ArgumentParser(description="备份生产数据平面")
     parser.add_argument(
         "--output",
         type=Path,
@@ -56,9 +56,9 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     if args.output is None:
-        raise SystemExit("set RAG_BACKUP_OUTPUT or pass --output /secure/backup/directory")
+        raise SystemExit("请设置 RAG_BACKUP_OUTPUT，或传入 --output /secure/backup/directory。")
     if args.output.exists() and any(args.output.iterdir()):
-        raise SystemExit("backup output directory must be empty")
+        raise SystemExit("备份输出目录必须为空。")
     args.output.mkdir(parents=True, exist_ok=True)
     postgres_dump = args.output / "postgres.dump"
     objects_tar = args.output / "minio-objects.tar"
@@ -139,5 +139,5 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except RuntimeError as exc:
-        print(f"backup failed: {exc}", file=sys.stderr)
+        print(f"备份失败：{exc}", file=sys.stderr)
         raise SystemExit(1)

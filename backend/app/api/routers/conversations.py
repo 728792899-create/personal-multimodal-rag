@@ -12,7 +12,7 @@ from app.api.common import retrieval_options
 from app.config import settings
 from app.core.store import query_asset_service, rag_engine, registry
 from app.models.schemas import ConversationCreate, ConversationMessageRequest, ConversationUpdate
-from app.services.safe_logging import redact_sensitive_text
+from app.services.safe_logging import public_error_message
 from app.services.production_metrics import production_metrics
 
 
@@ -62,7 +62,7 @@ def create_conversation(payload: ConversationCreate):
 def get_conversation(conversation_id: str):
     conversation = registry.get_conversation(conversation_id)
     if not conversation:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+        raise HTTPException(status_code=404, detail="会话不存在或已被删除。")
     return {"conversation": conversation}
 
 
@@ -77,21 +77,21 @@ def update_conversation(conversation_id: str, payload: ConversationUpdate):
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     if not conversation:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+        raise HTTPException(status_code=404, detail="会话不存在或已被删除。")
     return {"conversation": conversation}
 
 
 @router.delete("/{conversation_id}")
 def delete_conversation(conversation_id: str):
     if not registry.delete_conversation(conversation_id):
-        raise HTTPException(status_code=404, detail="Conversation not found")
+        raise HTTPException(status_code=404, detail="会话不存在或已被删除。")
     return {"deleted": True}
 
 
 @router.get("/{conversation_id}/messages")
 def list_conversation_messages(conversation_id: str, limit: int = 200):
     if not registry.get_conversation(conversation_id):
-        raise HTTPException(status_code=404, detail="Conversation not found")
+        raise HTTPException(status_code=404, detail="会话不存在或已被删除。")
     return {"messages": registry.list_conversation_messages(conversation_id, limit)}
 
 
@@ -103,19 +103,19 @@ def stream_conversation_message(
 ):
     conversation = registry.get_conversation(conversation_id)
     if not conversation:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+        raise HTTPException(status_code=404, detail="会话不存在或已被删除。")
     identity = request.scope.get("state", {}).get("identity")
     usage_evidence: dict = {}
     if payload.record_as_real_usage:
         if settings.runtime_mode.lower() != "production":
             raise HTTPException(
                 status_code=409,
-                detail="Real usage evidence can only be recorded in production mode",
+                detail="只有 production 模式可以记录真实使用证据。",
             )
         if identity is None:
             raise HTTPException(
                 status_code=401,
-                detail="Authenticated operator confirmation is required",
+                detail="记录真实使用证据前，需要已登录的管理员明确确认。",
             )
         usage_evidence = {
             "attestation": "human-originated",
@@ -226,7 +226,10 @@ def stream_conversation_message(
                 provider=settings.answer_provider,
                 operation="stream",
             )
-            message = redact_sensitive_text(exc)
+            message = public_error_message(
+                exc,
+                "流式回答失败，请稍后重试；如问题持续，请查看服务状态。",
+            )
             registry.save_conversation_message(
                 conversation_id,
                 "assistant",

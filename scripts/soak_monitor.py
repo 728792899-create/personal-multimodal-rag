@@ -202,7 +202,7 @@ def verify_chain(path: Path) -> dict:
             event = json.loads(line)
             recorded = event.pop("event_hash", "")
             if event.get("previous_hash") != previous or event_hash(event) != recorded:
-                raise ValueError(f"invalid soak hash chain at line {line_number}")
+                raise ValueError(f"持续运行证据的哈希链在第 {line_number} 行无效。")
             previous = recorded
             last_observed_at = str(event.get("observed_at") or "")
             count += 1
@@ -255,7 +255,7 @@ def stop(_signum, _frame) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Record or verify production soak evidence")
+    parser = argparse.ArgumentParser(description="记录或验证生产持续运行证据")
     parser.add_argument("--evidence-dir", type=Path, default=Path("data/validation"))
     parser.add_argument("--health-url", default="http://backend:8010/ready")
     parser.add_argument(

@@ -5,7 +5,7 @@ import logging
 import threading
 from dataclasses import dataclass
 
-from app.services.safe_logging import redact_sensitive_text
+from app.services.safe_logging import public_error_message
 
 
 logger = logging.getLogger(__name__)
@@ -130,7 +130,10 @@ class OutboxDispatcher:
             except Exception as exc:
                 self.registry.mark_outbox_failed(
                     event["id"],
-                    redact_sensitive_text(exc),
+                    public_error_message(
+                        exc,
+                        "任务投递暂时失败，将自动重试。",
+                    ),
                 )
         return published
 

@@ -38,7 +38,7 @@ describe('streamConversationMessage', () => {
 
     await expect(streamConversationMessage('c', 'question', {}, () => undefined)).rejects.toMatchObject({
       code: 'STREAM_FAILED',
-      message: 'provider unavailable',
+      message: '服务暂时不可用，请稍后重试。',
     })
   })
 
