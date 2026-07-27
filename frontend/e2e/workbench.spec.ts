@@ -2,6 +2,27 @@ import { expect, test, type Page } from '@playwright/test'
 
 import { answerFixture, metricsFixture, overviewFixture } from '../src/test/fixtures'
 
+async function openLibrary(page: Page) {
+  const desktopTrigger = page.getByTestId('open-library')
+  if (await desktopTrigger.isVisible()) {
+    await desktopTrigger.click()
+    return
+  }
+  await page.getByRole('navigation', { name: '移动端工作台导航' })
+    .getByRole('button', { name: /资料/ })
+    .click()
+}
+
+async function openInspector(page: Page) {
+  const desktopTrigger = page.getByTestId('open-inspector')
+  if (await desktopTrigger.isVisible()) {
+    await desktopTrigger.click()
+    return
+  }
+  await page.getByRole('navigation', { name: '移动端工作台导航' })
+    .getByRole('button', { name: /调试/ })
+    .click()
+}
 
 async function installOfflineApi(page: Page) {
   const documents: Array<Record<string, unknown>> = []
@@ -203,6 +224,7 @@ test('upload, URL import, grounded answer, citation and feedback draft', async (
   const api = await installOfflineApi(page)
   await page.goto('/')
 
+  await openLibrary(page)
   await page.getByTestId('file-input').setInputFiles({
     name: 'quality-guide.md', mimeType: 'text/markdown', buffer: Buffer.from('# 评测\nRecall@K 与 MRR。'),
   })
@@ -212,6 +234,7 @@ test('upload, URL import, grounded answer, citation and feedback draft', async (
   await page.getByTestId('url-input').fill('https://example.com/guide')
   await page.getByTestId('url-import-button').click()
   await expect(page.getByRole('button', { name: /example\.com-guide\.html url/ })).toBeVisible()
+  await page.getByRole('button', { name: '关闭资料库' }).click()
 
   await page.getByRole('textbox', { name: '问题' }).fill('RAG 如何评测？')
   await page.getByTestId('run-query').click()
@@ -220,6 +243,7 @@ test('upload, URL import, grounded answer, citation and feedback draft', async (
 
   await page.getByTestId('citation-1').click()
   await expect(page.getByText('相邻上下文：固定黄金集覆盖回归阈值。')).toBeVisible()
+  await page.getByRole('button', { name: '关闭检索调试' }).click()
 
   await page.getByTestId('feedback-down').click()
   await expect(page.getByText('已生成评测草稿')).toBeVisible()
@@ -247,7 +271,17 @@ test('knowledge-base creation, narrow layout and failed job retry stay usable', 
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/')
 
-  await expect(page.getByText('Provider ready')).toBeVisible()
+  await expect(page.getByRole('heading', { name: '向你的知识库提问' })).toBeVisible()
+  await expect(page.getByText('服务就绪')).toHaveCount(0)
+  const mobileNavigation = page.getByRole('navigation', { name: '移动端工作台导航' })
+  await expect(mobileNavigation).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  const [mobileNavigationBox, composerToolbarBox] = await Promise.all([
+    mobileNavigation.boundingBox(),
+    page.locator('.composer-toolbar').boundingBox(),
+  ])
+  expect(composerToolbarBox!.y + composerToolbarBox!.height).toBeLessThanOrEqual(mobileNavigationBox!.y)
+  await openLibrary(page)
   await page.locator('.inline-create input').fill('研究资料')
   await page.locator('form.inline-create button').click()
   await expect(page.locator('#knowledge-base-select')).toHaveValue('kb-research')
@@ -262,6 +296,7 @@ test('knowledge-base creation, narrow layout and failed job retry stay usable', 
   await taskSection.getByRole('button', { name: '重试' }).click()
   await expect(taskSection.getByText('succeeded')).toBeVisible()
   await expect(page.locator('#main-workspace')).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 })
 
 test('image question, graph controls and accessible graph evidence stay connected', async ({ page }) => {
@@ -281,6 +316,7 @@ test('image question, graph controls and accessible graph evidence stay connecte
   await page.getByTestId('mode-expert').click()
   await page.locator('select[name="retrieval-strategy"]').selectOption('hybrid_graph')
   await page.locator('input[name="graph-hops"]').fill('2')
+  await openInspector(page)
   await page.getByRole('tab', { name: '图谱' }).click()
   await expect(page.getByRole('heading', { name: '证据图谱' })).toBeVisible()
   await expect(page.getByRole('table')).toContainText('Alpha uses Beta')
@@ -376,6 +412,7 @@ test('URL source subscription creates and reports an incremental sync', async ({
   await installOfflineApi(page)
   await page.goto('/')
 
+  await openLibrary(page)
   const manager = page.getByTestId('source-manager')
   await manager.locator('summary').click()
   await manager.locator('input[name="source-name"]').fill('产品资料订阅')

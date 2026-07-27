@@ -6,7 +6,7 @@
 
 ## 一次请求如何流动
 
-1. `frontend/src/pages/WorkbenchPage.vue` 组织三栏工作台与普通/专家模式。
+1. `frontend/src/pages/WorkbenchPage.vue` 组织 question-first 单画布、资料/调试抽屉与普通/调试模式。
 2. 领域组件触发 `frontend/src/composables/useWorkbench.ts` 中的动作。
 3. `frontend/src/api/client.ts` 统一处理 base URL、超时、Abort、错误 payload 和 request ID；documents、ingestion、knowledgeBases、conversations、providers、retrieval、quality 模块保持领域边界。
 4. Docker 模式下 Nginx 把 `/api` 代理到 FastAPI；本地 Vite 使用同一路径语义。

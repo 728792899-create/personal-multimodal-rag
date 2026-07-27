@@ -1,94 +1,115 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
-import { exportHistoryUrl } from '../api'
+import { exportHistoryUrl, type ChunkResult } from '../api'
 import { useWorkbenchContext } from '../composables/workbenchContext'
 
 const workbench = useWorkbenchContext()
+const emit = defineEmits<{
+  openInspector: []
+}>()
 
 const resultLabel = computed(() => {
   if (workbench.streamAuditPending.value) return '生成中 · 待审计'
   if (workbench.isRefusal.value) return '已安全拒答'
   if (workbench.workMode.value === 'search') return '检索完成'
+  if (!workbench.answer.value?.answer) return '检索完成 · 无正文'
   return '回答已生成'
 })
 
 function percent(value?: number) {
   return `${Math.round((value || 0) * 100)}%`
 }
+
+function openCitation(item: ChunkResult) {
+  workbench.selectCitation(item)
+  emit('openInspector')
+}
 </script>
 
 <template>
-  <section v-if="workbench.answer.value" class="surface answer-experience" aria-labelledby="answer-title">
+  <section v-if="workbench.answer.value" class="answer-experience" aria-labelledby="answer-title">
     <header class="answer-header">
-      <div>
-        <p class="kicker">Grounded result</p>
-        <h2 id="answer-title">{{ workbench.workMode.value === 'search' ? '检索证据' : '证据回答' }}</h2>
+      <div class="answer-identity">
+        <span class="assistant-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M6 4h9l3 3v13H6z"/><path d="M15 4v4h4M9 12h6M9 16h4"/></svg>
+        </span>
+        <h2 id="answer-title">{{ workbench.workMode.value === 'search' ? '检索结果' : '回答' }}</h2>
       </div>
       <div
         :class="['result-status', { refused: workbench.isRefusal.value, pending: workbench.streamAuditPending.value }]"
         role="status"
         aria-live="polite"
       >
-        <span aria-hidden="true">{{ workbench.isRefusal.value ? '!' : '✓' }}</span>
+        <span class="status-signal" aria-hidden="true"></span>
         {{ resultLabel }}
       </div>
     </header>
 
     <section v-if="workbench.streamAuditPending.value" class="trust-summary audit-pending" role="status" aria-live="polite">
-      <div>
-        <span class="status-badge neutral">引用审计中</span>
-        <strong>当前文本尚未形成最终可信结论</strong>
-        <p>完整响应到达后，系统才会展示引用准确性、覆盖率和可信等级。</p>
-      </div>
+      <span class="status-signal" aria-hidden="true"></span>
+      <div><strong>正在核验引用</strong><p>审计完成前，回答不会被标记为可信结论。</p></div>
     </section>
     <section v-else-if="workbench.trust.value" :class="['trust-summary', `trust-${workbench.trust.value.level}`]">
       <div>
-        <span class="status-badge">{{ workbench.trust.value.label }}</span>
-        <strong>置信度 {{ percent(workbench.answer.value.confidence || 0) }}</strong>
+        <span class="trust-label">{{ workbench.trust.value.label }}</span>
+        <strong>
+          {{
+            workbench.workMode.value === 'search'
+              ? '请逐条核验来源'
+              : workbench.isRefusal.value
+                ? '证据不足，系统没有补写结论'
+                : '已通过引用核验'
+          }}
+        </strong>
         <p>{{ workbench.trust.value.reason }}</p>
       </div>
       <dl>
-        <div><dt>证据</dt><dd>{{ workbench.trust.value.evidence_count }}</dd></div>
-        <div><dt>来源</dt><dd>{{ workbench.trust.value.source_count }}</dd></div>
-        <div><dt>覆盖</dt><dd>{{ percent(workbench.citationAudit.value?.coverage) }}</dd></div>
+        <div><dt>{{ workbench.workMode.value === 'search' ? '匹配度' : '可信度' }}</dt><dd>{{ percent(workbench.answer.value.confidence || 0) }}</dd></div>
+        <div><dt>{{ workbench.workMode.value === 'search' ? '证据' : '引用' }}</dt><dd>{{ workbench.trust.value.evidence_count }}</dd></div>
+        <div v-if="workbench.workMode.value !== 'search'"><dt>覆盖率</dt><dd>{{ percent(workbench.citationAudit.value?.coverage) }}</dd></div>
       </dl>
     </section>
 
     <article v-if="workbench.answer.value.answer" class="answer-copy">
       <p>{{ workbench.answer.value.answer }}</p>
     </article>
+    <div v-else-if="workbench.streamAuditPending.value" class="answer-stream-skeleton" role="status" aria-live="polite">
+      <div aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+      <p>证据已经就绪，正在组织回答。</p>
+    </div>
     <div v-else class="empty-state compact-empty">
-      <strong>当前是只检索模式</strong>
-      <p>系统没有生成结论，请逐条核验证据。</p>
+      <strong>{{ workbench.workMode.value === 'search' ? '当前是只检索模式' : '回答链路未返回正文' }}</strong>
+      <p>{{ workbench.workMode.value === 'search' ? '系统没有生成结论，请逐条核验证据。' : '系统保留了可用检索证据，请查看诊断并重试生成。' }}</p>
     </div>
 
-    <section v-if="workbench.diagnostics.value.length" class="diagnostic-stack" aria-labelledby="diagnostics-title">
-      <h3 id="diagnostics-title">可执行建议</h3>
-      <article v-for="item in workbench.diagnostics.value" :key="`${item.level}-${item.title}`" :class="['diagnostic-item', item.level]">
-        <div>
-          <strong>{{ item.title }}</strong>
-          <p>{{ item.message }}</p>
-        </div>
-        <div v-if="item.actions?.length" class="inline-actions">
-          <button
-            v-for="action in item.actions"
-            :key="action.id"
-            type="button"
-            class="button secondary-button"
-            @click="workbench.handleDiagnosticAction(action)"
-          >{{ action.label }}</button>
-        </div>
-      </article>
-    </section>
+    <details v-if="workbench.diagnostics.value.length" class="diagnostic-stack">
+      <summary>查看诊断建议</summary>
+      <div>
+        <article v-for="item in workbench.diagnostics.value" :key="`${item.level}-${item.title}`" :class="['diagnostic-item', item.level]">
+          <div>
+            <strong>{{ item.title }}</strong>
+            <p>{{ item.message }}</p>
+          </div>
+          <div v-if="item.actions?.length" class="inline-actions">
+            <button
+              v-for="action in item.actions"
+              :key="action.id"
+              type="button"
+              class="button secondary-button"
+              @click="workbench.handleDiagnosticAction(action)"
+            >{{ action.label }}</button>
+          </div>
+        </article>
+      </div>
+    </details>
 
     <section class="evidence-section" aria-labelledby="evidence-title">
       <header class="subsection-heading">
         <div>
-          <h3 id="evidence-title">引用证据</h3>
-          <span>{{ workbench.answer.value.citations.length }} 条</span>
+          <h3 id="evidence-title">来源 <span>{{ workbench.answer.value.citations.length }}</span></h3>
+          <p>点击来源，查看原文和完整检索路径</p>
         </div>
-        <small>点击证据查看相邻上下文</small>
       </header>
       <ol v-if="workbench.answer.value.citations.length" class="citation-list">
         <li v-for="(item, index) in workbench.answer.value.citations" :key="item.id">
@@ -96,17 +117,17 @@ function percent(value?: number) {
             type="button"
             :data-testid="`citation-${index + 1}`"
             :aria-current="workbench.selectedCitation.value?.id === item.id ? 'true' : undefined"
-            @click="workbench.selectCitation(item)"
+            @click="openCitation(item)"
           >
             <span class="citation-number">{{ index + 1 }}</span>
             <span class="citation-main">
-              <strong>{{ item.filename }} · 片段 {{ item.index + 1 }}</strong>
+              <strong>{{ item.filename }}</strong>
               <span>{{ item.snippet || item.text }}</span>
-              <small>
-                rerank {{ item.rerank_score.toFixed(3) }} · BM25 {{ item.bm25_score.toFixed(3) }} · vector {{ item.vector_score.toFixed(3) }}
+              <small v-if="workbench.appMode.value === 'expert'">
+                片段 {{ item.index + 1 }} · rerank {{ item.rerank_score.toFixed(3) }} · BM25 {{ item.bm25_score.toFixed(3) }} · vector {{ item.vector_score.toFixed(3) }}
               </small>
             </span>
-            <span aria-hidden="true">→</span>
+            <span class="citation-open" aria-hidden="true">↗</span>
           </button>
         </li>
       </ol>
@@ -117,17 +138,17 @@ function percent(value?: number) {
     </section>
 
     <section v-if="workbench.answer.value.answer && !workbench.streamAuditPending.value" class="answer-actions" aria-labelledby="answer-actions-title">
-      <h3 id="answer-actions-title">复用与反馈</h3>
-      <div class="inline-actions wrap-actions">
-        <button type="button" class="button secondary-button" :disabled="workbench.rewriting.value" @click="workbench.handleRewrite('highlights')">改写为要点</button>
-        <button type="button" class="button secondary-button" :disabled="workbench.rewriting.value" @click="workbench.handleRewrite('study')">改写为笔记</button>
-        <button type="button" class="button secondary-button" @click="workbench.handleSaveCard">保存知识卡片</button>
+      <h3 id="answer-actions-title" class="sr-only">回答操作与反馈</h3>
+      <div class="inline-actions answer-tool-row">
+        <button type="button" class="answer-tool" :disabled="workbench.rewriting.value" @click="workbench.handleRewrite('highlights')">整理为要点</button>
+        <button type="button" class="answer-tool" :disabled="workbench.rewriting.value" @click="workbench.handleRewrite('study')">转为笔记</button>
+        <button type="button" class="answer-tool" @click="workbench.handleSaveCard">保存</button>
         <a
           v-if="workbench.answer.value.history_id"
-          class="button secondary-button"
+          class="answer-tool"
           :href="exportHistoryUrl(workbench.answer.value.history_id)"
           download
-        >导出 Markdown</a>
+        >导出</a>
       </div>
       <div v-if="workbench.rewriteResult.value" class="rewrite-result">
         <strong>{{ workbench.rewriteResult.value.label }}</strong>
@@ -135,26 +156,33 @@ function percent(value?: number) {
       </div>
       <p v-if="workbench.cardMessage.value" class="success-copy">{{ workbench.cardMessage.value }}</p>
 
-      <label class="feedback-field">
-        <span>补充说明（可选）</span>
-        <input v-model="workbench.feedbackText.value" type="text" placeholder="哪里准确，或哪里需要修正？" />
-      </label>
-      <div class="inline-actions wrap-actions">
-        <button type="button" class="button secondary-button" :disabled="workbench.feedbackSubmitting.value" @click="workbench.handleFeedback('up')">回答有效</button>
-        <button type="button" class="button danger-outline-button" data-testid="feedback-down" :disabled="workbench.feedbackSubmitting.value" @click="workbench.handleFeedback('down')">需要改进并生成评测草稿</button>
+      <details class="feedback-details" open>
+        <summary>反馈这次回答</summary>
+        <label class="feedback-field">
+          <span>补充说明（可选）</span>
+          <input v-model="workbench.feedbackText.value" type="text" placeholder="哪里准确，或哪里需要修正？" />
+        </label>
+        <div class="inline-actions wrap-actions">
+          <button type="button" class="button secondary-button" :disabled="workbench.feedbackSubmitting.value" @click="workbench.handleFeedback('up')">回答有效</button>
+          <button type="button" class="button danger-outline-button" data-testid="feedback-down" :disabled="workbench.feedbackSubmitting.value" @click="workbench.handleFeedback('down')">需要改进并生成评测草稿</button>
+        </div>
+      </details>
+      <div>
         <span v-if="workbench.feedbackMessage.value" class="success-copy" aria-live="polite">{{ workbench.feedbackMessage.value }}</span>
       </div>
     </section>
   </section>
 
-  <section v-else-if="!workbench.loading.value" class="surface empty-answer" aria-labelledby="empty-answer-title">
-    <div class="empty-illustration" aria-hidden="true">↳</div>
-    <h2 id="empty-answer-title">从一个可验证的问题开始</h2>
-    <p>答案会与引用、检索过程和质量审计放在同一上下文中。</p>
-    <ul>
-      <li>有证据时返回可追溯引用</li>
-      <li>证据不足时明确拒答</li>
-      <li>负反馈可直接沉淀为评测草稿</li>
-    </ul>
+  <section v-else-if="!workbench.loading.value && workbench.appMode.value === 'user'" class="empty-answer" aria-labelledby="empty-answer-title">
+    <div class="empty-product-mark" aria-hidden="true">
+      <svg viewBox="0 0 48 48"><path d="M11 8h19l7 7v25H11z"/><path d="M30 8v9h8M17 23h14M17 29h14M17 35h8"/><path d="m29 34 3 3 6-7"/></svg>
+    </div>
+    <h2 id="empty-answer-title">向你的知识库提问</h2>
+    <p>上传文档或图片，获得带原文引用、可继续核验的回答。</p>
+    <div class="empty-capabilities" aria-label="问答能力">
+      <span>混合检索</span>
+      <span>精确引用</span>
+      <span>证据不足时拒答</span>
+    </div>
   </section>
 </template>

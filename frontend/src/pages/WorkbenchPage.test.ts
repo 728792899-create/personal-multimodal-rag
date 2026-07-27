@@ -24,6 +24,7 @@ describe('WorkbenchPage workflows', () => {
   let conversations: Array<Record<string, unknown>>
   let knowledgeBases: Array<Record<string, unknown>>
   let evalDrafts: Array<Record<string, unknown>>
+  let failDocumentDetails: boolean
 
   beforeEach(() => {
     documents = []
@@ -31,6 +32,7 @@ describe('WorkbenchPage workflows', () => {
     askResponse = answerFixture()
     conversations = []
     evalDrafts = []
+    failDocumentDetails = false
     knowledgeBases = [{ id: 'default', name: '默认知识库', description: '', is_default: true, document_count: 0, created_at: '', updated_at: '' }]
     vi.stubGlobal('confirm', vi.fn(() => true))
     vi.stubGlobal('fetch', vi.fn((input: string | URL | Request, init: RequestInit = {}) => {
@@ -50,6 +52,25 @@ describe('WorkbenchPage workflows', () => {
       }
       if (path === '/api/ingestions/url') return json({ job: { id: 'job-url', source_type: 'url', source_name: 'example.com', knowledge_base_id: 'default', status: 'succeeded', stage: 'complete', progress: 100, attempts: 1, max_attempts: 3, cancel_requested: false, deduped: false, error_code: '', error_message: '', document_id: 'url-1', created_at: '', updated_at: '', started_at: '', completed_at: '' } }, 202)
       if (path.startsWith('/api/index-jobs?')) return json({ jobs: [] })
+      if (path === '/api/documents/doc-1/elements') return json({ elements: [] })
+      if (path === '/api/documents/doc-1' && failDocumentDetails) {
+        return json({ detail: 'document unavailable' }, 503)
+      }
+      if (path === '/api/documents/doc-1') return json({
+        document: {
+          id: 'doc-1',
+          filename: 'rag.md',
+          source_type: 'markdown',
+          chunk_count: 1,
+          char_count: 30,
+          page_count: 1,
+          pages: [{ page_number: 1, text: '# RAG' }],
+          metadata: { parser: 'builtin', index_status: 'indexed' },
+          quality: { score: 90 },
+          summary: null,
+        },
+        chunks: [],
+      })
       if (path.startsWith('/api/documents')) return json({ documents })
       if (path === '/api/knowledge/overview') return json({ ...overviewFixture, document_count: documents.length })
       if (path.startsWith('/api/history')) return json({ history: [] })
@@ -92,6 +113,7 @@ describe('WorkbenchPage workflows', () => {
   it('uploads a file and imports a URL with visible progress and refresh', async () => {
     const wrapper = mount(WorkbenchPage)
     await flushPromises()
+    await wrapper.get('[data-testid="open-library"]').trigger('click')
 
     const file = new File(['# RAG'], 'rag.md', { type: 'text/markdown' })
     const fileInput = wrapper.get('[data-testid="file-input"]').element as HTMLInputElement
@@ -102,12 +124,44 @@ describe('WorkbenchPage workflows', () => {
 
     expect(calls.some((call) => call.path === '/api/ingestions/file' && call.init.method === 'POST' && call.init.body instanceof FormData)).toBe(true)
     expect(wrapper.text()).toContain('rag.md')
+    expect(wrapper.get('[data-testid="upload-button"]').attributes('disabled')).toBeDefined()
+
+    await wrapper.get('.document-summary').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.library-drawer').classes()).not.toContain('open')
+    expect(wrapper.get('.inspector-drawer').classes()).toContain('open')
+    expect(wrapper.get('#tab-document').attributes('aria-selected')).toBe('true')
+    await wrapper.get('.inspector-drawer .drawer-close').trigger('click')
+    await wrapper.get('[data-testid="open-library"]').trigger('click')
 
     await wrapper.get('[data-testid="url-input"]').setValue('https://example.com/guide')
     expect(wrapper.get('[data-testid="url-import-button"]').attributes('disabled')).toBeUndefined()
     await wrapper.get('form.url-form').trigger('submit')
     await flushPromises()
     expect(calls.map((call) => ({ path: call.path, method: call.init.method }))).toContainEqual({ path: '/api/ingestions/url', method: 'POST' })
+  })
+
+  it('keeps the library open when document details fail to load', async () => {
+    documents = [{
+      id: 'doc-1',
+      filename: 'rag.md',
+      source_type: 'markdown',
+      chunk_count: 1,
+      char_count: 30,
+      metadata: { index_status: 'indexed' },
+      quality: { score: 90 },
+    }]
+    failDocumentDetails = true
+    const wrapper = mount(WorkbenchPage)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="open-library"]').trigger('click')
+    await wrapper.get('.document-summary').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('.library-drawer').classes()).toContain('open')
+    expect(wrapper.get('.inspector-drawer').classes()).not.toContain('open')
+    expect(wrapper.text()).toContain('document unavailable')
   })
 
   it('submits expert parameters, opens citation context, and turns feedback into an eval draft', async () => {
@@ -170,6 +224,8 @@ describe('WorkbenchPage workflows', () => {
     expect(JSON.parse(String(automaticCall.init.body))).not.toHaveProperty('usage_attestation')
 
     calls = calls.filter((call) => !call.path.endsWith('/messages:stream'))
+    await wrapper.get('[data-testid="mode-expert"]').trigger('click')
+    await flushPromises()
     await wrapper.get('.usage-attestation input').setValue(true)
     await wrapper.get('[data-testid="run-query"]').trigger('click')
     await flushPromises()
@@ -246,11 +302,37 @@ describe('WorkbenchPage workflows', () => {
     expect(wrapper.text()).toContain('没有可引用证据')
   })
 
-  it('creates and switches knowledge bases while exposing provider health', async () => {
+  it('keeps retrieved evidence visible when the answer provider returns no body', async () => {
+    askResponse = answerFixture({
+      answer: '',
+      diagnostics: [{
+        level: 'warning',
+        title: '已触发兜底机制',
+        message: '回答 provider 未返回正文，已保留检索证据。',
+        action: 'retry_search',
+        actions: [],
+      }],
+    })
     const wrapper = mount(WorkbenchPage)
     await flushPromises()
 
-    expect(wrapper.text()).toContain('Provider ready')
+    await wrapper.get('textarea[name="question"]').setValue('只保留证据时应如何呈现？')
+    await wrapper.get('[data-testid="run-query"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[role="status"]').text()).toContain('检索完成 · 无正文')
+    expect(wrapper.text()).toContain('回答链路未返回正文')
+    expect(wrapper.text()).toContain('来源')
+  })
+
+  it('keeps provider health in debug mode and creates knowledge bases', async () => {
+    const wrapper = mount(WorkbenchPage)
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('服务就绪')
+    await wrapper.get('[data-testid="mode-expert"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('服务就绪')
     await wrapper.get('.inline-create input').setValue('研究资料')
     await wrapper.get('form.inline-create').trigger('submit')
     await flushPromises()
@@ -258,5 +340,73 @@ describe('WorkbenchPage workflows', () => {
     expect(calls.some((call) => call.path === '/api/knowledge-bases' && call.init.method === 'POST')).toBe(true)
     expect((wrapper.get('#knowledge-base-select').element as HTMLSelectElement).value).toBe('kb-2')
     expect(wrapper.text()).toContain('研究资料')
+  })
+
+  it('supports arrow, Home, and End navigation across inspector tabs', async () => {
+    const wrapper = mount(WorkbenchPage, { attachTo: document.body })
+    await flushPromises()
+    await wrapper.get('[data-testid="open-inspector"]').trigger('click')
+    await flushPromises()
+
+    const traceTab = wrapper.get('#tab-trace')
+    await traceTab.trigger('keydown', { key: 'ArrowRight' })
+    await flushPromises()
+    expect(wrapper.get('#tab-graph').attributes('aria-selected')).toBe('true')
+    expect(document.activeElement?.id).toBe('tab-graph')
+
+    await wrapper.get('#tab-graph').trigger('keydown', { key: 'End' })
+    await flushPromises()
+    expect(wrapper.get('#tab-eval').attributes('aria-selected')).toBe('true')
+    expect(document.activeElement?.id).toBe('tab-eval')
+
+    await wrapper.get('#tab-eval').trigger('keydown', { key: 'Home' })
+    await flushPromises()
+    expect(wrapper.get('#tab-trace').attributes('aria-selected')).toBe('true')
+    expect(document.activeElement?.id).toBe('tab-trace')
+
+    wrapper.unmount()
+  })
+
+  it('opens secondary tools on demand and supports Escape and command focus', async () => {
+    const wrapper = mount(WorkbenchPage, { attachTo: document.body })
+    await flushPromises()
+
+    await wrapper.get('[data-testid="open-library"]').trigger('click')
+    expect(wrapper.get('.library-drawer').classes()).toContain('open')
+    expect(document.body.classList.contains('workbench-drawer-open')).toBe(true)
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await flushPromises()
+    expect(wrapper.get('.library-drawer').classes()).not.toContain('open')
+    expect(document.body.classList.contains('workbench-drawer-open')).toBe(false)
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true }))
+    await flushPromises()
+    expect(document.activeElement).toBe(wrapper.get('textarea[name="question"]').element)
+
+    await wrapper.get('[data-testid="open-inspector"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('.inspector-empty .text-button').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.inspector-drawer').classes()).not.toContain('open')
+    expect(document.activeElement).toBe(wrapper.get('textarea[name="question"]').element)
+
+    wrapper.unmount()
+  })
+
+  it('starts a genuinely empty conversation and clears answer state', async () => {
+    const wrapper = mount(WorkbenchPage)
+    await flushPromises()
+
+    await wrapper.get('textarea[name="question"]').setValue('RAG 如何评测？')
+    await wrapper.get('[data-testid="run-query"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.answer-experience').exists()).toBe(true)
+
+    await wrapper.get('.header-tool.new-chat').trigger('click')
+    await flushPromises()
+    expect((wrapper.get('textarea[name="question"]').element as HTMLTextAreaElement).value).toBe('')
+    expect(wrapper.find('.answer-experience').exists()).toBe(false)
+    expect(wrapper.find('.preset-row').exists()).toBe(true)
   })
 })

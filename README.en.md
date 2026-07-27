@@ -27,20 +27,28 @@ The private 2026-07-23 production run indexed **200 non-fixture documents from 2
 | Product behavior | Trust mechanism | Engineering evidence |
 | --- | --- | --- |
 | File upload and guarded URL import | Evidence threshold and explicit refusal | FastAPI, Vue 3, Docker Compose |
-| Ordinary and expert modes | Stage-by-stage retrieval Trace | pytest, Vitest and Playwright |
+| Simple and debug (expert) modes | Stage-by-stage retrieval Trace | pytest, Vitest and Playwright |
 | Precise element citations and context | Citation and graph provenance audit | Fixed 100-case offline golden set |
 | Feedback to evaluation draft | Request IDs, timeout, cancel and retry | Health checks and multi-lane CI |
-| Durable local index jobs and source sync | Lease recovery, DLQ boundaries and restore drill | 174 backend / 22 frontend / 14 E2E tests |
+| Durable local index jobs and source sync | Lease recovery, DLQ boundaries and restore drill | 179 backend passes, 3 skipped + 2 PostgreSQL contracts / 27 frontend / 14 E2E |
 
 ![System map from ingestion to evidence-constrained answers and evaluation](docs/assets/system-overview.svg)
 
 ## Interface
 
-| Workbench | Grounded answer | Mobile refusal |
-| --- | --- | --- |
-| ![Ordinary-mode workbench with knowledge and query panels](docs/screenshots/01-workbench-beta.png) | ![Answer citations and retrieval trace](docs/screenshots/02-grounded-trace.png) | ![Expert-mode refusal at a 390-pixel viewport](docs/screenshots/03-mobile-expert-refusal.png) |
+![Production Local sign-in boundary](docs/screenshots/13-evidence-ledger-login.png)
 
-The extended gallery also shows [URL ingestion](docs/screenshots/04-ingestion-url.png), [neighboring citation context](docs/screenshots/05-citation-context.png), [quality audit](docs/screenshots/06-quality-dashboard.png), [feedback-generated eval drafts](docs/screenshots/07-feedback-eval-draft.png), [retry after an API failure](docs/screenshots/08-error-retry.png), [multimodal query and persistent conversation state](docs/screenshots/09-multimodal-query-trace.jpg), [the accessible Graph evidence workbench](docs/screenshots/10-graph-evidence-workbench.jpg), [precise element citations](docs/screenshots/11-precise-element-citation.jpg), and [the 390-pixel expert layout](docs/screenshots/12-mobile-multimodal-expert.jpg).
+The default experience is a **question-first** single canvas. Everyday users see the prompt, answer, and sources; file upload, library management, and retrieval traces live in on-demand drawers. `Cmd/Ctrl + K` focuses the prompt, `Esc` closes a drawer, and BM25, vector, Graph, MMR, and rerank controls only appear in debug mode.
+
+| Question-first home | Retrieval debugging | 390-pixel layout |
+| --- | --- | --- |
+| ![Minimal multimodal knowledge-base question page](docs/screenshots/01-workbench-beta.png) | ![On-demand advanced retrieval parameters](docs/screenshots/15-question-first-debug.png) | ![Question page and bottom shortcuts at a 390-pixel viewport](docs/screenshots/14-evidence-ledger-mobile.png) |
+
+![Search-only FastAPI reverse-proxy result with five relevant, inspectable sources](docs/screenshots/16-question-first-sources.png)
+
+Simple mode hides provider internals, retrieval weights, and raw scores. It leads with the result and sources; selecting a source opens the evidence and debugging drawer.
+
+The extended gallery also shows [URL ingestion](docs/screenshots/04-ingestion-url.png), [neighboring citation context](docs/screenshots/05-citation-context.png), [quality audit](docs/screenshots/06-quality-dashboard.png), [feedback-generated eval drafts](docs/screenshots/07-feedback-eval-draft.png), [retry after an API failure](docs/screenshots/08-error-retry.png), [multimodal query and persistent conversation state](docs/screenshots/09-multimodal-query-trace.jpg), [the accessible Graph evidence workbench](docs/screenshots/10-graph-evidence-workbench.jpg), [precise element citations](docs/screenshots/11-precise-element-citation.jpg), and [the historical 390-pixel debug (expert) layout](docs/screenshots/12-mobile-multimodal-expert.jpg).
 
 ## Zero-key quick start
 

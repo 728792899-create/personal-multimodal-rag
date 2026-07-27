@@ -165,3 +165,19 @@ Docker 实栈重新构建后，`/ready` 返回 schema version 5 与 `mock / memo
 MinerU 3.4.4 / RAG-Anything 1.3.1 隔离容器对真实 fixture PNG 解析成功并返回 3 个元素；Docling/PaddleOCR 未安装。Ollama 0.32.1 的原生/兼容 embedding 均成功并返回 768 维，`qwen3:8b` 原生 chat、chat-completions 和 Responses 均在 180 秒超时，故 Provider 总验收失败。Sentry 无 DSN、无真实事件，Docker 7.8 GiB 不满足 full self-hosted profile。
 
 14 天 hash-chained soak 于 `2026-07-23T10:25:17Z` 从第一个健康样本开始，历史不回填。到 `2026-07-26T05:27:19Z`，SHA-256 链含 636 个样本和 22 个失败样本；四次真实宿主机/运行时间隔均让连续时间自然重置，最长连续窗口为 81,984 秒，当前窗口从 `2026-07-26T04:57:18Z` 开始。第四次恢复复现并修复 Nginx 缓存已重建 backend 地址的问题；verifier 也新增宿主机时间 freshness 与 state/chain 一致性检查。机器已生成 200 条 draft，但人工确认仍为 0；真实问题来源声明仍为 0。以上数字不会被自动化或 fixture 补齐，项目继续保持 `0.4.0-rc.1`。
+
+## Question-first UI 终验（2026-07-26）
+
+本轮将工作台重构为单一问答画布与两个按需抽屉。简洁模式默认隐藏 Provider、原始检索分值、候选池、系统指标和 1.0 验收记录；上传与数据源位于资料库抽屉，BM25、向量、Graph、MMR、rerank、引用上下文和质量审计保留在调试模式与检索调试抽屉。
+
+| 项目 | 真实结果 |
+| --- | --- |
+| 前端 Vitest | 7 files / 27 tests passed |
+| `npm run build` | 通过；JS 175.57 kB（gzip 60.03），CSS 96.80 kB（gzip 18.54） |
+| Playwright | 14/14 passed；desktop Chromium + 390px mobile Chromium |
+| 生产前端容器 | 使用原 Production Validation Compose 无损重建；`frontend` 恢复 healthy，未删除任何卷 |
+| Browser 实测 | 简洁首页、调试参数、资料库抽屉、检索调试抽屉、来源打开与焦点返回均正常 |
+| 真实仅检索 | 在现有本地生产资料上查询 FastAPI 反向代理、转发请求头和 `root_path`，返回 5 条语义相关来源；未勾选真实使用声明，不计入 1.0 的 100 次本人提问 |
+| 窄屏 | 390×844 Playwright 视口无横向溢出，底部新对话/资料/调试入口可达 |
+
+截图 `01-workbench-beta.png`、`14-evidence-ledger-mobile.png`、`15-question-first-debug.png` 和 `16-question-first-sources.png` 均来自实际运行页面。测试与截图没有调用付费 API，也没有把本轮 UI 操作回填为人工标注或真实提问证据。

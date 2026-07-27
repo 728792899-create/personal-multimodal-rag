@@ -4,7 +4,7 @@
 
 | 文件 | 视口 | 验证内容 |
 | --- | --- | --- |
-| `01-workbench-beta.png` | 1280×720 | 普通模式三栏信息架构、知识库与提问入口 |
+| `01-workbench-beta.png` | 1440×900 | Question-first 简洁模式、单一问答画布与按需工具入口 |
 | `02-grounded-trace.png` | 1440×900 | 早期带引用回答、七阶段 Trace 与质量检查，保留作对照 |
 | `03-mobile-expert-refusal.png` | 390×844 | 专家模式、无证据拒答和窄屏无横向溢出 |
 | `01-workbench.jpg` | 1280×720 | 早期工作台基线截图，保留用于前后对照 |
@@ -18,13 +18,17 @@
 | `10-graph-evidence-workbench.jpg` | 1440×900 | 43 节点/72 边的 SVG 图谱与等价键盘表格 |
 | `11-precise-element-citation.jpg` | 1440×900 | citation 跳转到高亮 heading 元素与相邻证据 |
 | `12-mobile-multimodal-expert.jpg` | 390×844 | 图片入口、专家参数和无横向溢出的移动布局 |
+| `13-evidence-ledger-login.png` | 1440×900 | Production Local 不对称登录页、实例定位与会话安全边界 |
+| `14-evidence-ledger-mobile.png` | 390×844 | 极简问答首页、紧凑命令栏、底部导航与无横向溢出 |
+| `15-question-first-debug.png` | 1440×900 | 调试模式按需展开 BM25、向量、Graph、MMR 与 rerank 参数 |
+| `16-question-first-sources.png` | 1440×900 | FastAPI 反向代理问题的仅检索结果、匹配状态与五条相关来源 |
 
 ## 更新截图
 
 1. 使用离线 provider 启动 Docker Compose。
 2. 运行 `npm run demo:bootstrap`。
 3. 只使用仓库脱敏问题和样例资料。
-4. 分别覆盖普通模式、专家 Trace、拒答、390px 与错误恢复。
+4. 分别覆盖简洁模式、调试 Trace、拒答、390px 与错误恢复。
 5. 截图前检查页面没有 API Key、私有 URL、真实路径或系统通知。
 6. 更新本清单和 README alt text。
 

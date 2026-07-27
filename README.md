@@ -32,8 +32,8 @@
 
 | 默认体验 | 可信度机制 | 工程证据 | 生产边界 |
 | --- | --- | --- | --- |
-| 零 Key、离线可运行 | 无证据拒答 | 174 个后端测试 | Argon2id session 与可选 Sentry |
-| 多知识库、DOCX 与图片提问 | 十阶段检索 Trace | 22 个前端测试 | Chroma / pgvector adapter |
+| 零 Key、离线可运行 | 无证据拒答 | 179 个后端通过、3 个跳过 + 2 个 PostgreSQL contract | Argon2id session 与可选 Sentry |
+| 多知识库、DOCX 与图片提问 | 十阶段检索 Trace | 27 个前端测试 | Chroma / pgvector adapter |
 | 持久会话与流式回答 | 精确元素引用与 Graph provenance | 14 个 Browser E2E | Redis Streams / S3 / ClamAV |
 | 可恢复索引任务 | 反馈 → eval draft | 100 条黄金回归 case | Demo、Local Production、Production 明确分层 |
 
@@ -44,7 +44,7 @@
 - 在本地管理个人或小团队资料，并获得带引用回答。
 - 演示一个可解释、可测试、能安全拒答的 RAG 工程作品集。
 - 用固定黄金集回归 Recall@5、MRR、首条引用准确率和拒答准确率。
-- 在同一界面比较普通模式与专家模式，定位召回、排序、生成或引用问题。
+- 在同一界面比较简洁（普通）与调试（专家）模式，定位召回、排序、生成或引用问题。
 
 它目前不是多租户 SaaS，也没有宣称默认 hash embedding 具备生产语义检索质量。三个运行模式、失败关闭规则和迁移步骤见 [Production Local 运行手册](docs/production-local.md)；扩展边界见 [生产适配方案](docs/production-adapters.md) 与 [已知边界](docs/known-limitations.md)。
 
@@ -168,7 +168,7 @@ npm run verify
 | 检查 | 当前本地结果 | CI 门槛 |
 | --- | ---: | ---: |
 | 后端测试 | 179 passed、3 skipped + 2 PostgreSQL contract passed | 全部通过 |
-| 前端单元/组件 | 22 passed | 全部通过 |
+| 前端单元/组件 | 27 passed | 全部通过 |
 | Browser E2E | 14 passed | 桌面与移动全部通过 |
 | Recall@5 | 1.0000 | ≥ 0.90 |
 | MRR | 0.9888 | ≥ 0.75 |
@@ -186,10 +186,18 @@ npm run verify
 
 ### 界面图集
 
-| 工作台 | 可解释回答 | 窄屏拒答 |
+![Production Local 安全登录页](docs/screenshots/13-evidence-ledger-login.png)
+
+默认首页采用 **Question-first** 单画布：普通使用者只看到问题、回答与来源；文件上传和知识库管理收进资料库抽屉，检索 Trace 收进检索调试抽屉。`⌘/Ctrl + K` 可随时聚焦问题，`Esc` 关闭抽屉，调试模式才展开 BM25、向量、Graph、MMR 与 rerank 参数。
+
+| 问答首页 | 检索调试 | 390px 窄屏 |
 | --- | --- | --- |
-| ![普通模式三栏工作台](docs/screenshots/01-workbench-beta.png) | ![回答、引用与检索 Trace](docs/screenshots/02-grounded-trace.png) | ![390px 专家模式与无证据拒答](docs/screenshots/03-mobile-expert-refusal.png) |
-| 管理资料、提问与系统概览 | 检查 BM25、向量、排序和引用 | 无横向溢出，保留完整状态 |
+| ![极简的多模态知识库问答首页](docs/screenshots/01-workbench-beta.png) | ![按需展开的高级检索参数](docs/screenshots/15-question-first-debug.png) | ![390px 问答页与底部快捷导航](docs/screenshots/14-evidence-ledger-mobile.png) |
+| 单一问题画布，系统信息默认隐藏 | 仅在调试模式展示检索策略 | 上传、资料和调试入口始终可达，无横向溢出 |
+
+![FastAPI 反向代理问题的仅检索结果与五条相关来源](docs/screenshots/16-question-first-sources.png)
+
+简洁模式不会暴露 Provider、召回权重或原始检索分值；结果首先呈现匹配状态和来源，点击来源后才进入证据与调试抽屉。
 
 | 上传与 URL 导入 | 引用相邻上下文 | 质量与引用审计 |
 | --- | --- | --- |
@@ -208,12 +216,12 @@ npm run verify
 
 | 精确元素引用 | 390px 多模态专家模式 |
 | --- | --- |
-| ![引用跳转到高亮的 heading 元素](docs/screenshots/11-precise-element-citation.jpg) | ![390px 下图片提问与专家检索参数](docs/screenshots/12-mobile-multimodal-expert.jpg) |
-| 从 citation 回到 IR 元素与相邻上下文 | 无横向溢出并保留完整控制层级 |
+| ![引用跳转到高亮的 heading 元素](docs/screenshots/11-precise-element-citation.jpg) | ![历史 390px 调试（专家）布局](docs/screenshots/12-mobile-multimodal-expert.jpg) |
+| 从 citation 回到 IR 元素与相邻上下文 | 历史调试（专家）布局无横向溢出并保留完整控制层级 |
 
 完整的逐步说明见[端到端案例](docs/case-study.md)与[产品巡游](docs/product-tour.md)。
 
-### 普通模式
+### 简洁（普通）模式
 
 - 创建/切换知识库，上传 PDF、DOCX、Markdown、文本、PNG/JPEG，或导入公开 URL。
 - 在任务中心查看排队、分块、嵌入、写入、失败、取消与重试状态。
@@ -223,7 +231,7 @@ npm run verify
 - 负反馈一键生成 eval draft。
 - 可添加最多 4 张临时图片，离线 OCR/元数据或视觉 Provider 会在检索前扩展查询。
 
-### 专家模式
+### 调试（专家）模式
 
 - 调整 `search_mode`、profile、Top K、candidate K、向量权重、MMR λ 与最低分。
 - 比较 BM25-only、Vector-only、Hybrid、Hybrid + Rerank。
