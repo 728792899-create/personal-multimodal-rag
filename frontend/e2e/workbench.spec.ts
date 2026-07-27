@@ -1,6 +1,25 @@
 import { expect, test, type Page } from '@playwright/test'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import { answerFixture, metricsFixture, overviewFixture } from '../src/test/fixtures'
+
+const captureReadmeScreenshots = process.env.CAPTURE_README_SCREENSHOTS === '1'
+const readmeScreenshotsDirectory = resolve(dirname(fileURLToPath(import.meta.url)), '../../docs/screenshots')
+
+function readmeScreenshotPath(filename: string) {
+  return resolve(readmeScreenshotsDirectory, filename)
+}
+
+async function saveReadmeScreenshot(page: Page, filename: string) {
+  await page.evaluate(async () => document.fonts.ready)
+  await page.screenshot({
+    path: readmeScreenshotPath(filename),
+    animations: 'disabled',
+    caret: 'hide',
+    scale: 'css',
+  })
+}
 
 async function openLibrary(page: Page) {
   const desktopTrigger = page.getByTestId('open-library')
@@ -214,6 +233,22 @@ async function installOfflineApi(page: Page) {
     if (path === '/api/operations') return json({ operations: [] })
     if (path === '/api/knowledge/cards') return json({ cards: [] })
     if (path === '/api/eval/drafts') return json({ drafts: evalDrafts })
+    if (path === '/api/eval/review-summary') return json({
+      total: evalDrafts.length,
+      draft: evalDrafts.filter((item) => item.status === 'draft').length,
+      reviewed: evalDrafts.filter((item) => item.status === 'reviewed').length,
+      human_reviewed: evalDrafts.filter((item) => item.status === 'reviewed').length,
+      remaining_for_1_0: 200 - evalDrafts.filter((item) => item.status === 'reviewed').length,
+    })
+    if (path === '/api/system/usage-evidence') return json({
+      human_originated_questions: 0,
+      target: 100,
+      remaining_for_1_0: 100,
+      conversation_count: 0,
+      first_recorded_at: '',
+      last_recorded_at: '',
+      attestation: 'human-originated',
+    })
     return json({ detail: `Unhandled offline route: ${method} ${path}` }, 404)
   })
 
@@ -398,7 +433,7 @@ test('session authentication gates the workbench and logout revokes access', asy
   })
   await page.goto('/')
 
-  await expect(page.getByRole('heading', { name: 'Personal Multimodal RAG' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '个人多模态 RAG' })).toBeVisible()
   await page.getByLabel('管理员密码').fill('correct password')
   await page.getByRole('button', { name: '登录工作台' }).click()
   await expect(page.getByTestId('file-input')).toBeAttached()
@@ -423,4 +458,56 @@ test('URL source subscription creates and reports an incremental sync', async ({
   await manager.getByRole('button', { name: '立即同步' }).click()
   await expect(manager.getByText(/最近同步：succeeded/)).toBeVisible()
   await expect(manager.getByText('新增/更新 1')).toBeVisible()
+})
+
+test.describe('README screenshot capture', () => {
+  test.skip(!captureReadmeScreenshots, 'Set CAPTURE_README_SCREENSHOTS=1 to update README evidence images.')
+
+  test('writes localized desktop workbench screenshots', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Desktop screenshots are captured once.')
+    await installOfflineApi(page)
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/')
+    await expect(page.getByRole('heading', { name: '向你的知识库提问' })).toBeVisible()
+    await saveReadmeScreenshot(page, '01-workbench-beta.png')
+
+    await page.getByTestId('mode-expert').click()
+    await expect(page.getByRole('heading', { name: '调试检索策略' })).toBeVisible()
+    await saveReadmeScreenshot(page, '15-question-first-debug.png')
+  })
+
+  test('writes the localized mobile workbench screenshot', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'mobile-chromium', 'The narrow screenshot is captured once.')
+    await installOfflineApi(page)
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('/')
+    await expect(page.getByRole('heading', { name: '向你的知识库提问' })).toBeVisible()
+    await saveReadmeScreenshot(page, '14-evidence-ledger-mobile.png')
+  })
+
+  test('writes the localized sign-in screenshot', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Desktop screenshots are captured once.')
+    await installOfflineApi(page)
+    await page.route('**/api/auth/session', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          session: {
+            required: true,
+            authenticated: false,
+            user_id: '',
+            workspace_id: '',
+            role: '',
+            csrf_token: '',
+            expires_at: '',
+          },
+        }),
+      })
+    })
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/')
+    await expect(page.getByRole('heading', { name: '个人多模态 RAG' })).toBeVisible()
+    await saveReadmeScreenshot(page, '13-evidence-ledger-login.png')
+  })
 })

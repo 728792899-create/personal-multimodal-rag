@@ -1,38 +1,38 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" role="img" aria-labelledby="title desc">
-  <title id="title">Multimodal Intelligence 100-case offline scorecard</title>
-  <desc id="desc">One hundred fixed cases include eighty-nine answerable and eleven refusal questions. Core retrieval, multimodal extraction, graph path, graph evidence and multi-hop metrics all exceed their continuous integration thresholds.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" role="img" aria-labelledby="title desc" lang="zh-CN" xml:lang="zh-CN">
+  <title id="title">多模态智能 100 条离线成绩卡</title>
+  <desc id="desc">一百条固定案例包含八十九条可回答问题和十一条拒答问题。核心检索、多模态抽取、图路径、图证据和多跳指标均超过 CI 门槛。</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#071629"/><stop offset="1" stop-color="#10373b"/></linearGradient>
     <linearGradient id="bar" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#14b8a6"/><stop offset="1" stop-color="#60a5fa"/></linearGradient>
-    <style>text{font-family:Arial,Helvetica,sans-serif}.h{font-size:30px;font-weight:700;fill:#f8fafc}.sub{font-size:16px;fill:#94a3b8}.k{font-size:13px;font-weight:700;letter-spacing:1.3px;fill:#5eead4}.t{font-size:16px;font-weight:700;fill:#e2e8f0}.v{font-size:27px;font-weight:700;fill:#f8fafc}.c{font-size:13px;fill:#94a3b8}.card{fill:#10283b;stroke:#2b5d70;stroke-width:1.5}.track{fill:#1e3a4a}.threshold{stroke:#fbbf24;stroke-width:3}</style>
+    <style>text{font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC",Arial,Helvetica,sans-serif}.h{font-size:30px;font-weight:700;fill:#f8fafc}.sub{font-size:16px;fill:#94a3b8}.k{font-size:13px;font-weight:700;letter-spacing:1.3px;fill:#5eead4}.t{font-size:16px;font-weight:700;fill:#e2e8f0}.v{font-size:27px;font-weight:700;fill:#f8fafc}.c{font-size:13px;fill:#94a3b8}.card{fill:#10283b;stroke:#2b5d70;stroke-width:1.5}.track{fill:#1e3a4a}.threshold{stroke:#fbbf24;stroke-width:3}</style>
   </defs>
   <rect width="1440" height="900" rx="28" fill="url(#bg)"/>
-  <text x="54" y="62" class="h">Multimodal Intelligence 0.3 · deterministic regression</text>
-  <text x="54" y="92" class="sub">Fixed sanitized fixtures measure repository regression—not open-domain production quality. Recorded 2026-07-15.</text>
-  <rect x="54" y="126" width="408" height="116" rx="20" class="card"/><text x="80" y="162" class="k">GOLDEN SET</text><text x="80" y="207" class="v">100 cases</text><text x="248" y="180" class="t">89 answerable</text><text x="248" y="208" class="t">11 refusal</text>
-  <rect x="486" y="126" width="408" height="116" rx="20" class="card"/><text x="512" y="162" class="k">MULTIMODAL ADDITIONS</text><text x="512" y="207" class="v">44 cases</text><text x="680" y="180" class="c">12 image · 12 table · 8 formula</text><text x="680" y="207" class="c">12 layout / OCR</text>
-  <rect x="918" y="126" width="468" height="116" rx="20" class="card"/><text x="944" y="162" class="k">RELATIONSHIP + CONFLICT</text><text x="944" y="207" class="v">16 cases</text><text x="1110" y="180" class="c">10 provenance multi-hop</text><text x="1110" y="207" class="c">6 conflict / refusal</text>
-  <text x="54" y="292" class="k">CORE RETRIEVAL · ACTUAL / CI MINIMUM</text>
+  <text x="54" y="62" class="h">多模态智能 0.3 · 确定性回归</text>
+  <text x="54" y="92" class="sub">固定脱敏样例衡量仓库回归，并非开放域生产质量。记录于 2026-07-15。</text>
+  <rect x="54" y="126" width="408" height="116" rx="20" class="card"/><text x="80" y="162" class="k">黄金集</text><text x="80" y="207" class="v">100 条</text><text x="248" y="180" class="t">89 条可回答</text><text x="248" y="208" class="t">11 条拒答</text>
+  <rect x="486" y="126" width="408" height="116" rx="20" class="card"/><text x="512" y="162" class="k">多模态增补</text><text x="512" y="207" class="v">44 条</text><text x="680" y="180" class="c">12 图片 · 12 表格 · 8 公式</text><text x="680" y="207" class="c">12 版面 / OCR</text>
+  <rect x="918" y="126" width="468" height="116" rx="20" class="card"/><text x="944" y="162" class="k">关系与冲突</text><text x="944" y="207" class="v">16 条</text><text x="1110" y="180" class="c">10 条溯源多跳</text><text x="1110" y="207" class="c">6 条冲突 / 拒答</text>
+  <text x="54" y="292" class="k">核心检索 · 实际值 / CI 最低门槛</text>
   <g>
-    <text x="54" y="334" class="t">Recall@5</text><rect x="230" y="315" width="430" height="22" rx="11" class="track"/><rect x="230" y="315" width="430" height="22" rx="11" fill="url(#bar)"/><line x1="617" y1="308" x2="617" y2="344" class="threshold"/><text x="680" y="336" class="v">1.000</text><text x="790" y="334" class="c">min .90</text>
-    <text x="54" y="384" class="t">MRR</text><rect x="230" y="365" width="430" height="22" rx="11" class="track"/><rect x="230" y="365" width="425" height="22" rx="11" fill="url(#bar)"/><line x1="553" y1="358" x2="553" y2="394" class="threshold"/><text x="680" y="386" class="v">0.989</text><text x="790" y="384" class="c">min .75</text>
-    <text x="54" y="434" class="t">First citation</text><rect x="230" y="415" width="430" height="22" rx="11" class="track"/><rect x="230" y="415" width="420" height="22" rx="11" fill="url(#bar)"/><line x1="553" y1="408" x2="553" y2="444" class="threshold"/><text x="680" y="436" class="v">0.978</text><text x="790" y="434" class="c">min .75</text>
-    <text x="54" y="484" class="t">Refusal</text><rect x="230" y="465" width="430" height="22" rx="11" class="track"/><rect x="230" y="465" width="430" height="22" rx="11" fill="url(#bar)"/><line x1="574" y1="458" x2="574" y2="494" class="threshold"/><text x="680" y="486" class="v">1.000</text><text x="790" y="484" class="c">min .80</text>
-    <text x="54" y="534" class="t">Acceptance</text><rect x="230" y="515" width="430" height="22" rx="11" class="track"/><rect x="230" y="515" width="430" height="22" rx="11" fill="url(#bar)"/><line x1="596" y1="508" x2="596" y2="544" class="threshold"/><text x="680" y="536" class="v">1.000</text><text x="790" y="534" class="c">min .85</text>
+    <text x="54" y="334" class="t">Recall@5</text><rect x="230" y="315" width="430" height="22" rx="11" class="track"/><rect x="230" y="315" width="430" height="22" rx="11" fill="url(#bar)"/><line x1="617" y1="308" x2="617" y2="344" class="threshold"/><text x="680" y="336" class="v">1.000</text><text x="790" y="334" class="c">最低 .90</text>
+    <text x="54" y="384" class="t">MRR</text><rect x="230" y="365" width="430" height="22" rx="11" class="track"/><rect x="230" y="365" width="425" height="22" rx="11" fill="url(#bar)"/><line x1="553" y1="358" x2="553" y2="394" class="threshold"/><text x="680" y="386" class="v">0.989</text><text x="790" y="384" class="c">最低 .75</text>
+    <text x="54" y="434" class="t">首条引用</text><rect x="230" y="415" width="430" height="22" rx="11" class="track"/><rect x="230" y="415" width="420" height="22" rx="11" fill="url(#bar)"/><line x1="553" y1="408" x2="553" y2="444" class="threshold"/><text x="680" y="436" class="v">0.978</text><text x="790" y="434" class="c">最低 .75</text>
+    <text x="54" y="484" class="t">拒答</text><rect x="230" y="465" width="430" height="22" rx="11" class="track"/><rect x="230" y="465" width="430" height="22" rx="11" fill="url(#bar)"/><line x1="574" y1="458" x2="574" y2="494" class="threshold"/><text x="680" y="486" class="v">1.000</text><text x="790" y="484" class="c">最低 .80</text>
+    <text x="54" y="534" class="t">可回答接受率</text><rect x="230" y="515" width="430" height="22" rx="11" class="track"/><rect x="230" y="515" width="430" height="22" rx="11" fill="url(#bar)"/><line x1="596" y1="508" x2="596" y2="544" class="threshold"/><text x="680" y="536" class="v">1.000</text><text x="790" y="534" class="c">最低 .85</text>
   </g>
-  <text x="878" y="292" class="k">MULTIMODAL + GRAPH GATES</text>
+  <text x="878" y="292" class="k">多模态 + 图谱门槛</text>
   <g>
-    <rect x="878" y="315" width="508" height="64" rx="14" class="card"/><text x="900" y="342" class="t">Modality Recall@5</text><text x="1255" y="353" class="v">1.000</text><text x="900" y="364" class="c">minimum .85 · 44 modality cases</text>
-    <rect x="878" y="391" width="508" height="64" rx="14" class="card"/><text x="900" y="418" class="t">Table · Caption · Formula</text><text x="1255" y="429" class="v">1.000</text><text x="900" y="440" class="c">each minimum .90</text>
-    <rect x="878" y="467" width="508" height="64" rx="14" class="card"/><text x="900" y="494" class="t">Graph path precision</text><text x="1255" y="505" class="v">1.000</text><text x="900" y="516" class="c">minimum .90 · provenance required</text>
-    <rect x="878" y="543" width="508" height="64" rx="14" class="card"/><text x="900" y="570" class="t">Graph evidence coverage</text><text x="1255" y="581" class="v">1.000</text><text x="900" y="592" class="c">minimum .95 · element-to-citation mapping</text>
-    <rect x="878" y="619" width="508" height="64" rx="14" class="card"/><text x="900" y="646" class="t">Multi-hop Recall@5</text><text x="1255" y="657" class="v">1.000</text><text x="900" y="668" class="c">minimum .85 · 10 two-hop cases</text>
+    <rect x="878" y="315" width="508" height="64" rx="14" class="card"/><text x="900" y="342" class="t">模态 Recall@5</text><text x="1255" y="353" class="v">1.000</text><text x="900" y="364" class="c">最低 .85 · 44 条模态案例</text>
+    <rect x="878" y="391" width="508" height="64" rx="14" class="card"/><text x="900" y="418" class="t">表格 · 图注 · 公式</text><text x="1255" y="429" class="v">1.000</text><text x="900" y="440" class="c">均最低 .90</text>
+    <rect x="878" y="467" width="508" height="64" rx="14" class="card"/><text x="900" y="494" class="t">图路径精度</text><text x="1255" y="505" class="v">1.000</text><text x="900" y="516" class="c">最低 .90 · 需有溯源</text>
+    <rect x="878" y="543" width="508" height="64" rx="14" class="card"/><text x="900" y="570" class="t">图证据覆盖</text><text x="1255" y="581" class="v">1.000</text><text x="900" y="592" class="c">最低 .95 · 元素至引用映射</text>
+    <rect x="878" y="619" width="508" height="64" rx="14" class="card"/><text x="900" y="646" class="t">多跳 Recall@5</text><text x="1255" y="657" class="v">1.000</text><text x="900" y="668" class="c">最低 .85 · 10 条两跳案例</text>
   </g>
   <rect x="54" y="585" width="770" height="208" rx="20" class="card"/>
-  <text x="80" y="623" class="k">CASE MIX + ARTIFACTS</text>
-  <text x="80" y="660" class="t">12 repository sources · 12 real PNG fixtures · generated DOCX</text>
-  <text x="80" y="692" class="c">Baseline 40 + image 12 + table 12 + formula 8 + layout/OCR 12 + graph 10 + conflict/refusal 6</text>
-  <text x="80" y="724" class="c">Reports: eval/reports/latest.md · multimodal.md · graph.md</text>
-  <text x="80" y="756" class="c">Yellow markers show CI minimums. Every external provider remains mocked or disabled.</text>
-  <text x="54" y="854" class="sub">Recall and extraction results are deterministic fixture regressions; validate production OCR, VLM and embeddings on a separately versioned external set.</text>
+  <text x="80" y="623" class="k">案例构成与产物</text>
+  <text x="80" y="660" class="t">12 个仓库来源 · 12 个真实 PNG 样例 · 生成的 DOCX</text>
+  <text x="80" y="692" class="c">基础 40 + 图片 12 + 表格 12 + 公式 8 + 版面/OCR 12 + 图谱 10 + 冲突/拒答 6</text>
+  <text x="80" y="724" class="c">报告：eval/reports/latest.md · multimodal.md · graph.md</text>
+  <text x="80" y="756" class="c">黄色标记是 CI 最低门槛；外部提供方均保持模拟或禁用。</text>
+  <text x="54" y="854" class="sub">召回与抽取结果是确定性样例回归；生产 OCR、VLM 和嵌入应在单独版本化的外部集合上验证。</text>
 </svg>

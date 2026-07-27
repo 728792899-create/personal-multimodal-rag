@@ -1,24 +1,24 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="680" viewBox="0 0 1200 680" role="img" aria-labelledby="title desc">
-  <title id="title">Evaluation feedback loop</title>
-  <desc id="desc">User feedback becomes evaluation drafts, curated golden cases, metrics, CI gates, and retrieval improvements.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="680" viewBox="0 0 1200 680" role="img" aria-labelledby="title desc" lang="zh-CN" xml:lang="zh-CN">
+  <title id="title">评测反馈闭环</title>
+  <desc id="desc">用户反馈沉淀为评测草稿、精选黄金案例、指标、CI 门槛和检索改进。</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#071629"/><stop offset="1" stop-color="#0f3b3b"/></linearGradient>
     <filter id="glow"><feDropShadow dy="8" stdDeviation="12" flood-color="#020617" flood-opacity=".35"/></filter>
     <marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 10 5 0 10z" fill="#5eead4"/></marker>
-    <style>text{font-family:Arial,Helvetica,sans-serif}.h{font-size:30px;font-weight:700;fill:#f8fafc}.s{font-size:16px;font-weight:400;fill:#94a3b8}.t{font-size:18px;font-weight:700;fill:#e2e8f0}.c{font-size:13px;font-weight:400;fill:#94a3b8}.box{fill:#102b3c;stroke:#2d6471;stroke-width:1.5}.line{fill:none;stroke:#5eead4;stroke-width:2.5;marker-end:url(#a)}</style>
+    <style>text{font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC",Arial,Helvetica,sans-serif}.h{font-size:30px;font-weight:700;fill:#f8fafc}.s{font-size:16px;font-weight:400;fill:#94a3b8}.t{font-size:18px;font-weight:700;fill:#e2e8f0}.c{font-size:13px;font-weight:400;fill:#94a3b8}.box{fill:#102b3c;stroke:#2d6471;stroke-width:1.5}.line{fill:none;stroke:#5eead4;stroke-width:2.5;marker-end:url(#a)}</style>
   </defs>
   <rect width="1200" height="680" rx="28" fill="url(#bg)"/>
-  <text x="54" y="64" class="h">Quality improves through evidence, not anecdotes</text><text x="54" y="94" class="s">Every negative signal can become a reproducible case and a CI regression gate.</text>
+  <text x="54" y="64" class="h">质量依靠证据提升，而非轶事</text><text x="54" y="94" class="s">每个负向信号都可转为可复现案例和 CI 回归门。</text>
   <g filter="url(#glow)">
-    <rect x="76" y="230" width="190" height="112" rx="20" class="box"/><text x="104" y="270" class="t">Real question</text><text x="104" y="300" class="c">answer + citations + trace</text>
-    <rect x="316" y="120" width="190" height="112" rx="20" class="box"/><text x="344" y="160" class="t">User feedback</text><text x="344" y="190" class="c">positive / negative / notes</text>
-    <rect x="566" y="120" width="190" height="112" rx="20" class="box"/><text x="594" y="160" class="t">Eval draft</text><text x="594" y="190" class="c">question · target · refusal</text>
-    <rect x="816" y="230" width="230" height="112" rx="20" class="box"/><text x="844" y="270" class="t">Curated golden set</text><text x="844" y="300" class="c">fixed, sanitized, reviewable</text>
-    <rect x="690" y="420" width="230" height="130" rx="20" class="box"/><text x="718" y="460" class="t">CI quality gates</text><text x="718" y="490" class="c">Recall@K · MRR</text><text x="718" y="514" class="c">citations · refusal accuracy</text>
-    <rect x="390" y="420" width="230" height="130" rx="20" class="box"/><text x="418" y="460" class="t">Readable report</text><text x="418" y="490" class="c">failed cases + thresholds</text><text x="418" y="514" class="c">Markdown + JSON artifact</text>
-    <rect x="76" y="420" width="250" height="130" rx="20" class="box"/><text x="104" y="460" class="t">Retrieval improvement</text><text x="104" y="490" class="c">weights · chunking · gate</text><text x="104" y="514" class="c">reranker · source coverage</text>
+    <rect x="76" y="230" width="190" height="112" rx="20" class="box"/><text x="104" y="270" class="t">实际问题</text><text x="104" y="300" class="c">回答 + 引用 + 追踪</text>
+    <rect x="316" y="120" width="190" height="112" rx="20" class="box"/><text x="344" y="160" class="t">用户反馈</text><text x="344" y="190" class="c">正向 / 负向 / 备注</text>
+    <rect x="566" y="120" width="190" height="112" rx="20" class="box"/><text x="594" y="160" class="t">评测草稿</text><text x="594" y="190" class="c">问题 · 目标 · 拒答</text>
+    <rect x="816" y="230" width="230" height="112" rx="20" class="box"/><text x="844" y="270" class="t">精选黄金集</text><text x="844" y="300" class="c">固定、脱敏、可审查</text>
+    <rect x="690" y="420" width="230" height="130" rx="20" class="box"/><text x="718" y="460" class="t">CI 质量门</text><text x="718" y="490" class="c">Recall@K · MRR</text><text x="718" y="514" class="c">引用 · 拒答准确率</text>
+    <rect x="390" y="420" width="230" height="130" rx="20" class="box"/><text x="418" y="460" class="t">可读报告</text><text x="418" y="490" class="c">失败案例 + 阈值</text><text x="418" y="514" class="c">Markdown + JSON 产物</text>
+    <rect x="76" y="420" width="250" height="130" rx="20" class="box"/><text x="104" y="460" class="t">检索改进</text><text x="104" y="490" class="c">权重 · 分块 · 门控</text><text x="104" y="514" class="c">重排器 · 来源覆盖</text>
   </g>
   <path d="M266 250 C280 200 292 178 316 176" class="line"/><path d="M506 176 H566" class="line"/><path d="M756 176 C790 176 810 220 816 250" class="line"/><path d="M930 342 C930 388 880 410 858 420" class="line"/><path d="M690 485 H620" class="line"/><path d="M390 485 H326" class="line"/><path d="M174 420 C150 392 146 370 158 342" class="line"/>
   <circle cx="600" cy="328" r="62" fill="#0f766e" opacity=".3"/><circle cx="600" cy="328" r="42" fill="#14b8a6"/><path d="M580 328l14 14 28-32" fill="none" stroke="#ecfeff" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
-  <text x="518" y="628" class="s">Small deterministic set today · production traffic sampling tomorrow</text>
+  <text x="518" y="628" class="s">今日小型确定性集合 · 明日生产流量抽样</text>
 </svg>

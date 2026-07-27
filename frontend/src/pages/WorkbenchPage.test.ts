@@ -169,6 +169,11 @@ describe('WorkbenchPage workflows', () => {
     await flushPromises()
 
     await wrapper.get('[data-testid="mode-expert"]').trigger('click')
+    expect(wrapper.text()).toContain('BM25 0.62 / 向量 0.38')
+    expect(wrapper.text()).toContain('检索配置')
+    expect(wrapper.text()).toContain('均衡')
+    expect(wrapper.text()).toContain('查询改写')
+    expect(wrapper.text()).toContain('图谱权重')
     await wrapper.get('input[name="candidate-k"]').setValue('40')
     await wrapper.get('textarea[name="question"]').setValue('RAG 如何评测？')
     await wrapper.get('[data-testid="run-query"]').trigger('click')

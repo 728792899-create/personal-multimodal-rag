@@ -27,4 +27,19 @@ describe('LoginPage', () => {
     })
     expect(wrapper.get('[role="alert"]').text()).toContain('Invalid')
   })
+
+  it('uses Chinese semantics for visible product and session copy', () => {
+    const wrapper = mount(LoginPage, {
+      props: { submitting: false, error: '' },
+    })
+
+    expect(wrapper.get('#login-title').text()).toBe('个人多模态 RAG')
+    expect(wrapper.text()).toContain('证据账本 · 本地')
+    expect(wrapper.text()).toContain('有据智能')
+    expect(wrapper.text()).toContain('混合检索')
+    expect(wrapper.text()).toContain('证据溯源')
+    expect(wrapper.text()).toContain('本地控制')
+    expect(wrapper.text()).toContain('已启用 CSRF 防护')
+    expect(wrapper.text()).toContain('HttpOnly Cookie')
+  })
 })

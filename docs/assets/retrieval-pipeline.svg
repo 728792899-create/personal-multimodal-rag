@@ -1,16 +1,16 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="720" viewBox="0 0 1440 720" role="img" aria-labelledby="title desc">
-  <title id="title">Ten-stage multimodal and graph retrieval pipeline</title>
-  <desc id="desc">Query enrichment, BM25, vector recall, fusion, graph navigation, parent expansion, MMR, reranking, answer decision, and citation audit form an inspectable evidence pipeline.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="720" viewBox="0 0 1440 720" role="img" aria-labelledby="title desc" lang="zh-CN" xml:lang="zh-CN">
+  <title id="title">十阶段多模态与图谱检索管线</title>
+  <desc id="desc">查询增强、BM25、向量召回、融合、图谱导航、父级扩展、MMR、重排、回答决策和引用审计共同构成可检查的证据管线。</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#f8fafc"/><stop offset="1" stop-color="#ecfdf5"/></linearGradient>
     <linearGradient id="bar" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#0f766e"/><stop offset=".55" stop-color="#2563eb"/><stop offset="1" stop-color="#7c3aed"/></linearGradient>
     <filter id="shadow"><feDropShadow dy="6" stdDeviation="8" flood-color="#0f172a" flood-opacity=".11"/></filter>
     <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 10 5 0 10z" fill="#0f766e"/></marker>
-    <style>text{font-family:Arial,Helvetica,sans-serif}.h{font-size:30px;font-weight:700;fill:#0f172a}.sub{font-size:16px;fill:#475569}.n{font-size:15px;font-weight:800;fill:#fff}.t{font-size:17px;font-weight:700;fill:#0f172a}.c{font-size:13px;fill:#64748b}.box{fill:#fff;stroke:#cbd5e1;stroke-width:1.5}.flow{fill:none;stroke:#0f766e;stroke-width:2.5;marker-end:url(#arrow)}.optional{stroke:#7c3aed;stroke-dasharray:6 5}</style>
+    <style>text{font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC",Arial,Helvetica,sans-serif}.h{font-size:30px;font-weight:700;fill:#0f172a}.sub{font-size:16px;fill:#475569}.n{font-size:15px;font-weight:800;fill:#fff}.t{font-size:17px;font-weight:700;fill:#0f172a}.c{font-size:13px;fill:#64748b}.box{fill:#fff;stroke:#cbd5e1;stroke-width:1.5}.flow{fill:none;stroke:#0f766e;stroke-width:2.5;marker-end:url(#arrow)}.optional{stroke:#7c3aed;stroke-dasharray:6 5}</style>
   </defs>
   <rect width="1440" height="720" rx="28" fill="url(#bg)"/>
-  <text x="54" y="62" class="h">One question, ten inspectable evidence stages</text>
-  <text x="54" y="92" class="sub">Multimodal context and provenance-backed graph paths extend hybrid retrieval without bypassing refusal or citation gates.</text>
+  <text x="54" y="62" class="h">一个问题，十个可检查的证据阶段</text>
+  <text x="54" y="92" class="sub">多模态上下文与有溯源支撑的图路径扩展混合检索，但不绕过拒答或引用门。</text>
   <rect x="54" y="120" width="1332" height="8" rx="4" fill="url(#bar)"/>
 
   <path d="M294 235 H316" class="flow"/><path d="M556 235 H578" class="flow"/><path d="M818 235 H840" class="flow"/><path d="M1080 235 H1102" class="flow"/>
@@ -18,19 +18,19 @@
   <path d="M294 485 H316" class="flow"/><path d="M556 485 H578" class="flow"/><path d="M818 485 H840" class="flow"/><path d="M1080 485 H1102" class="flow"/>
 
   <g filter="url(#shadow)">
-    <rect x="54" y="158" width="240" height="154" rx="18" class="box"/><circle cx="86" cy="190" r="18" fill="#0f766e"/><text x="81" y="196" class="n">1</text><text x="78" y="238" class="t">Query enrichment</text><text x="78" y="266" class="c">image OCR + VLM summary</text><text x="78" y="288" class="c">original intent remains visible</text>
-    <rect x="316" y="158" width="240" height="154" rx="18" class="box"/><circle cx="348" cy="190" r="18" fill="#0d9488"/><text x="343" y="196" class="n">2</text><text x="340" y="238" class="t">BM25 recall</text><text x="340" y="266" class="c">exact terms + titles</text><text x="340" y="288" class="c">matched tokens and counts</text>
-    <rect x="578" y="158" width="240" height="154" rx="18" class="box"/><circle cx="610" cy="190" r="18" fill="#0891b2"/><text x="605" y="196" class="n">3</text><text x="602" y="238" class="t">Vector recall</text><text x="602" y="266" class="c">semantic candidates</text><text x="602" y="288" class="c">provider + similarity</text>
-    <rect x="840" y="158" width="240" height="154" rx="18" class="box"/><circle cx="872" cy="190" r="18" fill="#0284c7"/><text x="867" y="196" class="n">4</text><text x="864" y="238" class="t">Fusion</text><text x="864" y="266" class="c">weighted scores + dedupe</text><text x="864" y="288" class="c">branch provenance retained</text>
-    <rect x="1102" y="158" width="284" height="154" rx="18" class="box optional"/><circle cx="1134" cy="190" r="18" fill="#7c3aed"/><text x="1129" y="196" class="n">5</text><text x="1126" y="238" class="t">Graph navigation</text><text x="1126" y="266" class="c">entity seeds + evidence paths</text><text x="1126" y="288" class="c">optional weighted RRF · w=0.25</text>
+    <rect x="54" y="158" width="240" height="154" rx="18" class="box"/><circle cx="86" cy="190" r="18" fill="#0f766e"/><text x="81" y="196" class="n">1</text><text x="78" y="238" class="t">查询增强</text><text x="78" y="266" class="c">图片 OCR + VLM 摘要</text><text x="78" y="288" class="c">原始意图始终可见</text>
+    <rect x="316" y="158" width="240" height="154" rx="18" class="box"/><circle cx="348" cy="190" r="18" fill="#0d9488"/><text x="343" y="196" class="n">2</text><text x="340" y="238" class="t">BM25 召回</text><text x="340" y="266" class="c">精确词项 + 标题</text><text x="340" y="288" class="c">命中词元与数量</text>
+    <rect x="578" y="158" width="240" height="154" rx="18" class="box"/><circle cx="610" cy="190" r="18" fill="#0891b2"/><text x="605" y="196" class="n">3</text><text x="602" y="238" class="t">向量召回</text><text x="602" y="266" class="c">语义候选</text><text x="602" y="288" class="c">提供方 + 相似度</text>
+    <rect x="840" y="158" width="240" height="154" rx="18" class="box"/><circle cx="872" cy="190" r="18" fill="#0284c7"/><text x="867" y="196" class="n">4</text><text x="864" y="238" class="t">融合</text><text x="864" y="266" class="c">加权分数 + 去重</text><text x="864" y="288" class="c">保留分支溯源</text>
+    <rect x="1102" y="158" width="284" height="154" rx="18" class="box optional"/><circle cx="1134" cy="190" r="18" fill="#7c3aed"/><text x="1129" y="196" class="n">5</text><text x="1126" y="238" class="t">图谱导航</text><text x="1126" y="266" class="c">实体种子 + 证据路径</text><text x="1126" y="288" class="c">可选加权 RRF · w=0.25</text>
 
-    <rect x="54" y="408" width="240" height="154" rx="18" class="box"/><circle cx="86" cy="440" r="18" fill="#2563eb"/><text x="81" y="446" class="n">6</text><text x="78" y="488" class="t">Parent expansion</text><text x="78" y="516" class="c">element + adjacent context</text><text x="78" y="538" class="c">precise citation locator</text>
-    <rect x="316" y="408" width="240" height="154" rx="18" class="box"/><circle cx="348" cy="440" r="18" fill="#3b82f6"/><text x="343" y="446" class="n">7</text><text x="340" y="488" class="t">MMR diversity</text><text x="340" y="516" class="c">relevance vs repetition</text><text x="340" y="538" class="c">lambda is inspectable</text>
-    <rect x="578" y="408" width="240" height="154" rx="18" class="box"/><circle cx="610" cy="440" r="18" fill="#4f46e5"/><text x="605" y="446" class="n">8</text><text x="602" y="488" class="t">Rerank</text><text x="602" y="516" class="c">keyword or model adapter</text><text x="602" y="538" class="c">final evidence ordering</text>
-    <rect x="840" y="408" width="240" height="154" rx="18" class="box"/><circle cx="872" cy="440" r="18" fill="#6d28d9"/><text x="867" y="446" class="n">9</text><text x="864" y="488" class="t">Decision gate</text><text x="864" y="516" class="c">answer or refuse</text><text x="864" y="538" class="c">threshold + reason code</text>
-    <rect x="1102" y="408" width="284" height="154" rx="18" class="box"/><circle cx="1134" cy="440" r="18" fill="#7c3aed"/><text x="1125" y="446" class="n">10</text><text x="1126" y="488" class="t">Citation audit</text><text x="1126" y="516" class="c">coverage + grounding</text><text x="1126" y="538" class="c">unsupported claims surfaced</text>
+    <rect x="54" y="408" width="240" height="154" rx="18" class="box"/><circle cx="86" cy="440" r="18" fill="#2563eb"/><text x="81" y="446" class="n">6</text><text x="78" y="488" class="t">父级扩展</text><text x="78" y="516" class="c">元素 + 相邻上下文</text><text x="78" y="538" class="c">精确引用定位</text>
+    <rect x="316" y="408" width="240" height="154" rx="18" class="box"/><circle cx="348" cy="440" r="18" fill="#3b82f6"/><text x="343" y="446" class="n">7</text><text x="340" y="488" class="t">MMR 多样性</text><text x="340" y="516" class="c">相关性与重复度</text><text x="340" y="538" class="c">lambda 可检查</text>
+    <rect x="578" y="408" width="240" height="154" rx="18" class="box"/><circle cx="610" cy="440" r="18" fill="#4f46e5"/><text x="605" y="446" class="n">8</text><text x="602" y="488" class="t">重排</text><text x="602" y="516" class="c">关键词或模型适配器</text><text x="602" y="538" class="c">最终证据排序</text>
+    <rect x="840" y="408" width="240" height="154" rx="18" class="box"/><circle cx="872" cy="440" r="18" fill="#6d28d9"/><text x="867" y="446" class="n">9</text><text x="864" y="488" class="t">决策门</text><text x="864" y="516" class="c">回答或拒答</text><text x="864" y="538" class="c">阈值 + 原因码</text>
+    <rect x="1102" y="408" width="284" height="154" rx="18" class="box"/><circle cx="1134" cy="440" r="18" fill="#7c3aed"/><text x="1125" y="446" class="n">10</text><text x="1126" y="488" class="t">引用审计</text><text x="1126" y="516" class="c">覆盖率 + 依据</text><text x="1126" y="538" class="c">呈现无依据声明</text>
   </g>
 
   <rect x="54" y="608" width="1332" height="62" rx="18" fill="#0f172a"/>
-  <text x="82" y="646" class="sub" fill="#e2e8f0">Trace evidence: candidate counts · branch scores · graph relations · element IDs · latency · fallback · refusal reason · citation coverage</text>
+  <text x="82" y="646" class="sub" fill="#e2e8f0">追踪证据：候选数量 · 分支分数 · 图关系 · 元素 ID · 延迟 · 回退 · 拒答原因 · 引用覆盖率</text>
 </svg>
