@@ -8,7 +8,9 @@
 [![Node 22+](https://img.shields.io/badge/Node-22%2B-0f766e.svg)](frontend/package.json)
 [![离线优先](https://img.shields.io/badge/%E9%BB%98%E8%AE%A4-%E7%A6%BB%E7%BA%BF%20%2F%20%E9%9B%B6%E5%AF%86%E9%92%A5-7c3aed.svg)](.env.example)
 
-![多模态资料经过混合检索、证据门和引用审计形成可信回答](docs/assets/multimodal-rag-hero.png)
+<!-- README 视觉资源固定到不可变提交，避免 GitHub raw/main 对同名图片的短暂缓存；更新图片时请同步更新该提交号。 -->
+
+![多模态资料经过混合检索、证据门和引用审计形成可信回答](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/325861226185384a9a4b1803d0224e0eaad98b41/docs/assets/multimodal-rag-hero.png)
 
 **从 PDF、网页、图片与笔记，到可解释、可拒答、可量化回归的证据链。**
 
@@ -28,7 +30,7 @@
 
 ## 一分钟看懂
 
-![系统从资料输入到质量回归的完整地图](docs/assets/system-overview.svg)
+![系统从资料输入到质量回归的完整地图](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/325861226185384a9a4b1803d0224e0eaad98b41/docs/assets/system-overview.svg)
 
 | 默认体验 | 可信度机制 | 工程证据 | 生产边界 |
 | --- | --- | --- | --- |
@@ -117,7 +119,7 @@ npm run demo:bootstrap
 docker compose down
 ```
 
-![离线演示、持久单用户与小团队 Beta 的部署演进](docs/assets/deployment-modes.svg)
+![离线演示、持久单用户与小团队 Beta 的部署演进](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/325861226185384a9a4b1803d0224e0eaad98b41/docs/assets/deployment-modes.svg)
 
 ### 三种运行模式
 
@@ -163,7 +165,7 @@ npm run verify
 
 真实语料与运行证据不会被 fixture 代替。`npm run benchmark:real` 只接受部署方提供的私有 evidence manifest；当前 1.0 状态和全部阻断项见[发布证据](docs/release-evidence-1.0.md)。
 
-![100 条固定黄金集的基础、多模态与 Graph 指标](docs/assets/evaluation-scorecard.svg)
+![100 条固定黄金集的基础、多模态与 Graph 指标](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/325861226185384a9a4b1803d0224e0eaad98b41/docs/assets/evaluation-scorecard.svg)
 
 | 检查 | 当前本地结果 | CI 门槛 |
 | --- | ---: | ---: |
@@ -186,16 +188,16 @@ npm run verify
 
 ### 界面图集
 
-![Production Local 安全登录页](docs/screenshots/13-evidence-ledger-login.png)
+![Production Local 安全登录页](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/325861226185384a9a4b1803d0224e0eaad98b41/docs/screenshots/13-evidence-ledger-login.png)
 
 默认首页采用 **Question-first** 单画布：普通使用者只看到问题、回答与来源；文件上传和知识库管理收进资料库抽屉，检索 Trace 收进检索调试抽屉。`⌘/Ctrl + K` 可随时聚焦问题，`Esc` 关闭抽屉，调试模式才展开 BM25、向量、Graph、MMR 与 rerank 参数。
 
 | 问答首页 | 检索调试 | 390px 窄屏 |
 | --- | --- | --- |
-| ![极简的多模态知识库问答首页](docs/screenshots/01-workbench-beta.png) | ![按需展开的高级检索参数](docs/screenshots/15-question-first-debug.png) | ![390px 问答页与底部快捷导航](docs/screenshots/14-evidence-ledger-mobile.png) |
+| ![极简的多模态知识库问答首页](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/325861226185384a9a4b1803d0224e0eaad98b41/docs/screenshots/01-workbench-beta.png) | ![按需展开的高级检索参数](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/325861226185384a9a4b1803d0224e0eaad98b41/docs/screenshots/15-question-first-debug.png) | ![390px 问答页与底部快捷导航](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/325861226185384a9a4b1803d0224e0eaad98b41/docs/screenshots/14-evidence-ledger-mobile.png) |
 | 单一问题画布，系统信息默认隐藏 | 仅在调试模式展示检索策略 | 上传、资料和调试入口始终可达，无横向溢出 |
 
-![FastAPI 反向代理问题的仅检索结果与五条相关来源](docs/screenshots/16-question-first-sources.png)
+![FastAPI 反向代理问题的仅检索结果与五条相关来源](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/325861226185384a9a4b1803d0224e0eaad98b41/docs/screenshots/16-question-first-sources.png)
 
 简洁模式不会暴露 Provider、召回权重或原始检索分值；结果首先呈现匹配状态和来源，点击来源后才进入证据与调试抽屉。
 
@@ -226,9 +228,9 @@ npm run verify
 
 ## 架构
 
-![系统分层、数据流、拒答与评测闭环](docs/assets/system-overview.svg)
+![系统分层、数据流、拒答与评测闭环](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/325861226185384a9a4b1803d0224e0eaad98b41/docs/assets/system-overview.svg)
 
-![Browser、Nginx、中间件、领域路由、服务和 provider 的请求生命周期](docs/assets/request-lifecycle.svg)
+![Browser、Nginx、中间件、领域路由、服务和 provider 的请求生命周期](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/325861226185384a9a4b1803d0224e0eaad98b41/docs/assets/request-lifecycle.svg)
 
 <details>
 <summary>展开 Mermaid 实现链路</summary>
@@ -256,7 +258,7 @@ flowchart LR
 
 ### 十阶段检索
 
-![BM25、向量、融合、MMR、重排、拒答和引用审计](docs/assets/retrieval-pipeline.svg)
+![BM25、向量、融合、MMR、重排、拒答和引用审计](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/325861226185384a9a4b1803d0224e0eaad98b41/docs/assets/retrieval-pipeline.svg)
 
 十阶段视图依次显示查询增强、BM25、向量、融合、Graph、父级上下文、MMR、Rerank、拒答决策和引用审计；Graph 路径另有可缩放 SVG 与等价键盘表格。计算与诊断方法见[检索与可信回答](docs/retrieval-explained.md)。
 
@@ -277,7 +279,7 @@ flowchart LR
 
 安全策略与漏洞报告见 [SECURITY.md](SECURITY.md)。
 
-![浏览器、API、不可信输入、外部 provider 和存储的安全信任边界](docs/assets/security-boundaries.svg)
+![浏览器、API、不可信输入、外部 provider 和存储的安全信任边界](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/325861226185384a9a4b1803d0224e0eaad98b41/docs/assets/security-boundaries.svg)
 
 具体威胁、已实现控制和剩余风险见[安全威胁模型](docs/security-model.md)。
 
@@ -321,7 +323,7 @@ GitHub Actions 按职责拆分：
 
 `0.4.0-rc` 的固定 fixture 回归与基础设施 contract 可由 CI 自动复现；真实语料、14 天 soak 与完整恢复演练必须由部署负责人提交私有 evidence manifest。`GET /api/system/readiness-report` 会明确返回每一道通过/阻断门，不能由 fixture 自动把版本标记为 1.0。badge 反映默认分支最近一次 `ci.yml` 状态；发布前仍需逐项执行 [Release Checklist](docs/release-checklist.md)。
 
-![用户反馈、黄金集、报告和 CI 的质量循环](docs/assets/evaluation-loop.svg)
+![用户反馈、黄金集、报告和 CI 的质量循环](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/325861226185384a9a4b1803d0224e0eaad98b41/docs/assets/evaluation-loop.svg)
 
 ## 更多文档
 
