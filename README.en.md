@@ -48,7 +48,11 @@ The default experience is a **question-first** single canvas. Everyday users see
 
 Simple mode hides provider internals, retrieval weights, and raw scores. It leads with the result and sources; selecting a source opens the evidence and debugging drawer.
 
-The extended gallery also shows [URL ingestion](docs/screenshots/04-ingestion-url.png), [neighboring citation context](docs/screenshots/05-citation-context.png), [quality audit](docs/screenshots/06-quality-dashboard.png), [feedback-generated eval drafts](docs/screenshots/07-feedback-eval-draft.png), [retry after an API failure](docs/screenshots/08-error-retry.png), [multimodal query and persistent conversation state](docs/screenshots/09-multimodal-query-trace.jpg), [the accessible Graph evidence workbench](docs/screenshots/10-graph-evidence-workbench.jpg), [precise element citations](docs/screenshots/11-precise-element-citation.jpg), and [the historical 390-pixel debug (expert) layout](docs/screenshots/12-mobile-multimodal-expert.jpg).
+### Key workflows
+
+The library drawer owns file upload, URL import, and index status. The source drawer provides neighboring context, quality and citation audits. Feedback creates evaluation drafts, while failure states retain request IDs and retry actions. Multimodal image queries, Graph evidence navigation, and precise element citations all live in the current interface's on-demand drawers rather than mixing historical UI into the project homepage.
+
+See the [case study](docs/case-study.md), [product tour](docs/product-tour.md), and [screenshot verification index](docs/screenshots/README.md) for the full interaction walkthrough.
 
 ## Zero-key quick start
 

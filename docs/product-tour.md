@@ -18,7 +18,7 @@
 
 ![Question-first 问答首页](screenshots/01-workbench-beta.png)
 
-旧版三栏界面仍保留在历史截图中，便于比较信息层级的变化。
+项目首页只展示当前 Question-first 界面；历史截图仅保留在截图验证索引中，用于回归和信息层级演进的审查。
 
 ## 一次完整任务
 

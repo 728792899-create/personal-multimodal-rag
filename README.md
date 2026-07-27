@@ -199,27 +199,11 @@ npm run verify
 
 简洁模式不会暴露 Provider、召回权重或原始检索分值；结果首先呈现匹配状态和来源，点击来源后才进入证据与调试抽屉。
 
-| 上传与 URL 导入 | 引用相邻上下文 | 质量与引用审计 |
-| --- | --- | --- |
-| ![上传、URL 表单和索引资料](docs/screenshots/04-ingestion-url.png) | ![展开引用及前后 chunk](docs/screenshots/05-citation-context.png) | ![检索质量、引用覆盖和系统指标](docs/screenshots/06-quality-dashboard.png) |
-| 两条入库路径状态独立 | 从片段返回完整证据 | 诊断召回、排序和覆盖 |
+### 关键工作流
 
-| 反馈生成 eval draft | 504 错误与重试 |
-| --- | --- |
-| ![负反馈和自动生成的评测草稿](docs/screenshots/07-feedback-eval-draft.png) | ![保留最后成功结果的 504 错误与重试入口](docs/screenshots/08-error-retry.png) |
-| 失败进入人工审查闭环 | 请求 ID、错误说明和恢复动作 |
+资料库抽屉承载文件上传、URL 导入和索引状态；来源抽屉提供相邻上下文、质量与引用审计；反馈可生成评测草稿；失败状态保留请求 ID 和重试动作。多模态图片提问、Graph 证据导航及精确元素引用均在当前界面的按需抽屉中完成，不再在首页混入历史 UI。
 
-| 图片提问与持久会话 | Graph 证据工作台 |
-| --- | --- |
-| ![图片证据入口、持久多模态会话和回答状态](docs/screenshots/09-multimodal-query-trace.jpg) | ![Graph SVG 与带原文证据的键盘表格](docs/screenshots/10-graph-evidence-workbench.jpg) |
-| 临时 Query Asset 进入类型化 SSE | 43 节点、72 条带 provenance 的边 |
-
-| 精确元素引用 | 390px 多模态专家模式 |
-| --- | --- |
-| ![引用跳转到高亮的 heading 元素](docs/screenshots/11-precise-element-citation.jpg) | ![历史 390px 调试（专家）布局](docs/screenshots/12-mobile-multimodal-expert.jpg) |
-| 从 citation 回到 IR 元素与相邻上下文 | 历史调试（专家）布局无横向溢出并保留完整控制层级 |
-
-完整的逐步说明见[端到端案例](docs/case-study.md)与[产品巡游](docs/product-tour.md)。
+完整的逐步说明见[端到端案例](docs/case-study.md)、[产品巡游](docs/product-tour.md)与[截图验证索引](docs/screenshots/README.md)。
 
 ### 简洁（普通）模式
 
