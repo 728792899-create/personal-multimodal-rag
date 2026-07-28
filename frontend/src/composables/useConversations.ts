@@ -145,6 +145,10 @@ export function useConversations() {
         // transient follow-up read must not turn a successful answer into an error.
         await refreshConversations().catch(() => undefined)
         await selectConversation(conversation.id).catch(() => undefined)
+        // The final SSE event is authoritative for this request. Durable message
+        // storage can be briefly behind the stream, so an empty/stale follow-up
+        // read must not downgrade an audited answer back to an incomplete state.
+        streamPhase.value = 'completed'
       }
       return finalResponse
     } catch (error) {

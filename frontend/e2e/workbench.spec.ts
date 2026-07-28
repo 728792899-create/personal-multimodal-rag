@@ -48,6 +48,7 @@ async function installOfflineApi(page: Page) {
   const askBodies: Array<Record<string, unknown>> = []
   let evalDrafts: Array<Record<string, unknown>> = []
   let conversations: Array<Record<string, unknown>> = []
+  let conversationMessages: Array<Record<string, unknown>> = []
   let knowledgeBases: Array<Record<string, unknown>> = [
     { id: 'default', name: '默认知识库', description: '', is_default: true, document_count: 0, created_at: '', updated_at: '' },
   ]
@@ -203,13 +204,18 @@ async function installOfflineApi(page: Page) {
     if (path === '/api/conversations' && method === 'POST') {
       const conversation = { id: 'conv-1', title: '新会话', knowledge_base_ids: ['default'], message_count: 0, created_at: '', updated_at: '' }
       conversations = [conversation]
+      conversationMessages = []
       return json({ conversation }, 201)
     }
     if (path === '/api/conversations') return json({ conversations })
-    if (path === '/api/conversations/conv-1/messages') return json({ messages: [] })
+    if (path === '/api/conversations/conv-1/messages') return json({ messages: conversationMessages })
     if (path === '/api/conversations/conv-1/messages:stream') {
       const body = request.postDataJSON() as Record<string, unknown>
       askBodies.push(body)
+      const turn = askBodies.length
+      const requestId = `request-${turn}`
+      const userMessageId = `user-${turn}`
+      const assistantMessageId = `assistant-${turn}`
       let response = answerFixture()
       if (String(body.question).includes('Kubernetes')) {
         const base = answerFixture()
@@ -243,7 +249,39 @@ async function installOfflineApi(page: Page) {
           : [{ type: 'answer.delta', delta: response.answer }, { type: 'answer.completed', response }]),
         { type: 'done', status: 'completed' },
       ]
-      const stream = events.map((event, index) => `event: ${event.type}\ndata: ${JSON.stringify({ request_id: 'req', conversation_id: 'conv-1', message_id: 'msg', sequence: index + 1, ...event })}\n\n`).join('')
+      conversationMessages.push(
+        {
+          id: userMessageId,
+          conversation_id: 'conv-1',
+          role: 'user',
+          content: String(body.question || ''),
+          status: 'completed',
+          metadata: {},
+          created_at: '',
+          updated_at: '',
+        },
+        {
+          id: assistantMessageId,
+          conversation_id: 'conv-1',
+          role: 'assistant',
+          content: response.answer,
+          status: 'completed',
+          metadata: { response },
+          created_at: '',
+          updated_at: '',
+        },
+      )
+      conversations = conversations.map((conversation) => ({
+        ...conversation,
+        message_count: conversationMessages.length,
+      }))
+      const stream = events.map((event, index) => `event: ${event.type}\ndata: ${JSON.stringify({
+        request_id: requestId,
+        conversation_id: 'conv-1',
+        message_id: assistantMessageId,
+        sequence: index + 1,
+        ...event,
+      })}\n\n`).join('')
       return route.fulfill({ status: 200, contentType: 'text/event-stream', body: stream })
     }
     if (path.startsWith('/api/chunks/')) return json({
@@ -300,7 +338,7 @@ test('upload, URL import, grounded answer, citation and feedback draft', async (
 
   await page.getByRole('textbox', { name: '问题' }).fill('RAG 如何评测？')
   await page.getByTestId('run-query').click()
-  await expect(page.getByRole('status')).toContainText('回答已生成')
+  await expect(page.getByTestId('answer-result-status')).toContainText('回答已生成')
   await expect(page.getByText('RAG 使用固定黄金集评测召回和引用质量。[1]')).toBeVisible()
 
   await page.getByTestId('citation-1').click()
@@ -321,7 +359,7 @@ test('expert parameters and no-evidence refusal are explicit', async ({ page }) 
   await page.getByRole('textbox', { name: '问题' }).fill('资料里有 Kubernetes 配置吗？')
   await page.getByTestId('run-query').click()
 
-  await expect(page.getByRole('status')).toContainText('已安全拒答')
+  await expect(page.getByTestId('answer-result-status')).toContainText('已安全拒答')
   await expect(page.getByText('没有可引用证据')).toBeVisible()
   await expect(page.locator('[data-stage="decision"]')).toContainText('回答决策')
   await expect(page.locator('[data-stage="decision"]')).toContainText('拒绝回答')
@@ -372,7 +410,7 @@ test('image question, graph controls and accessible graph evidence stay connecte
   await page.locator('.attachment-detail select').selectOption('high')
   await page.getByRole('textbox', { name: '问题' }).fill('图中 Alpha 如何连到 Beta？')
   await page.getByTestId('run-query').click()
-  await expect(page.getByRole('status')).toContainText('回答已生成')
+  await expect(page.getByTestId('answer-result-status')).toContainText('回答已生成')
   expect(api.askBodies[0]).toMatchObject({ attachments: [{ id: 'query-1', detail: 'high' }], strategy: 'auto' })
 
   await page.getByTestId('mode-expert').click()
@@ -522,7 +560,7 @@ test.describe('README screenshot capture', () => {
     await page.getByRole('textbox', { name: '问题' }).fill('如何检查混合检索、重排序和拒答门？')
     await page.getByTestId('run-query').click()
 
-    await expect(page.getByRole('status')).toContainText('检索完成')
+    await expect(page.getByTestId('answer-result-status')).toContainText('检索完成')
     await expect(page.getByText('当前是只检索模式')).toBeVisible()
     await expect(page.getByTestId('citation-5')).toBeVisible()
     await expect(page.locator('.keyboard-hint')).toHaveText('⌘ K 聚焦 · ⌘ 回车发送')

@@ -46,6 +46,7 @@ function openCitation(item: ChunkResult) {
       </div>
       <div
         :class="['result-status', { refused: workbench.isRefusal.value, pending: workbench.streamAuditPending.value }]"
+        data-testid="answer-result-status"
         role="status"
         aria-live="polite"
       >
