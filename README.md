@@ -2,7 +2,7 @@
 
 **中文** · [英文概览](README.en.md)
 
-[![持续集成](https://img.shields.io/badge/%E6%8C%81%E7%BB%AD%E9%9B%86%E6%88%90-%E6%9F%A5%E7%9C%8B%E5%B7%A5%E4%BD%9C%E6%B5%81-0f766e.svg)](https://github.com/728792899-create/personal-multimodal-rag/actions/workflows/ci.yml)
+[![持续集成](https://github.com/728792899-create/personal-multimodal-rag/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/728792899-create/personal-multimodal-rag/actions/workflows/ci.yml)
 [![许可证：MIT](https://img.shields.io/badge/%E8%AE%B8%E5%8F%AF%E8%AF%81-MIT-0f766e.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-2563eb.svg)](backend/requirements.txt)
 [![Node 22+](https://img.shields.io/badge/Node-22%2B-0f766e.svg)](frontend/package.json)
@@ -16,6 +16,8 @@
 
 [快速启动](#5-分钟离线启动) · [端到端案例](docs/case-study.md) · [产品巡游](docs/product-tour.md) · [现场验收](docs/production-validation.md) · [文档中心](docs/README.md) · [评测结果](docs/evaluation-results.md) · [安全模型](docs/security-model.md)
 
+> **最新进度（2026-07-29）**：首页已提供受权限保护的 DeepSeek 官方连接入口，持久会话、流式回答最终状态与错误恢复完成加固；当前 PR 的前后端、Docker Compose、检索/多模态/图谱评测、CodeQL、依赖审计、Trivy 与 SBOM 共 30 项 GitHub Actions 检查全部通过。
+
 面向单用户真实日常使用的自托管多模态证据平台。它不只展示“上传并问答”，还把 BM25、向量召回、融合去重、MMR、重排、拒答决策和引用覆盖率组织成可理解、可回归的证据链。
 
 默认使用确定性哈希嵌入、内存向量库和模板回答：**无需真实 API 密钥、不会调用付费 API**。PDF、DOCX、Markdown、文本、图片 OCR、URL 导入、持久会话、引用上下文、质量审计、反馈评测和专家参数均保留。
@@ -24,7 +26,7 @@
 
 **0.4.0-rc.1 本地生产候选版** 开始把“演示能力”和“受支持运行路径”明确分开：保留零密钥演示，同时增加失败即关闭的本地生产与生产配置、Argon2id 会话认证、CSRF、登录限流、PostgreSQL 元数据适配器、pgvector、S3/MinIO、ClamAV、Redis Streams、事务发件箱、死信队列和带校验和的 SQLite→PostgreSQL 迁移。候选版不使用“已可生产使用”的宣称；完成真实资料基准、恢复演练与 14 天持续运行门槛后才会发布 1.0。
 
-2026-07-23 的私有生产验收已索引 **21 组有许可证来源 / 200 份非固定样例文档 / 5,159 个 768 维向量**，并真实通过 PostgreSQL + pgvector + MinIO 破坏性恢复及 API、工作进程、Redis、PostgreSQL、MinIO 五类故障注入。MinerU 高级解析真实任务通过；Ollama 嵌入通过，但 `qwen3:8b` 三类生成接口在本机 180 秒超时。持续观测如实保留宿主机与容器运行间隔，并在超限后自然重置；最近一次验证（`2026-07-28T17:26:59Z`）确认 SHA-256 链有效，共 1,166 个样本、27 个失败样本，最长连续窗口仍为 81,984 秒，当前连续窗口从 `2026-07-28T16:26:46Z` 开始、已记录 3,613 秒，不能回填。人工标注仍为 0/200、本人真实问题仍为 0/100，Sentry 因无 DSN 未验收。因此版本仍是候选版，完整证据与复现命令见[现场验收手册](docs/production-validation.md)。
+2026-07-23 开始的私有生产验收已索引 **21 组有许可证来源 / 200 份非固定样例文档 / 5,159 个 768 维向量**，并真实通过 PostgreSQL + pgvector + MinIO 破坏性恢复及 API、工作进程、Redis、PostgreSQL、MinIO 五类故障注入。MinerU 高级解析真实任务通过；Ollama 嵌入通过，但 `qwen3:8b` 三类生成接口在本机 180 秒超时；DeepSeek 官方 `GET /models` 连接验证通过，真实回答生成仍不计作已完成验收。持续观测如实保留宿主机与容器运行间隔，并在超限后自然重置；截至 `2026-07-29 01:47:03+08:00`（`2026-07-28T17:47:03Z`）的已记录快照确认 SHA-256 链有效且状态一致，共 1,170 个样本、27 个失败样本，最长连续窗口为 81,984 秒，当前连续窗口从 `2026-07-28T16:26:46Z` 开始、已记录 4,817 秒，不能回填。Production Compose 9/9 服务健康，Redis Streams `pending=0`、`lag=0`，保留 2 条历史 DLQ 记录；宿主卷使用率 85%、可用 67 GiB，需要继续关注。人工标注仍为 0/200、本人真实问题仍为 0/100，Sentry 因无 DSN 未验收。因此版本仍是候选版，完整证据与复现命令见[现场验收手册](docs/production-validation.md)。
 
 同一版本还补齐日常使用闭环：可以订阅服务端白名单内的本地目录、URL 列表和 RSS/Atom，以内容哈希、ETag、Last-Modified 和稳定外部 ID 做增量同步；空结果或部分失败不会触发批量删除，条目连续两次完整同步仍消失才进入人工确认。回答、会话和知识卡片均可导出带引用的 Markdown 文档。实现与安全边界见[持续数据源与增量同步](docs/source-sync.md)。
 
@@ -35,7 +37,7 @@
 | 默认体验 | 可信度机制 | 工程证据 | 生产边界 |
 | --- | --- | --- | --- |
 | 零密钥、离线可运行 | 无证据拒答 | 232 个后端通过、3 个跳过 | Argon2id 会话与可选 Sentry |
-| 多知识库、DOCX 与图片提问 | 十阶段检索追踪 | 60 个前端测试 | Chroma / pgvector 适配器 |
+| 多知识库、DOCX 与图片提问 | 十阶段检索追踪 | 62 个前端测试 | Chroma / pgvector 适配器 |
 | 持久会话与流式回答 | 精确元素引用与图谱来源 | 14 个浏览器端到端测试 | Redis Streams / S3 / ClamAV |
 | 可恢复索引任务 | 反馈 → 评测草稿 | 100 条黄金回归案例 | 演示、本地生产、生产配置明确分层 |
 
@@ -58,7 +60,7 @@
 | 数据源 | 白名单目录、URL 列表、RSS/Atom 增量同步与人工删除确认 | ✓ | 可继续扩展连接器注册表 |
 | 处理 | SQLite 任务、租约恢复、去重、终态取消、版本兼容 | ✓ | 生产配置使用 Redis Streams + 事务发件箱 + 死信队列 |
 | 检索 | 知识库隔离、BM25、向量、轻量图谱、RRF、MMR、重排 | ✓ | LightRAG 导航、本地/OpenAI/Ollama 嵌入、Chroma、pgvector |
-| 回答 | 持久会话、SSE、模板/Responses/聊天/Ollama 适配器 | ✓ | 外部模型提供方人工验证 |
+| 回答 | 持久会话、SSE、模板/Responses/聊天/Ollama/DeepSeek 适配器 | ✓ | DeepSeek 连通性已验；真实生成质量仍需人工验收 |
 | 可信度 | 无答案门、引用、相邻上下文、引用审计 | ✓ | NLI/LLM 判断器待规划 |
 | 质量 | 反馈、评测草稿、黄金集、Recall@K、MRR、引用/拒答 | ✓ | 真实流量抽样待规划 |
 | 交付 | Nginx、FastAPI、三种 Compose 配置、健康/就绪检查、GitHub Actions | ✓ | SBOM、Trivy、CodeQL、容器签名 |
@@ -195,8 +197,9 @@ npm run verify
 | 检查 | 当前本地结果 | CI 门槛 |
 | --- | ---: | ---: |
 | 后端测试 | 232 通过、3 跳过 | 全部通过 |
-| 前端单元/组件 | 60 通过 | 全部通过 |
+| 前端单元/组件 | 62 通过 | 全部通过 |
 | 浏览器端到端测试 | 14 通过 | 桌面与移动全部通过 |
+| GitHub Actions | 30 通过 | 全部通过 |
 | Recall@5 | 1.0000 | ≥ 0.90 |
 | MRR | 0.9888 | ≥ 0.75 |
 | 首条引用准确率 | 0.9775 | ≥ 0.75 |
@@ -216,6 +219,11 @@ npm run verify
 ![本地生产候选版安全登录页](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/581b39fa4f3ec82fc7680fec94605bce3bd2691d/docs/screenshots/13-evidence-ledger-login.png)
 
 默认首页采用 **问题优先** 的单画布：普通使用者只看到问题、回答与来源；文件上传和知识库管理收进资料库抽屉，检索追踪收进检索调试抽屉。`⌘/Ctrl + K` 可随时聚焦问题，`Esc` 关闭抽屉，调试模式才展开 BM25、向量、图谱、MMR 与重排参数。
+
+| DeepSeek 官方连接 | 无效凭据不破坏原连接 |
+| --- | --- |
+| ![DeepSeek 临时连接验证通过](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/a17309d8e38645271edd1c01c8454da275f4cb4d/docs/audits/deepseek-connection-2026-07-28/02-connected.jpg) | ![错误恢复后仍保留服务端连接](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/a17309d8e38645271edd1c01c8454da275f4cb4d/docs/audits/deepseek-connection-2026-07-28/05-error-preserves-server.jpg) |
+| 密钥仅进入当前后端进程内存，验证成功后输入框立即清空 | 错误信息脱敏，启动时 Provider 保持可用 |
 
 | 问答首页 | 检索调试 | 390px 窄屏 |
 | --- | --- | --- |
@@ -345,6 +353,8 @@ GitHub Actions 按职责拆分：
 - `security.yml`：CodeQL、Python/npm 依赖审计、Trivy、SPDX SBOM 与生产契约。
 - `release-images.yml`：仅对发布标签构建固定镜像，生成来源证明/SBOM，并使用 GitHub OIDC 做无密钥 Cosign 签名与构建证明。
 - 高级解析器和真实模型提供方继续使用显式手动工作流，普通 PR 不下载模型、不调用付费 API。
+
+截至 2026-07-29，当前功能分支的最新一轮 push 与 pull request 共 30 项检查全部通过；可在 [PR #15](https://github.com/728792899-create/personal-multimodal-rag/pull/15) 查看逐项结果。
 
 `0.4.0-rc` 的固定样例回归与基础设施契约可由 CI 自动复现；真实语料、14 天持续运行与完整恢复演练必须由部署负责人提交私有证据清单。`GET /api/system/readiness-report` 会明确返回每一道通过/阻断门，不能由固定样例自动把版本标记为 1.0。徽章反映默认分支最近一次 `ci.yml` 状态；发布前仍需逐项执行 [发布检查清单](docs/release-checklist.md)。
 

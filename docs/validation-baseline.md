@@ -149,7 +149,7 @@ Docker 实栈重新构建后，`/ready` 返回架构版本 5 与 `mock / memory 
 
 ## 远端 CI
 
-0.1 加固分支的 GitHub Actions 已实际跑通。0.2 PR #2 首个功能提交的 push 与 pull_request 两套 backend、docs、frontend、retrieval-eval、docker-compose 共 10 项检查全部通过；后续修复提交仍以对应提交 checks 为准，本地结果不能代替远端 CI。
+截至 2026-07-29，PR #15 的最新功能提交已实际通过 push 与 pull request 两套工作流共 30 项检查，覆盖 backend、docs、frontend、retrieval-eval、multimodal-eval、graph-eval、parser-contract、asset-security、docker-compose、CodeQL、依赖审计、生产契约、Trivy 与 SBOM。后续提交仍以对应提交 checks 为准，本地结果不能代替远端 CI。
 
 ## 尚不能在本地证明的外部状态
 
@@ -164,16 +164,16 @@ Docker 实栈重新构建后，`/ready` 返回架构版本 5 与 `mock / memory 
 
 MinerU 3.4.4 / RAG-Anything 1.3.1 隔离容器对真实 fixture PNG 解析成功并返回 3 个元素；Docling/PaddleOCR 未安装。Ollama 0.32.1 的原生/兼容 embedding 均成功并返回 768 维，`qwen3:8b` 原生 chat、chat-completions 和 Responses 均在 180 秒超时，故 Provider 总验收失败。Sentry 无 DSN、无真实事件，Docker 7.8 GiB 不满足 full self-hosted profile。
 
-14 天 hash-chained soak 于 `2026-07-23T10:25:17Z` 从第一个健康样本开始，历史不回填。到 `2026-07-26T05:27:19Z`，SHA-256 链含 636 个样本和 22 个失败样本；四次真实宿主机/运行时间隔均让连续时间自然重置，最长连续窗口为 81,984 秒。第四次恢复复现并修复 Nginx 缓存已重建 backend 地址的问题；verifier 也新增宿主机真实时间新鲜度与状态/链一致性检查。随后 `2026-07-27T10:10:58Z` 再记录一条真实 `TimeoutError`：到 `2026-07-27T10:26:11Z`，链为 943 个样本、23 个失败样本，当前窗口自 `2026-07-27T10:16:11Z` 自然重置。机器已生成 200 条 draft，但人工确认仍为 0；真实问题来源声明仍为 0。以上数字不会被自动化或 fixture 补齐，项目继续保持 `0.4.0-rc.1`。
+14 天 hash-chained soak 于 `2026-07-23T10:25:17Z` 从第一个健康样本开始，历史不回填。到 `2026-07-28T17:47:03Z`，SHA-256 链含 1,170 个样本和 27 个失败样本，状态与链一致且宿主机时间新鲜；真实宿主机/运行时间隔均让连续时间自然重置，最长连续窗口为 81,984 秒。当前窗口自 `2026-07-28T16:26:46Z` 开始，已记录 4,817 秒。Production Compose 9/9 服务健康，Redis Streams `pending=0`、`lag=0`，2 条 DLQ 为保留的历史审计记录。机器已生成 200 条 draft，但人工确认仍为 0；真实问题来源声明仍为 0。以上数字不会被自动化或 fixture 补齐，项目继续保持 `0.4.0-rc.1`。
 
-## Question-first UI 终验（2026-07-26）
+## Question-first UI 终验（2026-07-26 至 2026-07-29）
 
 本轮将工作台重构为单一问答画布与两个按需抽屉。简洁模式默认隐藏 Provider、原始检索分值、候选池、系统指标和 1.0 验收记录；上传与数据源位于资料库抽屉，BM25、向量、Graph、MMR、rerank、引用上下文和质量审计保留在调试模式与检索调试抽屉。
 
 | 项目 | 真实结果 |
 | --- | --- |
-| 前端 Vitest | 7 files / 27 tests passed |
-| `npm run build` | 通过；JS 175.57 kB（gzip 60.03），CSS 96.80 kB（gzip 18.54） |
+| 前端 Vitest | 11 files / 62 tests passed |
+| `npm run build` | TypeScript 检查与 Vite 生产构建通过 |
 | Playwright | 14/14 passed；desktop Chromium + 390px mobile Chromium |
 | 生产前端容器 | 使用原 Production Validation Compose 无损重建；`frontend` 恢复 healthy，未删除任何卷 |
 | Browser 实测 | 简洁首页、调试参数、资料库抽屉、检索调试抽屉、来源打开与焦点返回均正常 |
@@ -181,3 +181,5 @@ MinerU 3.4.4 / RAG-Anything 1.3.1 隔离容器对真实 fixture PNG 解析成功
 | 窄屏 | 390×844 Playwright 视口无横向溢出，底部新对话/资料/调试入口可达 |
 
 截图 `01-workbench-beta.png`、`14-evidence-ledger-mobile.png`、`15-question-first-debug.png` 和 `16-question-first-sources.png` 均来自实际运行页面。测试与截图没有调用付费 API，也没有把本轮 UI 操作回填为人工标注或真实提问证据。
+
+2026-07-28 至 29 又完成 DeepSeek 官方连接面板与会话恢复验收：真实 `GET /models` 连通检查不生成内容；成功 SSE 的最终事件不会再被短暂滞后的持久层读取降级为“未完成”。桌面与 390px Browser 验证覆盖连接、清除、无效凭据恢复和刷新恢复；密钥未进入截图、响应、浏览器持久化或 Git。
