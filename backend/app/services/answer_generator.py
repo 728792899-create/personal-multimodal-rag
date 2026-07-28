@@ -6,6 +6,48 @@ from abc import ABC, abstractmethod
 from app.services.responses_client import ResponsesClient
 
 
+MAX_PROMPT_EVIDENCE_CHARS = 12_000
+MAX_PROMPT_EVIDENCE_ITEM_CHARS = 2_400
+MAX_PROMPT_EVIDENCE_ITEMS = 8
+
+
+def _bounded_text(value: object, limit: int) -> str:
+    text = str(value or "").strip()
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 1)].rstrip() + "…"
+
+
+def _generation_trace_summary(trace: dict) -> dict:
+    """Keep ranking diagnostics out of the generation context.
+
+    Full retrieval traces can contain every candidate, graph path and score.
+    They remain available to the UI and audit log, but sending that payload to
+    a local model wastes context and can turn a normal answer into a timeout.
+    """
+
+    pipeline = trace.get("pipeline") if isinstance(trace.get("pipeline"), dict) else {}
+    graph = pipeline.get("graph") if isinstance(pipeline.get("graph"), dict) else {}
+    paths = graph.get("paths") if isinstance(graph.get("paths"), list) else []
+    return {
+        key: trace.get(key)
+        for key in (
+            "search_mode",
+            "search_profile",
+            "strategy",
+            "refuse_reason",
+        )
+        if trace.get(key) not in {None, ""}
+    } | {
+        "decision": pipeline.get("decision", {}),
+        "graph": {
+            "status": graph.get("status", "skipped"),
+            "reason": graph.get("reason", ""),
+            "path_count": len(paths),
+        },
+    }
+
+
 class BaseAnswerGenerator(ABC):
     name = "base"
 
@@ -85,8 +127,15 @@ class ResponsesAnswerGenerator(BaseAnswerGenerator):
 
     def _build_prompt(self, question: str, citations: list[dict], trace: dict) -> str:
         evidence = []
-        for idx, item in enumerate(citations, start=1):
+        remaining_characters = MAX_PROMPT_EVIDENCE_CHARS
+        for idx, item in enumerate(citations[:MAX_PROMPT_EVIDENCE_ITEMS], start=1):
             parent_context = item.get("parent_context") if isinstance(item.get("parent_context"), dict) else {}
+            source_text = parent_context.get("text") or item.get("text") or item.get("snippet") or ""
+            text_limit = min(MAX_PROMPT_EVIDENCE_ITEM_CHARS, remaining_characters)
+            bounded_source = _bounded_text(source_text, text_limit)
+            if not bounded_source:
+                continue
+            remaining_characters -= len(bounded_source)
             evidence.append(
                 {
                     "id": idx,
@@ -94,10 +143,12 @@ class ResponsesAnswerGenerator(BaseAnswerGenerator):
                     "chunk": item["index"] + 1,
                     "page_number": item.get("page_number"),
                     "score": item["score"],
-                    "text": item["text"],
-                    "parent_context": parent_context.get("text") or item["text"],
+                    "text": bounded_source,
                 }
             )
+            if remaining_characters <= 0:
+                break
+        trace_summary = _generation_trace_summary(trace)
         return (
             "你是一个严谨的个人知识库 RAG 问答助手。\n"
             "只能根据下面 evidence 中的内容回答，不能使用外部知识补充事实。\n"
@@ -105,7 +156,7 @@ class ResponsesAnswerGenerator(BaseAnswerGenerator):
             "如果 evidence 不足以回答，请明确说“无法确定”，并说明缺少什么资料。\n"
             "输出结构必须包含：答案、依据、不确定性、后续建议。\n\n"
             f"用户问题：{question}\n\n"
-            f"检索调试信息：{json.dumps(trace, ensure_ascii=False)}\n\n"
+            f"检索摘要：{json.dumps(trace_summary, ensure_ascii=False)}\n\n"
             f"evidence：{json.dumps(evidence, ensure_ascii=False, indent=2)}"
         )
 

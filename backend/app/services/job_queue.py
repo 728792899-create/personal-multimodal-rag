@@ -23,7 +23,14 @@ class RedisJobQueue:
     stream_name = "rag:index-jobs"
     group_name = "rag-index-workers"
 
-    def __init__(self, redis_url: str, *, consumer_name: str, client=None):
+    def __init__(
+        self,
+        redis_url: str,
+        *,
+        consumer_name: str,
+        client=None,
+        stale_pending_ms: int = 900_000,
+    ):
         if not redis_url:
             raise ValueError("REDIS_URL is required")
         if client is None:
@@ -39,6 +46,8 @@ class RedisJobQueue:
             )
         self.client = client
         self.consumer_name = consumer_name
+        self.stale_pending_ms = max(1_000, int(stale_pending_ms))
+        self._autoclaim_start_id = "0-0"
         self.client.ping()
         try:
             self.client.xgroup_create(
@@ -66,6 +75,9 @@ class RedisJobQueue:
         )
 
     def wait(self, timeout_seconds: float = 1.0) -> QueueMessage | None:
+        reclaimed = self._claim_stale_pending()
+        if reclaimed is not None:
+            return reclaimed
         response = self.client.xreadgroup(
             self.group_name,
             self.consumer_name,
@@ -76,7 +88,36 @@ class RedisJobQueue:
         if not response:
             return None
         _, entries = response[0]
-        message_id, fields = entries[0]
+        return self._message(entries[0])
+
+    def _claim_stale_pending(self) -> QueueMessage | None:
+        """Transfer one abandoned delivery to this consumer.
+
+        Redis Streams keeps a delivery pending after a worker process exits.
+        PostgreSQL remains the job state authority, so reclaiming the signal is
+        safe: the worker can only claim jobs whose durable state is ``queued``.
+        """
+
+        response = self.client.xautoclaim(
+            self.stream_name,
+            self.group_name,
+            self.consumer_name,
+            self.stale_pending_ms,
+            self._autoclaim_start_id,
+            count=1,
+        )
+        if not response or len(response) < 2:
+            self._autoclaim_start_id = "0-0"
+            return None
+        self._autoclaim_start_id = str(response[0] or "0-0")
+        entries = response[1] or []
+        if not entries:
+            return None
+        return self._message(entries[0])
+
+    @staticmethod
+    def _message(entry) -> QueueMessage:
+        message_id, fields = entry
         try:
             payload = json.loads(fields.get("payload") or "{}")
         except json.JSONDecodeError:

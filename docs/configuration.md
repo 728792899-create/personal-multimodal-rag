@@ -110,6 +110,8 @@ CHROMA_COLLECTION=personal_knowledge_openai_v1
 | --- | --- | --- |
 | `ANSWER_PROVIDER` | `template` | `template`、`openai_responses`、`openai_compatible_chat` 或 `ollama` |
 | `ANSWER_MODEL` | `gpt-5.6` | Responses-compatible 模型名，可由环境变量覆盖 |
+| `ANSWER_THINKING_MODE` | 空 | OpenAI-compatible 思考模式；支持 `enabled` / `disabled`，留空则不发送 |
+| `ANSWER_MAX_TOKENS` | `0` | 回答输出上限；`0` 表示由提供方默认值决定 |
 | `ANSWER_BASE_URL` | 空 | 未设置时回退 `OPENAI_BASE_URL` |
 | `ANSWER_API_KEY` | 空 | 未设置时回退 `OPENAI_API_KEY` |
 | `ANSWER_TIMEOUT_SECONDS` | 45 | 生成网络超时 |
@@ -122,6 +124,23 @@ CHROMA_COLLECTION=personal_knowledge_openai_v1
 `responses`/`openai-responses` 旧别名继续可用。Responses 请求设置 `store:false`，流式消费官方 typed events；会话状态保存在本地 SQLite。
 
 `APP_ENVIRONMENT=local/test/development` 默认允许显式模板回退；production 默认不允许。外部模型提供方未配置/不可用时返回脱敏 `503`，避免生产流量静默变成模板回答。`/api/providers/status` 只返回能力、配置完整性和模式，不返回密钥或带凭据 URL。
+
+### DeepSeek V4 Flash
+
+服务启动配置使用 OpenAI 兼容适配器：
+
+```env
+ANSWER_PROVIDER=openai_compatible_chat
+ANSWER_BASE_URL=https://api.deepseek.com
+ANSWER_MODEL=deepseek-v4-flash
+ANSWER_THINKING_MODE=disabled
+ANSWER_MAX_TOKENS=512
+PROVIDER_FALLBACK_ALLOWED=0
+```
+
+密钥应通过 `ANSWER_API_KEY_FILE` 注入；仓库的 `compose.deepseek.yml` 默认挂载 `./secrets/answer_api_key`。该文件必须被 Git 忽略并限制为当前用户可读。
+
+已登录的管理员也可以在首页“模型连接”面板临时连接 DeepSeek。后端只允许官方地址和 `deepseek-v4-flash`，通过认证后的 `GET /models` 检查凭据及模型可用性，成功后才原子替换回答生成器。浏览器先把密钥交给当前服务端，服务端再将其作为 Bearer 凭据发送到 DeepSeek；连接生效后的问题和检索证据片段同样会发送给 DeepSeek 生成答案，面板必须在用户显式确认这一数据流后才能提交。密钥不写入浏览器存储、元数据仓库或响应，日志与可观测事件执行密钥字段脱敏；临时覆盖只作用于当前单实例后端进程，清除或重启即恢复启动配置。清除只影响后续请求，不会中断已开始的回答，也不等同于在 DeepSeek 控制台撤销密钥；疑似泄漏时必须在控制台轮换。多副本部署必须继续使用集中式密钥管理和滚动配置，不能依赖此临时入口。
 
 ### 多模态增强
 
@@ -143,6 +162,8 @@ CHROMA_COLLECTION=personal_knowledge_openai_v1
 | --- | --- | --- |
 | `OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | 本机 Ollama；Compose 需要 host 可达地址 |
 | `OLLAMA_CHAT_MODEL` | `qwen3:8b` | 聊天模型 |
+| `OLLAMA_NUM_CTX` | `4096` | Ollama 回答上下文窗口；受限硬件应保持保守值 |
+| `OLLAMA_NUM_PREDICT` | `256` | Ollama 单次回答的最大生成 token 数 |
 | `OLLAMA_EMBEDDING_MODEL` | `nomic-embed-text` | 嵌入模型 |
 
 本仓库只有模拟 HTTP 契约测试，没有下载模型或伪造在线验证结果。启用前由部署者拉取模型、检查许可、容量与延迟，并用领域评测集重建索引。

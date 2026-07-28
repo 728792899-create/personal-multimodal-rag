@@ -118,10 +118,11 @@ async def localized_validation_error(_, exc: RequestValidationError):
             original = str(error.get("msg") or "")
             _, _, localized = original.partition(", ")
             message = localized or "请求参数无效。"
-        issue = dict(error)
-        issue["type"] = issue_type
-        issue["loc"] = list(error.get("loc") or [])
-        issue["msg"] = message or "请求参数无效。"
+        issue = {
+            "type": issue_type,
+            "loc": list(error.get("loc") or []),
+            "msg": message or "请求参数无效。",
+        }
         issues.append(issue)
     return JSONResponse(
         status_code=422,
@@ -145,6 +146,7 @@ def prometheus_metrics():
 @app.get("/ready")
 def ready():
     providers = provider_status()
+    answer_status = providers["providers"]["answer"]
     checks = collect_runtime_checks(
         settings,
         registry=registry,
@@ -152,10 +154,12 @@ def ready():
         queue=job_signal_queue,
         vector_store=retriever.vector_store,
         fetch_worker=fetch_worker_client,
+        answer_status=answer_status,
     )
     runtime = build_readiness_report(
         settings,
         checks=checks,
+        answer_status=answer_status,
     )
     payload = {
         "status": "ready" if providers["status"] == "ready" and runtime["ready"] else "degraded",

@@ -76,7 +76,23 @@ def validate_runtime_settings(settings: Settings) -> None:
         raise ValueError("; ".join(errors))
 
 
-def build_readiness_report(settings: Settings, *, checks: dict | None = None) -> dict:
+def _active_runtime_answer(answer_status: dict | None) -> dict | None:
+    if not isinstance(answer_status, dict):
+        return None
+    if (
+        answer_status.get("runtime_override") is True
+        and answer_status.get("active") is True
+    ):
+        return answer_status
+    return None
+
+
+def build_readiness_report(
+    settings: Settings,
+    *,
+    checks: dict | None = None,
+    answer_status: dict | None = None,
+) -> dict:
     configured = True
     errors: list[str] = []
     try:
@@ -84,6 +100,46 @@ def build_readiness_report(settings: Settings, *, checks: dict | None = None) ->
     except ValueError as exc:
         configured = False
         errors = [item.strip() for item in str(exc).split(";") if item.strip()]
+
+    startup_provider = settings.answer_provider.lower()
+    reported_provider = startup_provider
+    reported_configured = (
+        startup_provider in {"template", "local", "none"}
+        or bool(
+            settings.answer_api_key
+            or settings.answer_base_url
+            or settings.ollama_base_url
+        )
+    )
+    if isinstance(answer_status, dict):
+        candidate_provider = str(answer_status.get("provider") or "").strip()
+        if candidate_provider:
+            reported_provider = candidate_provider[:80]
+        if isinstance(answer_status.get("configured"), bool):
+            reported_configured = answer_status["configured"]
+
+    active_runtime_answer = _active_runtime_answer(answer_status)
+    answer_component = {
+        "provider": reported_provider,
+        "configured": reported_configured,
+        "runtime_override": False,
+        "startup_provider": startup_provider,
+    }
+    if active_runtime_answer is not None:
+        answer_component = {
+            "provider": str(
+                active_runtime_answer.get("provider") or "unknown"
+            )[:80],
+            "configured": active_runtime_answer.get("configured") is True,
+            "runtime_override": True,
+            "startup_provider": startup_provider,
+            "active": True,
+            # The runtime credential was checked once before the atomic swap.
+            # Readiness reports that basis explicitly and performs no billable
+            # generation or repeated credential-bearing external request.
+            "health_basis": "validated_on_connect",
+            "live_probe": "not_run",
+        }
 
     components = {
         "metadata": {
@@ -108,11 +164,7 @@ def build_readiness_report(settings: Settings, *, checks: dict | None = None) ->
             "provider": settings.vector_store.lower(),
             "configured": settings.vector_store.lower() != "pgvector" or bool(settings.pgvector_dsn),
         },
-        "answer": {
-            "provider": settings.answer_provider.lower(),
-            "configured": settings.answer_provider.lower() in {"template", "local", "none"}
-            or bool(settings.answer_api_key or settings.answer_base_url or settings.ollama_base_url),
-        },
+        "answer": answer_component,
         "embedding": {
             "provider": settings.embedding_provider.lower(),
             "configured": settings.embedding_provider.lower()
@@ -135,19 +187,31 @@ def build_readiness_report(settings: Settings, *, checks: dict | None = None) ->
         "mode": settings.runtime_mode.lower(),
         "ready": configured and health_ready,
         "configured": configured,
+        "answer_provider": {
+            "current": answer_component["provider"],
+            "startup": startup_provider,
+            "runtime_override": answer_component["runtime_override"],
+        },
         "components": components,
         "errors": errors,
     }
 
 
-def probe_provider_health(settings: Settings, *, timeout_seconds: float = 2.0) -> dict[str, bool]:
+def probe_provider_health(
+    settings: Settings,
+    *,
+    timeout_seconds: float = 2.0,
+    probe_answer: bool = True,
+) -> dict[str, bool]:
     """Perform non-generating provider probes for production readiness.
 
     The probes never submit prompts or embedding inputs, so readiness checks
     cannot create billable model requests.
     """
 
-    results = {"answer": True, "embedding": True}
+    results = {"embedding": True}
+    if probe_answer:
+        results["answer"] = True
     endpoints: dict[str, tuple[str, dict[str, str], str]] = {}
 
     def register(
@@ -181,13 +245,18 @@ def probe_provider_health(settings: Settings, *, timeout_seconds: float = 2.0) -
                 "",
             )
 
-    register(
-        "answer",
-        settings.answer_provider,
-        settings.ollama_base_url if settings.answer_provider.lower() == "ollama" else settings.answer_base_url,
-        settings.answer_api_key,
-        settings.ollama_chat_model if settings.answer_provider.lower() == "ollama" else settings.answer_model,
-    )
+    if probe_answer:
+        register(
+            "answer",
+            settings.answer_provider,
+            settings.ollama_base_url
+            if settings.answer_provider.lower() == "ollama"
+            else settings.answer_base_url,
+            settings.answer_api_key,
+            settings.ollama_chat_model
+            if settings.answer_provider.lower() == "ollama"
+            else settings.answer_model,
+        )
     register(
         "embedding",
         settings.embedding_provider,
@@ -237,6 +306,7 @@ def collect_runtime_checks(
     queue,
     vector_store,
     fetch_worker=None,
+    answer_status: dict | None = None,
 ) -> dict[str, bool]:
     def safe(callable_) -> bool:
         try:
@@ -253,5 +323,17 @@ def collect_runtime_checks(
     if settings.runtime_mode.lower() == "production":
         checks["fetch_worker"] = safe(fetch_worker.health) if fetch_worker is not None else False
     if settings.runtime_mode.lower() != "demo":
-        checks.update(probe_provider_health(settings))
+        active_runtime_answer = _active_runtime_answer(answer_status)
+        if active_runtime_answer is not None:
+            checks["answer"] = bool(
+                active_runtime_answer.get("configured") is True
+                and active_runtime_answer.get("connected") is True
+                and active_runtime_answer.get("health") == "ready"
+            )
+        checks.update(
+            probe_provider_health(
+                settings,
+                probe_answer=active_runtime_answer is None,
+            )
+        )
     return checks

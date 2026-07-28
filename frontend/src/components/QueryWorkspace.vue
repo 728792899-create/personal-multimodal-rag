@@ -269,7 +269,7 @@ watch(
             class="send-button"
             data-testid="run-query"
             :aria-label="workbench.workMode.value === 'answer' ? '发送问题并生成回答' : '开始检索证据'"
-            :disabled="!workbench.question.value.trim() || !workbench.expertParametersValid.value || workbench.queryAttachmentUploading.value"
+            :disabled="workbench.booting.value || workbench.loading.value || !workbench.question.value.trim() || !workbench.expertParametersValid.value || workbench.queryAttachmentUploading.value"
             @click="workbench.handleRun"
           >
             <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 19V5M6.5 10.5 12 5l5.5 5.5"/></svg>

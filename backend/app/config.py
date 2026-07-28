@@ -74,6 +74,8 @@ class Settings:
     answer_base_url: str = os.getenv("ANSWER_BASE_URL", os.getenv("OPENAI_BASE_URL", ""))
     answer_api_key: str = _env_or_file("ANSWER_API_KEY", _env_or_file("OPENAI_API_KEY"))
     answer_timeout_seconds: float = float(os.getenv("ANSWER_TIMEOUT_SECONDS", "45"))
+    answer_thinking_mode: str = os.getenv("ANSWER_THINKING_MODE", "")
+    answer_max_tokens: int = int(os.getenv("ANSWER_MAX_TOKENS", "0"))
     embedding_timeout_seconds: float = float(
         os.getenv("EMBEDDING_TIMEOUT_SECONDS", "120")
     )
@@ -163,6 +165,8 @@ class Settings:
     ollama_base_url: str = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
     ollama_chat_model: str = os.getenv("OLLAMA_CHAT_MODEL", "qwen3:8b")
     ollama_embedding_model: str = os.getenv("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")
+    ollama_num_ctx: int = int(os.getenv("OLLAMA_NUM_CTX", "4096"))
+    ollama_num_predict: int = int(os.getenv("OLLAMA_NUM_PREDICT", "256"))
 
     def resolved_embedding_dimension(self) -> int:
         if self.embedding_dimension:

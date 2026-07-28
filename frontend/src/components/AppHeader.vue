@@ -9,16 +9,19 @@ const props = withDefaults(defineProps<{
   signingOut?: boolean
   libraryOpen?: boolean
   inspectorOpen?: boolean
+  modelConnectionOpen?: boolean
 }>(), {
   showLogout: false,
   signingOut: false,
   libraryOpen: false,
   inspectorOpen: false,
+  modelConnectionOpen: false,
 })
 const emit = defineEmits<{
   signOut: []
   openLibrary: []
   openInspector: []
+  openModelConnection: []
 }>()
 </script>
 
@@ -71,6 +74,17 @@ const emit = defineEmits<{
         class="provider-health pending"
       ><i aria-hidden="true"></i>正在检查服务</span>
 
+      <button
+        id="open-model-connection"
+        type="button"
+        class="header-tool model-connection-trigger"
+        data-testid="open-model-connection"
+        :aria-expanded="props.modelConnectionOpen"
+        aria-controls="model-connection-drawer"
+        @click="emit('openModelConnection')"
+      >
+        <span>模型连接</span>
+      </button>
       <button
         id="open-library"
         type="button"

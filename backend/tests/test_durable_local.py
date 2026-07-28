@@ -373,6 +373,408 @@ def test_conversation_sse_localizes_provider_failures(monkeypatch):
         assert stored[-1]["metadata"]["error"] == error["message"]
 
 
+def test_conversation_sse_keeps_the_proxy_connection_alive_during_provider_wait(monkeypatch):
+    from app.api.routers import conversations
+    from app.main import app
+
+    def delayed_timeout(*_args, **_kwargs):
+        import time
+
+        time.sleep(0.04)
+        raise TimeoutError("provider exceeded its answer budget")
+        yield  # pragma: no cover - keeps this function a generator
+
+    monkeypatch.setattr(conversations, "SSE_HEARTBEAT_SECONDS", 0.01, raising=False)
+    monkeypatch.setattr(conversations.rag_engine, "stream", delayed_timeout)
+    with TestClient(app) as client:
+        conversation_id = client.post(
+            "/api/conversations",
+            json={"title": "Heartbeat test", "knowledge_base_ids": ["default"]},
+        ).json()["conversation"]["id"]
+
+        response = client.post(
+            f"/api/conversations/{conversation_id}/messages:stream",
+            json={"question": "等待本地模型", "query_rewrite": False},
+        )
+
+    assert ": keep-alive" in response.text
+    payloads = [
+        json.loads(line.removeprefix("data: "))
+        for line in response.text.splitlines()
+        if line.startswith("data: ")
+    ]
+    assert payloads[-2]["type"] == "error"
+    assert payloads[-2]["code"] == "ANSWER_PROVIDER_TIMEOUT"
+    assert payloads[-1]["type"] == "done"
+    assert payloads[-1]["status"] == "failed"
+
+
+def test_conversation_sse_metrics_use_the_request_provider_snapshot(
+    monkeypatch,
+):
+    from types import SimpleNamespace
+
+    from app.api.routers import conversations
+    from app.main import app
+
+    snapshot = SimpleNamespace(name="deepseek_official")
+    recorded: list[tuple[str, str]] = []
+
+    class Metrics:
+        def record_answer(self, _response, *, provider):
+            recorded.append(("answer", provider))
+
+        def record_provider_error(self, *, provider, operation):
+            recorded.append((operation, provider))
+
+    def completed_stream(*_args, answer_generator_snapshot=None, **_kwargs):
+        assert answer_generator_snapshot is snapshot
+        response = {
+            "answer": "根据证据无法确定。",
+            "citations": [],
+            "retrieval_trace": {
+                "pipeline": {"decision": {"status": "refused"}}
+            },
+            "generation_trace": {
+                "answer_provider": "deepseek_official",
+                "skipped": True,
+            },
+            "confidence": 0,
+            "diagnostics": [],
+            "citation_audit": {},
+            "trust": {},
+        }
+        yield {"type": "retrieval.completed", "response": response}
+        yield {"type": "refusal", "response": response}
+
+    monkeypatch.setattr(
+        conversations.rag_engine,
+        "snapshot_answer_generator",
+        lambda: snapshot,
+    )
+    monkeypatch.setattr(
+        conversations.rag_engine,
+        "stream",
+        completed_stream,
+    )
+    monkeypatch.setattr(conversations, "production_metrics", Metrics())
+
+    with TestClient(app) as client:
+        conversation_id = client.post(
+            "/api/conversations",
+            json={
+                "title": "Provider metric snapshot",
+                "knowledge_base_ids": ["default"],
+            },
+        ).json()["conversation"]["id"]
+        response = client.post(
+            f"/api/conversations/{conversation_id}/messages:stream",
+            json={"question": "无法回答的问题", "query_rewrite": False},
+        )
+
+    assert response.status_code == 200
+    assert recorded == [("answer", "deepseek_official")]
+
+
+def test_conversation_sse_error_metric_and_trace_use_provider_snapshot(
+    monkeypatch,
+):
+    from types import SimpleNamespace
+
+    from app.api.routers import conversations
+    from app.main import app
+
+    snapshot = SimpleNamespace(name="deepseek_official")
+    recorded: list[tuple[str, str]] = []
+
+    class Metrics:
+        def record_answer(self, _response, *, provider):
+            recorded.append(("answer", provider))
+
+        def record_provider_error(self, *, provider, operation):
+            recorded.append((operation, provider))
+
+    def failing_stream(*_args, answer_generator_snapshot=None, **_kwargs):
+        assert answer_generator_snapshot is snapshot
+        yield {
+            "type": "retrieval.completed",
+            "response": {
+                "citations": [],
+                "retrieval_trace": {},
+                "generation_trace": {
+                    "answer_provider": "deepseek_official",
+                    "status": "pending",
+                },
+                "confidence": 0.4,
+                "diagnostics": [],
+            },
+        }
+        raise RuntimeError("provider failed api_key=telemetry-canary")
+
+    monkeypatch.setattr(
+        conversations.rag_engine,
+        "snapshot_answer_generator",
+        lambda: snapshot,
+    )
+    monkeypatch.setattr(conversations.rag_engine, "stream", failing_stream)
+    monkeypatch.setattr(conversations, "production_metrics", Metrics())
+
+    with TestClient(app) as client:
+        conversation_id = client.post(
+            "/api/conversations",
+            json={
+                "title": "Provider error metric snapshot",
+                "knowledge_base_ids": ["default"],
+            },
+        ).json()["conversation"]["id"]
+        response = client.post(
+            f"/api/conversations/{conversation_id}/messages:stream",
+            json={"question": "触发错误", "query_rewrite": False},
+        )
+        stored = client.get(
+            f"/api/conversations/{conversation_id}/messages"
+        ).json()["messages"]
+
+    assert response.status_code == 200
+    assert recorded == [("stream", "deepseek_official")]
+    persisted = stored[-1]["metadata"]["response"]
+    assert (
+        persisted["generation_trace"]["answer_provider"]
+        == "deepseek_official"
+    )
+    assert "telemetry-canary" not in response.text
+
+
+def test_conversation_stream_heartbeat_queue_snapshots_mutable_events():
+    from app.api.routers import conversations
+
+    trace = {"pipeline": {"decision": {"status": "answered"}}}
+
+    def mutable_stream():
+        yield {
+            "type": "retrieval.completed",
+            "response": {
+                "citations": [],
+                "retrieval_trace": trace,
+                "confidence": 0.4,
+                "diagnostics": [],
+            },
+        }
+        trace["pipeline"]["citation_audit"] = {"status": "checked"}
+        yield {"type": "answer.delta", "delta": "正文"}
+
+    wrapped = conversations._stream_with_heartbeats(mutable_stream())
+    retrieval_event = next(wrapped)
+    wrapped.close()
+
+    assert retrieval_event is not None
+    assert "citation_audit" not in retrieval_event["response"]["retrieval_trace"]["pipeline"]
+
+
+def test_conversation_sse_fails_closed_when_engine_ends_without_a_terminal_answer(monkeypatch):
+    from app.api.routers import conversations
+    from app.main import app
+
+    def incomplete_stream(*_args, **_kwargs):
+        yield {
+            "type": "retrieval.completed",
+            "response": {
+                "citations": [],
+                "retrieval_trace": {},
+                "confidence": 0.4,
+                "diagnostics": [],
+            },
+        }
+
+    monkeypatch.setattr(conversations.rag_engine, "stream", incomplete_stream)
+    with TestClient(app) as client:
+        conversation_id = client.post(
+            "/api/conversations",
+            json={"title": "Incomplete stream", "knowledge_base_ids": ["default"]},
+        ).json()["conversation"]["id"]
+        response = client.post(
+            f"/api/conversations/{conversation_id}/messages:stream",
+            json={"question": "回答不能消失", "query_rewrite": False},
+        )
+
+        payloads = [
+            json.loads(line.removeprefix("data: "))
+            for line in response.text.splitlines()
+            if line.startswith("data: ")
+        ]
+        stored = client.get(f"/api/conversations/{conversation_id}/messages").json()["messages"]
+
+    assert [item["type"] for item in payloads][-2:] == ["error", "done"]
+    assert payloads[-1]["status"] == "failed"
+    assert stored[-1]["status"] == "failed"
+
+
+def test_conversation_sse_persists_partial_answer_when_provider_fails(monkeypatch):
+    from app.api.routers import conversations
+    from app.main import app
+
+    def partial_stream(*_args, **_kwargs):
+        yield {
+            "type": "retrieval.completed",
+            "response": {
+                "citations": [{"id": "chunk-1", "filename": "evidence.md", "snippet": "可恢复证据"}],
+                "retrieval_trace": {"pipeline": {"decision": {"status": "answered"}}},
+                "confidence": 0.4,
+                "diagnostics": [{"level": "info", "title": "证据已找到"}],
+            },
+        }
+        yield {"type": "answer.delta", "delta": "已经生成的可靠片段"}
+        raise RuntimeError("provider disconnected")
+
+    monkeypatch.setattr(conversations.rag_engine, "stream", partial_stream)
+    with TestClient(app) as client:
+        conversation_id = client.post(
+            "/api/conversations",
+            json={"title": "Partial answer", "knowledge_base_ids": ["default"]},
+        ).json()["conversation"]["id"]
+        response = client.post(
+            f"/api/conversations/{conversation_id}/messages:stream",
+            json={"question": "保留部分正文", "query_rewrite": False},
+        )
+        stored = client.get(f"/api/conversations/{conversation_id}/messages").json()["messages"]
+
+    assert "event: error" in response.text
+    assert stored[-1]["status"] == "failed"
+    assert stored[-1]["content"] == "已经生成的可靠片段"
+    persisted_response = stored[-1]["metadata"]["response"]
+    assert persisted_response["answer"] == "已经生成的可靠片段"
+    assert persisted_response["citations"][0]["id"] == "chunk-1"
+    assert persisted_response["retrieval_trace"]["pipeline"]["decision"]["status"] == "answered"
+    assert persisted_response["generation_trace"]["status"] == "failed"
+    assert persisted_response["generation_trace"]["incomplete"] is True
+
+
+def test_conversation_sse_persists_retrieval_evidence_when_client_cancels(monkeypatch):
+    import anyio
+    from fastapi import Request
+
+    from app.api.routers import conversations
+    from app.main import app
+    from app.models.schemas import ConversationMessageRequest
+
+    def retrieval_only_stream(*_args, **_kwargs):
+        yield {
+            "type": "retrieval.completed",
+            "response": {
+                "citations": [{"id": "chunk-cancelled", "filename": "source.md", "snippet": "取消前证据"}],
+                "retrieval_trace": {"pipeline": {"retrieval": {"status": "complete"}}},
+                "confidence": 0.5,
+                "diagnostics": [],
+            },
+        }
+        yield {"type": "answer.delta", "delta": "不应继续消费"}
+
+    monkeypatch.setattr(conversations.rag_engine, "stream", retrieval_only_stream)
+    monkeypatch.setattr(conversations, "_stream_with_heartbeats", lambda items: items)
+    with TestClient(app) as client:
+        conversation_id = client.post(
+            "/api/conversations",
+            json={"title": "Cancelled evidence", "knowledge_base_ids": ["default"]},
+        ).json()["conversation"]["id"]
+        request = Request(
+            {
+                "type": "http",
+                "method": "POST",
+                "path": f"/api/conversations/{conversation_id}/messages:stream",
+                "headers": [],
+                "state": {},
+            }
+        )
+        response = conversations.stream_conversation_message(
+            conversation_id,
+            ConversationMessageRequest(question="取消后保留证据", query_rewrite=False),
+            request,
+        )
+
+        async def consume_until_retrieval_completed() -> None:
+            async for chunk in response.body_iterator:
+                if "event: retrieval.completed" in str(chunk):
+                    break
+            await response.body_iterator.aclose()
+
+        anyio.run(consume_until_retrieval_completed)
+        stored = client.get(f"/api/conversations/{conversation_id}/messages").json()["messages"]
+
+    assert stored[-1]["status"] == "cancelled"
+    persisted_response = stored[-1]["metadata"]["response"]
+    assert persisted_response["answer"] == ""
+    assert persisted_response["citations"][0]["id"] == "chunk-cancelled"
+    assert persisted_response["retrieval_trace"]["pipeline"]["retrieval"]["status"] == "complete"
+    assert persisted_response["generation_trace"]["status"] == "cancelled"
+    assert persisted_response["generation_trace"]["incomplete"] is True
+
+
+def test_conversation_sse_disconnect_after_completed_event_does_not_revert_message(monkeypatch):
+    import anyio
+    from fastapi import Request
+
+    from app.api.routers import conversations
+    from app.main import app
+    from app.models.schemas import ConversationMessageRequest
+
+    completed_response = {
+        "answer": "已完成回答",
+        "citations": [],
+        "retrieval_trace": {},
+        "generation_trace": {"answer_provider": "template"},
+        "confidence": 0.4,
+        "diagnostics": [],
+        "citation_audit": {},
+        "trust": {},
+    }
+
+    def completed_stream(*_args, **_kwargs):
+        yield {
+            "type": "retrieval.completed",
+            "response": {
+                "citations": [],
+                "retrieval_trace": {},
+                "confidence": 0.4,
+                "diagnostics": [],
+            },
+        }
+        yield {"type": "answer.delta", "delta": "已完成回答"}
+        yield {"type": "answer.completed", "response": completed_response}
+
+    monkeypatch.setattr(conversations.rag_engine, "stream", completed_stream)
+    with TestClient(app) as client:
+        conversation_id = client.post(
+            "/api/conversations",
+            json={"title": "Completed disconnect", "knowledge_base_ids": ["default"]},
+        ).json()["conversation"]["id"]
+        request = Request(
+            {
+                "type": "http",
+                "method": "POST",
+                "path": f"/api/conversations/{conversation_id}/messages:stream",
+                "headers": [],
+                "state": {},
+            }
+        )
+        response = conversations.stream_conversation_message(
+            conversation_id,
+            ConversationMessageRequest(question="完成后断开", query_rewrite=False),
+            request,
+        )
+
+        async def consume_until_answer_completed() -> None:
+            async for chunk in response.body_iterator:
+                if "event: answer.completed" in str(chunk):
+                    break
+            await response.body_iterator.aclose()
+
+        anyio.run(consume_until_answer_completed)
+        stored = client.get(f"/api/conversations/{conversation_id}/messages").json()["messages"]
+
+    assert stored[-1]["status"] == "completed"
+    assert stored[-1]["content"] == "已完成回答"
+
+
 def test_conversation_follow_up_uses_recent_questions_for_retrieval():
     from app.main import app
 

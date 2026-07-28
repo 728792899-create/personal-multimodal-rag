@@ -32,6 +32,8 @@ FastAPI 默认提供交互式 OpenAPI 页面：
 | GET | `/ready` | 结构定义、队列深度和脱敏模型提供方状态；未配置外部模型提供方时为 `degraded` |
 | GET | `/api/system/readiness-report` | 运行时、元数据/对象/向量/队列/模型提供方的逐项就绪报告 |
 | GET | `/api/providers/status` | 只读能力、配置完整性与运行模式；不返回密钥/带凭据 URL |
+| POST | `/api/providers/deepseek/runtime` | 管理员会话临时验证并连接 DeepSeek；要求 CSRF，不持久化密钥 |
+| DELETE | `/api/providers/deepseek/runtime` | 清除当前进程临时连接并恢复服务启动配置；要求 CSRF |
 | GET | `/metrics` | Prometheus 文本格式；不包含正文、问题、Cookie、密钥或 URL 查询参数 |
 | GET | `/docs` | Swagger UI |
 

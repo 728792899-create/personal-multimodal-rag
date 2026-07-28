@@ -38,6 +38,11 @@ onMounted(refresh)
   />
   <WorkbenchPage
     v-else
+    :can-manage-providers="Boolean(
+      session?.required
+      && session?.authenticated
+      && ['owner', 'admin'].includes(session?.role || '')
+    )"
     :show-logout="Boolean(session?.required)"
     :signing-out="submitting"
     @sign-out="signOut"

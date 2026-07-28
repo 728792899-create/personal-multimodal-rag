@@ -229,6 +229,9 @@ export interface AskResponse {
     skipped?: boolean
     reason?: string
     citation_count?: number
+    streamed?: boolean
+    incomplete?: boolean
+    status?: 'failed' | 'cancelled' | string
   }
   confidence: number | null
   diagnostics?: DiagnosticItem[]
@@ -751,12 +754,48 @@ export interface ProviderStatus {
   status: 'ready' | 'degraded'
   environment: string
   fallback_allowed: boolean
+  runtime?: {
+    deepseek?: DeepSeekRuntimeStatus
+  }
   providers: {
-    answer: { provider: string; configured: boolean; health?: string; mode: string; capabilities: string[] }
+    answer: {
+      provider: string
+      configured: boolean
+      health?: string
+      mode: string
+      capabilities: string[]
+      model?: string
+      base_url?: string
+    }
     embedding: { provider: string; configured: boolean; health?: string; mode: string; capabilities: string[] }
     enrichment?: { provider: string; configured: boolean; health?: string; mode: string; capabilities: string[] }
     vector_store: { provider: string; configured: boolean; health?: string }
+    deepseek_runtime?: DeepSeekRuntimeStatus
   }
+}
+
+export interface DeepSeekRuntimeStatus {
+  provider?: string
+  connected?: boolean
+  configured?: boolean
+  active?: boolean
+  status?: string
+  health?: string
+  mode?: string
+  capabilities?: string[]
+  temporary?: boolean
+  base_url?: string
+  model?: string
+  runtime_override?: boolean
+  credential_state?: string
+}
+
+export interface DeepSeekRuntimeMutation {
+  status?: string
+  runtime?: {
+    deepseek?: DeepSeekRuntimeStatus
+  }
+  connection?: DeepSeekRuntimeStatus
 }
 
 export interface IngestionRequestOptions extends RequestOptions {

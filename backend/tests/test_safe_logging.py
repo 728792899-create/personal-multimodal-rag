@@ -17,6 +17,17 @@ def test_sensitive_values_and_authorization_headers_are_redacted():
     assert cleaned.count("[REDACTED]") >= 3
 
 
+def test_sensitive_values_inside_stringified_json_are_redacted():
+    canary = "telemetry-canary-json"
+
+    cleaned = redact_sensitive_text(
+        f'provider={{"api_key":"{canary}","credential":"{canary}"}}'
+    )
+
+    assert canary not in cleaned
+    assert cleaned.count("[REDACTED]") == 2
+
+
 def test_url_logging_drops_credentials_query_and_fragment():
     safe = sanitize_url_for_log("https://user:pass@example.com/private/path?token=secret#section")
 

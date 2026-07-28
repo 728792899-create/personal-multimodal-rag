@@ -42,6 +42,59 @@ describe('streamConversationMessage', () => {
     })
   })
 
+  it('does not misreport an answer-provider stream failure as a browser network failure', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(streamResponse([
+      { type: 'retrieval.completed', sequence: 1, request_id: 'r', conversation_id: 'c', message_id: 'm', citations: [{ id: 'chunk-1' }] },
+      { type: 'error', sequence: 2, request_id: 'r', conversation_id: 'c', message_id: 'm', code: 'STREAM_FAILED', message: 'connection reset by peer' },
+      { type: 'done', sequence: 3, request_id: 'r', conversation_id: 'c', message_id: 'm', status: 'failed' },
+    ])))
+
+    await expect(streamConversationMessage('c', 'question', {}, () => undefined)).rejects.toMatchObject({
+      code: 'STREAM_FAILED',
+      message: '回答生成失败，已保留检索证据，请重试。',
+      requestId: 'r',
+    })
+  })
+
+  it('classifies a gateway timeout as an answer-service timeout', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('', { status: 504 })))
+
+    await expect(streamConversationMessage('c', 'question', {}, () => undefined)).rejects.toMatchObject({
+      status: 504,
+      code: 'ANSWER_SERVICE_TIMEOUT',
+      message: '回答服务超时，未完成生成；请重试。',
+    })
+  })
+
+  it('bounds a stalled stream and distinguishes it from user cancellation', async () => {
+    vi.stubGlobal('fetch', vi.fn((_input: string | URL | Request, init?: RequestInit) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true })
+    })))
+
+    await expect(streamConversationMessage('c', 'question', {}, () => undefined, { timeoutMs: 10 })).rejects.toMatchObject({
+      code: 'STREAM_TIMEOUT',
+      message: '回答等待超时，请重试；已完成的检索证据不会丢失。',
+    })
+  })
+
+  it('preserves caller cancellation even when the signal was already aborted', async () => {
+    vi.stubGlobal('fetch', vi.fn((_input: string | URL | Request, init?: RequestInit) => (
+      init?.signal?.aborted
+        ? Promise.reject(new DOMException('aborted', 'AbortError'))
+        : new Promise(() => undefined)
+    )))
+    const controller = new AbortController()
+    controller.abort()
+
+    await expect(streamConversationMessage(
+      'c',
+      'question',
+      {},
+      () => undefined,
+      { signal: controller.signal, timeoutMs: 10 },
+    )).rejects.toMatchObject({ name: 'AbortError' })
+  })
+
   it('carries CSRF and only sends the human attestation after explicit opt-in', async () => {
     const fetchMock = vi.fn().mockResolvedValue(streamResponse([
       { type: 'done', sequence: 1, request_id: 'r', conversation_id: 'c', message_id: 'm', status: 'completed', real_usage_recorded: true },

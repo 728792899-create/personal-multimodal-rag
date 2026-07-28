@@ -218,6 +218,10 @@ def test_frontend_proxy_resolves_backend_at_request_time():
     assert "resolver 127.0.0.11" in nginx
     assert "set $backend_upstream backend:8010;" in nginx
     assert "proxy_pass http://$backend_upstream" in nginx
+    assert "location ~ ^/api/conversations/[^/]+/messages:stream$" in nginx
+    assert "proxy_buffering off;" in nginx
+    assert "proxy_cache off;" in nginx
+    assert "proxy_read_timeout 210s;" in nginx
 
 
 def test_real_corpus_manifest_requires_unique_licensed_sources(tmp_path):

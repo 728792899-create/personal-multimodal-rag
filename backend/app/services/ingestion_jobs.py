@@ -103,6 +103,8 @@ class IngestionWorker:
                     )
                 except Exception:
                     self._stop.wait(self.settings.ingestion_poll_seconds)
+            if message is not None and self._ack_terminal_signal(message):
+                continue
             try:
                 processed = self.run_once()
             except Exception as exc:
@@ -118,6 +120,21 @@ class IngestionWorker:
                     pass
             if not processed and self.job_signal_queue is None:
                 self._stop.wait(self.settings.ingestion_poll_seconds)
+
+    def _ack_terminal_signal(self, message) -> bool:
+        """Acknowledge a stale signal whose durable job is already terminal."""
+
+        try:
+            job = self.registry.get_index_job(message.aggregate_id)
+        except Exception:
+            return False
+        if not job or job.get("status") not in {"succeeded", "failed", "cancelled"}:
+            return False
+        try:
+            self.job_signal_queue.acknowledge(message.message_id)
+        except Exception:
+            return False
+        return True
 
     def run_once(self) -> bool:
         self._recover_stale_periodically()

@@ -6,7 +6,11 @@ from urllib.parse import urlsplit, urlunsplit
 
 _SENSITIVE_PATTERNS = (
     re.compile(r"(?i)(authorization\s*:\s*bearer)\s+[^\s,;]+"),
-    re.compile(r"(?i)\b([A-Za-z0-9_-]*(?:api[_-]?key|token|password|secret))\s*[:=]\s*[^\s,;]+"),
+    re.compile(
+        r"(?i)([\"']?[A-Za-z0-9_-]*(?:api[_-]?key|apikey|credential|token|password|secret)"
+        r"[\"']?\s*[:=]\s*)"
+        r"(?:\"[^\"]*\"|'[^']*'|[^\s,;}\]]+)"
+    ),
     re.compile(r"\bsk-[A-Za-z0-9_-]{8,}\b"),
 )
 _PRIVATE_METADATA_KEYS = {
@@ -25,7 +29,10 @@ def redact_sensitive_text(value: object) -> str:
 
     cleaned = str(value)
     cleaned = _SENSITIVE_PATTERNS[0].sub(r"\1 [REDACTED]", cleaned)
-    cleaned = _SENSITIVE_PATTERNS[1].sub(lambda match: f"{match.group(1)}=[REDACTED]", cleaned)
+    cleaned = _SENSITIVE_PATTERNS[1].sub(
+        lambda match: f"{match.group(1)}[REDACTED]",
+        cleaned,
+    )
     cleaned = _SENSITIVE_PATTERNS[2].sub("[REDACTED]", cleaned)
     return cleaned[:1_000]
 
