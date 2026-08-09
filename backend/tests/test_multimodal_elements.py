@@ -236,7 +236,7 @@ def test_parser_worker_cancel_and_timeout_cleanup_remote_jobs(tmp_path: Path):
         poll_seconds=0,
         http_client=httpx.Client(transport=transport),
     )
-    with pytest.raises(ParserJobCancelled, match="cancelled"):
+    with pytest.raises(ParserJobCancelled, match="已取消"):
         cancelling.parse(source, "sample.pdf", "mineru", cancel_check=lambda: True)
 
     timing_out = ParserWorkerClient(
@@ -245,7 +245,7 @@ def test_parser_worker_cancel_and_timeout_cleanup_remote_jobs(tmp_path: Path):
         poll_seconds=0,
         http_client=httpx.Client(transport=transport),
     )
-    with pytest.raises(TimeoutError, match="timed out"):
+    with pytest.raises(TimeoutError, match="超时"):
         timing_out.parse(source, "sample.pdf", "mineru")
 
     assert deleted == ["/v1/jobs/job-1", "/v1/jobs/job-1"]

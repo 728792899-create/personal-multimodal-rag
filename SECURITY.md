@@ -1,30 +1,30 @@
-# Security Policy
+# 安全策略
 
-## Supported version
+## 支持版本
 
-`0.2.x` is a single-user/small-team, single-instance Beta. Security fixes target the latest `main`; older snapshots are not maintained.
+`0.2.x` 是单用户/小团队、单实例候选版。安全修复以最新 `main` 为目标；不维护较旧快照。
 
-## Reporting a vulnerability
+## 报告漏洞
 
-Please do not open a public issue for suspected vulnerabilities or exposed credentials. Use GitHub's **Report a vulnerability** / private security advisory flow for this repository and include:
+请勿为疑似漏洞或暴露的凭据创建公开议题。请使用本仓库 GitHub 的**报告漏洞**/私密安全通告流程，并包含：
 
-- affected commit and configuration;
-- minimal reproduction without private documents or live keys;
-- impact and whether the issue is reachable with the default offline setup;
-- suggested mitigation, if known.
+- 受影响的提交与配置；
+- 不含私有文档或有效密钥的最小复现；
+- 影响范围，以及默认离线设置是否可触发；
+- 已知时附上建议的缓解措施。
 
-Do not test against systems or data you do not own. Maintainers should acknowledge a complete report within 5 business days and publish a remediation status before disclosure.
+不要对不属于你的系统或数据进行测试。维护者应在 5 个工作日内确认完整报告，并在披露前发布修复状态。
 
-## Deployment responsibilities
+## 部署责任
 
-- Keep `API_AUTH_TOKEN`, provider keys, database DSNs and Sentry DSNs outside Git and browser bundles.
-- Terminate TLS and user authentication at a trusted gateway; the built-in Bearer token is a Beta boundary, not a complete identity system.
-- Keep `RAG_ALLOW_PRIVATE_URLS=0` unless the service is isolated and the imported private hosts are explicitly trusted.
-- Use per-workspace object prefixes and row-level authorization before enabling multiple teams.
-- Treat uploaded content and generated answers as untrusted; scan files and apply retention/deletion policies appropriate to the deployment.
-- Keep the built-in SQLite index worker single-instance; migrate to an authenticated external queue before horizontal scaling.
-- Set Sentry `send_default_pii=false` and never attach document text or authorization headers to events.
+- 将 `API_AUTH_TOKEN`、模型提供方密钥、数据库 DSN 和 Sentry DSN 保持在 Git 和浏览器构建产物之外。
+- 在可信网关终止 TLS 和用户认证；内置 Bearer 令牌是候选版边界，不是完整身份系统。
+- 除非服务已隔离且导入的私有主机已明确受信，否则保持 `RAG_ALLOW_PRIVATE_URLS=0`。
+- 启用多个团队前，使用按工作区划分的对象前缀和行级授权。
+- 将上传内容和生成回答视为不可信；扫描文件并采用适合部署的保留/删除策略。
+- 保持内置 SQLite 索引工作进程为单实例；横向扩展前迁移到经认证的外部队列。
+- 设置 Sentry `send_default_pii=false`，绝不把文档文本或授权头附加到事件。
 
-## Current defenses
+## 当前防护
 
-See [README](README.md#安全与稳定性) for upload, URL, logging, rate-limit and request-timeout controls. Remaining production gaps are tracked in [docs/known-limitations.md](docs/known-limitations.md).
+上传、URL、日志、限流和请求超时控制见 [README](README.md#安全与稳定性)。剩余生产缺口见 [docs/known-limitations.md](docs/known-limitations.md)。

@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
-"""Run a non-destructive SQLite + object-store restore drill.
+"""执行非破坏性的 SQLite 与对象存储恢复演练。
 
-The command never issues writes against the source database. It creates an
-isolated SQLite snapshot with the backup API, copies only objects referenced by
-that snapshot, and validates integrity, foreign keys, schema version, safe
-object paths, byte sizes, and SHA-256 digests.
+本命令不会写入源数据库。它通过备份 API 创建隔离的 SQLite 快照，只复制快照
+引用的对象，并验证完整性、外键、schema 版本、安全对象路径、字节数和 SHA-256。
 """
 
 from __future__ import annotations
@@ -36,7 +34,7 @@ COUNTED_TABLES = (
 
 
 class RestoreDrillError(RuntimeError):
-    """The isolated restored copy failed a consistency check."""
+    """隔离恢复副本未通过一致性检查。"""
 
 
 def run_restore_drill(
@@ -48,7 +46,7 @@ def run_restore_drill(
     database = Path(database_path).expanduser().resolve()
     objects = Path(object_root).expanduser().resolve() if object_root else database.parent / "objects"
     if not database.is_file() or database.stat().st_size == 0:
-        raise RestoreDrillError("database backup is missing or empty")
+        raise RestoreDrillError("数据库备份不存在或为空。")
 
     try:
         with tempfile.TemporaryDirectory(prefix="rag-restore-drill-") as temporary:
@@ -72,7 +70,7 @@ def run_restore_drill(
     except RestoreDrillError:
         raise
     except (OSError, sqlite3.DatabaseError) as exc:
-        raise RestoreDrillError("restore drill could not create or validate an isolated snapshot") from exc
+        raise RestoreDrillError("恢复演练无法创建或验证隔离快照。") from exc
 
 
 def _snapshot_database(source_path: Path, destination_path: Path) -> None:
@@ -90,21 +88,21 @@ def _inspect_database(database_path: Path, expected_schema: int | None) -> dict:
         connection.row_factory = sqlite3.Row
         integrity = [str(row[0]) for row in connection.execute("PRAGMA integrity_check").fetchall()]
         if integrity != ["ok"]:
-            raise RestoreDrillError("restored database failed integrity_check")
+            raise RestoreDrillError("恢复后的数据库未通过 integrity_check。")
         foreign_key_failures = connection.execute("PRAGMA foreign_key_check").fetchall()
         if foreign_key_failures:
-            raise RestoreDrillError("restored database contains foreign-key violations")
+            raise RestoreDrillError("恢复后的数据库存在外键约束错误。")
 
         tables = {
             str(row[0])
             for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
         }
         if "schema_migrations" not in tables:
-            raise RestoreDrillError("restored database has no schema migration history")
+            raise RestoreDrillError("恢复后的数据库缺少 schema 迁移历史。")
         row = connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()
         schema_version = int(row[0] or 0)
         if expected_schema is not None and schema_version != expected_schema:
-            raise RestoreDrillError("restored database schema version does not match the expected release")
+            raise RestoreDrillError("恢复后的数据库 schema 版本与目标版本不一致。")
 
         table_counts = {
             table: int(connection.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0])
@@ -132,7 +130,7 @@ def _restore_referenced_objects(asset_rows: list[dict], *, source_root: Path, re
         if key in unique:
             previous = unique[key]
             if previous.get("sha256") != row.get("sha256") or previous.get("size_bytes") != row.get("size_bytes"):
-                raise RestoreDrillError("shared object metadata is inconsistent")
+                raise RestoreDrillError("共享对象的元数据不一致。")
             continue
         unique[key] = row
 
@@ -140,26 +138,26 @@ def _restore_referenced_objects(asset_rows: list[dict], *, source_root: Path, re
         source = _safe_object_path(source_root, key)
         destination = _safe_object_path(restored_root, key)
         if not source.is_file():
-            raise RestoreDrillError("referenced object is missing from the backup")
+            raise RestoreDrillError("备份中缺少数据库引用的对象。")
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination)
         size, digest = _file_digest(destination)
         if size != int(row.get("size_bytes") or 0):
-            raise RestoreDrillError("restored object byte size does not match the database")
+            raise RestoreDrillError("恢复对象的字节数与数据库记录不一致。")
         expected_digest = str(row.get("sha256") or "")
         if not expected_digest or digest != expected_digest:
-            raise RestoreDrillError("restored object SHA-256 does not match the database")
+            raise RestoreDrillError("恢复对象的 SHA-256 与数据库记录不一致。")
     return len(unique)
 
 
 def _safe_object_path(root: Path, object_key: str) -> Path:
     normalized = Path(object_key)
     if not object_key or normalized.is_absolute() or ".." in normalized.parts:
-        raise RestoreDrillError("unsafe object key found in the restored database")
+        raise RestoreDrillError("恢复后的数据库包含不安全的对象 key。")
     resolved_root = root.resolve()
     candidate = (resolved_root / normalized).resolve()
     if candidate == resolved_root or resolved_root not in candidate.parents:
-        raise RestoreDrillError("unsafe object key found in the restored database")
+        raise RestoreDrillError("恢复后的数据库包含不安全的对象 key。")
     return candidate
 
 
@@ -175,9 +173,9 @@ def _file_digest(path: Path) -> tuple[int, str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--database", required=True, help="SQLite registry backup to verify")
-    parser.add_argument("--objects", help="Matching content-addressed object directory")
-    parser.add_argument("--expected-schema", type=int, help="Require an exact schema version")
+    parser.add_argument("--database", required=True, help="要验证的 SQLite registry 备份")
+    parser.add_argument("--objects", help="与备份匹配的内容寻址对象目录")
+    parser.add_argument("--expected-schema", type=int, help="要求精确匹配的 schema 版本")
     args = parser.parse_args()
     try:
         report = run_restore_drill(args.database, args.objects, expected_schema=args.expected_schema)

@@ -223,9 +223,9 @@ class ClamAVScanner:
             connection.sendall((0).to_bytes(4, "big"))
             response = connection.recv(4096).decode("utf-8", errors="replace")
         if "FOUND" in response:
-            raise MalwareDetected("Upload rejected by malware scanner")
+            raise MalwareDetected("文件未通过恶意内容扫描，已拒绝上传。")
         if "OK" not in response:
-            raise RuntimeError("Malware scanner returned an indeterminate result")
+            raise RuntimeError("恶意内容扫描未返回明确结果，请稍后重试。")
 
     def health(self) -> bool:
         with socket.create_connection(

@@ -10,7 +10,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, build_opener
 
 from app.services.document_processor import SUPPORTED_EXTENSIONS
-from app.services.safe_logging import redact_sensitive_text
+from app.services.safe_logging import public_error_message
 from app.services.url_importer import SafeRedirectHandler, _validate_public_url, fetch_url
 
 
@@ -58,15 +58,15 @@ class SourceRootResolver:
     def resolve(self, root_id: str, relative_path: str = "") -> Path:
         root = self._roots.get(root_id)
         if root is None:
-            raise ValueError("Unknown source root")
+            raise ValueError("未找到指定的数据源根目录。")
         relative = Path(relative_path or ".")
         if relative.is_absolute() or ".." in relative.parts:
-            raise ValueError("Source path must be relative to an allowed root")
+            raise ValueError("数据源路径必须位于允许的根目录内，并使用相对路径。")
         candidate = (root / relative).resolve()
         if candidate != root and root not in candidate.parents:
-            raise ValueError("Source path escapes the allowed root")
+            raise ValueError("数据源路径超出允许的根目录。")
         if not candidate.is_dir():
-            raise ValueError("Source directory does not exist")
+            raise ValueError("数据源目录不存在。")
         return candidate
 
 
@@ -90,16 +90,16 @@ class DirectoryConnector:
         failures: list[str] = []
         for path in sorted(paths):
             if len(candidates) >= self.max_items:
-                failures.append(f"item limit reached ({self.max_items})")
+                failures.append(f"已达到条目上限（{self.max_items}）")
                 break
             if path.is_symlink() or not path.is_file() or path.suffix.lower() not in SUPPORTED_EXTENSIONS:
                 continue
             try:
                 resolved = path.resolve()
                 if resolved != root and root not in resolved.parents:
-                    raise ValueError("file escapes the selected source directory")
+                    raise ValueError("文件超出所选数据源目录。")
                 if resolved.stat().st_size > self.max_bytes:
-                    raise ValueError(f"file exceeds {self.max_bytes} bytes")
+                    raise ValueError(f"文件超过 {self.max_bytes} bytes。")
                 payload = resolved.read_bytes()
                 relative = resolved.relative_to(root).as_posix()
                 digest = hashlib.sha256(payload).hexdigest()
@@ -116,7 +116,9 @@ class DirectoryConnector:
                     )
                 )
             except Exception as exc:
-                failures.append(f"{path.name}: {redact_sensitive_text(exc)}")
+                failures.append(
+                    f"{path.name}：{public_error_message(exc, '文件读取失败。')}"
+                )
         return DiscoveryResult(
             candidates=candidates,
             failures=failures,
@@ -142,9 +144,11 @@ class UrlListConnector:
             try:
                 candidates.append(self._candidate(url))
             except Exception as exc:
-                failures.append(redact_sensitive_text(exc))
+                failures.append(
+                    public_error_message(exc, "URL 内容读取失败。")
+                )
         if len(urls) > self.max_items:
-            failures.append(f"item limit reached ({self.max_items})")
+            failures.append(f"已达到条目上限（{self.max_items}）")
         return DiscoveryResult(
             candidates=candidates,
             failures=failures,
@@ -192,7 +196,7 @@ class FeedConnector(UrlListConnector):
         except Exception as exc:
             return DiscoveryResult(
                 candidates=[],
-                failures=[redact_sensitive_text(exc)],
+                failures=[public_error_message(exc, "订阅源读取失败。")],
                 complete=False,
             )
         if response["not_modified"]:
@@ -209,7 +213,7 @@ class FeedConnector(UrlListConnector):
         except Exception as exc:
             return DiscoveryResult(
                 candidates=[],
-                failures=[redact_sensitive_text(exc)],
+                failures=[public_error_message(exc, "订阅源内容解析失败。")],
                 complete=False,
             )
         candidates: list[SourceCandidate] = []
@@ -224,9 +228,11 @@ class FeedConnector(UrlListConnector):
                     )
                 )
             except Exception as exc:
-                failures.append(redact_sensitive_text(exc))
+                failures.append(
+                    public_error_message(exc, "订阅条目读取失败。")
+                )
         if len(entries) > self.max_items:
-            failures.append(f"item limit reached ({self.max_items})")
+            failures.append(f"已达到条目上限（{self.max_items}）")
         return DiscoveryResult(
             candidates=candidates,
             failures=failures,
@@ -262,7 +268,7 @@ class FeedConnector(UrlListConnector):
                 _validate_public_url(response.geturl())
                 payload = response.read(max_bytes + 1)
                 if len(payload) > max_bytes:
-                    raise ValueError(f"Feed exceeds {max_bytes} bytes")
+                    raise ValueError(f"订阅源超过 {max_bytes} bytes。")
                 return {
                     "payload": payload,
                     "not_modified": False,
@@ -283,7 +289,7 @@ class FeedConnector(UrlListConnector):
     def _parse_entries(payload: bytes) -> list[dict]:
         upper = payload[:4096].upper()
         if b"<!DOCTYPE" in upper or b"<!ENTITY" in upper:
-            raise ValueError("Feed DTD/entity declarations are not allowed")
+            raise ValueError("订阅源不允许包含 DTD 或 entity 声明。")
         root = ElementTree.fromstring(payload)
 
         def local(element) -> str:
@@ -323,7 +329,7 @@ class ConnectorRegistry:
         try:
             return self.connectors[source_type]
         except KeyError as exc:
-            raise ValueError("Unsupported source type") from exc
+            raise ValueError("不支持该数据源类型。") from exc
 
     def capabilities(self) -> list[str]:
         return sorted(self.connectors)

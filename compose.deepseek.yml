@@ -1,0 +1,15 @@
+services:
+  backend:
+    environment:
+      ANSWER_PROVIDER: openai_compatible_chat
+      ANSWER_BASE_URL: https://api.deepseek.com
+      ANSWER_MODEL: deepseek-v4-flash
+      ANSWER_API_KEY_FILE: /run/secrets/answer_api_key
+      ANSWER_THINKING_MODE: disabled
+      ANSWER_MAX_TOKENS: "512"
+    secrets:
+      - answer_api_key
+
+secrets:
+  answer_api_key:
+    file: ${ANSWER_API_KEY_FILE:-./secrets/answer_api_key}

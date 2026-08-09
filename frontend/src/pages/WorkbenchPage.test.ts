@@ -25,14 +25,25 @@ describe('WorkbenchPage workflows', () => {
   let knowledgeBases: Array<Record<string, unknown>>
   let evalDrafts: Array<Record<string, unknown>>
   let failDocumentDetails: boolean
+  let failAnswerStream: boolean
+  let includeNewerFailedTurn: boolean
+  let restoredIncompleteStatus: 'failed' | 'cancelled'
+  let hangAnswerStream: boolean
+  let failConversationList: boolean
 
   beforeEach(() => {
+    localStorage.clear()
     documents = []
     calls = []
     askResponse = answerFixture()
     conversations = []
     evalDrafts = []
     failDocumentDetails = false
+    failAnswerStream = false
+    includeNewerFailedTurn = false
+    restoredIncompleteStatus = 'failed'
+    hangAnswerStream = false
+    failConversationList = false
     knowledgeBases = [{ id: 'default', name: '默认知识库', description: '', is_default: true, document_count: 0, created_at: '', updated_at: '' }]
     vi.stubGlobal('confirm', vi.fn(() => true))
     vi.stubGlobal('fetch', vi.fn((input: string | URL | Request, init: RequestInit = {}) => {
@@ -91,13 +102,80 @@ describe('WorkbenchPage workflows', () => {
         conversations = [conversation]
         return json({ conversation }, 201)
       }
+      if (path === '/api/conversations' && failConversationList) return json({ detail: 'temporary unavailable' }, 503)
       if (path === '/api/conversations') return json({ conversations })
-      if (path === '/api/conversations/conv-1/messages') return json({ messages: [{ id: 'msg-1', conversation_id: 'conv-1', role: 'assistant', content: askResponse.answer, status: 'completed', metadata: { response: askResponse }, created_at: '', updated_at: '' }] })
+      if (path === '/api/conversations/conv-1/messages') {
+        const messages: Array<Record<string, unknown>> = [
+          { id: 'msg-user-1', conversation_id: 'conv-1', role: 'user', content: 'RAG 如何评测？', status: 'completed', metadata: {}, created_at: '', updated_at: '' },
+          { id: 'msg-1', conversation_id: 'conv-1', role: 'assistant', content: askResponse.answer, status: failAnswerStream ? 'failed' : 'completed', metadata: failAnswerStream ? { error: 'connection reset by peer' } : { response: askResponse }, created_at: '', updated_at: '' },
+        ]
+        if (includeNewerFailedTurn) {
+          messages.push(
+            { id: 'msg-user-2', conversation_id: 'conv-1', role: 'user', content: '破军', status: 'completed', metadata: {}, created_at: '2026-07-28T08:02:00Z', updated_at: '2026-07-28T08:02:00Z' },
+            {
+              id: 'msg-2',
+              conversation_id: 'conv-1',
+              role: 'assistant',
+              content: '尚未完成的片段',
+              status: restoredIncompleteStatus,
+              metadata: {
+                ...(restoredIncompleteStatus === 'failed'
+                  ? { error: 'connection reset by peer' }
+                  : { cancelled: true }),
+                response: {
+                  ...askResponse,
+                  answer: '尚未完成的片段',
+                  generation_trace: {
+                    ...askResponse.generation_trace,
+                    incomplete: true,
+                    status: restoredIncompleteStatus,
+                  },
+                },
+              },
+              created_at: '2026-07-28T08:03:00Z',
+              updated_at: '2026-07-28T08:03:00Z',
+            },
+          )
+        }
+        return json({ messages })
+      }
       if (path === '/api/conversations/conv-1/messages:stream') {
         const base = [
           { type: 'retrieval.started', data: { context_message_count: 0 } },
           { type: 'retrieval.completed', data: { citations: askResponse.citations, retrieval_trace: askResponse.retrieval_trace, confidence: askResponse.confidence, diagnostics: askResponse.diagnostics } },
         ]
+        if (hangAnswerStream) {
+          const encoder = new TextEncoder()
+          const body = [
+            ...base,
+            { type: 'answer.delta', data: { delta: '尚未完成的片段' } },
+          ].map(({ type, data }, index) => (
+            `event: ${type}\ndata: ${JSON.stringify({
+              type,
+              request_id: 'req-stream',
+              conversation_id: 'conv-1',
+              message_id: 'msg-1',
+              sequence: index + 1,
+              ...data,
+            })}\n\n`
+          )).join('')
+          return Promise.resolve(new Response(new ReadableStream({
+            start(controller) {
+              controller.enqueue(encoder.encode(body))
+              init.signal?.addEventListener('abort', () => {
+                controller.error(new DOMException('aborted', 'AbortError'))
+              }, { once: true })
+            },
+          }), { status: 200, headers: { 'content-type': 'text/event-stream' } }))
+        }
+        if (failAnswerStream) {
+          return sse([
+            ...base,
+            { type: 'answer.delta', data: { delta: '尚未完成的片段' } },
+            { type: 'error', data: { code: 'STREAM_FAILED', message: 'connection reset by peer' } },
+            { type: 'done', data: { status: 'failed' } },
+          ])
+        }
         return askResponse.retrieval_trace.refusal_reason
           ? sse([...base, { type: 'refusal', data: { response: askResponse } }, { type: 'done', data: { status: 'completed' } }])
           : sse([...base, { type: 'answer.delta', data: { delta: askResponse.answer } }, { type: 'answer.completed', data: { response: askResponse } }, { type: 'done', data: { status: 'completed' } }])
@@ -161,7 +239,8 @@ describe('WorkbenchPage workflows', () => {
 
     expect(wrapper.get('.library-drawer').classes()).toContain('open')
     expect(wrapper.get('.inspector-drawer').classes()).not.toContain('open')
-    expect(wrapper.text()).toContain('document unavailable')
+    expect(wrapper.text()).toContain('服务暂时不可用，请稍后重试。')
+    expect(wrapper.text()).not.toContain('document unavailable')
   })
 
   it('submits expert parameters, opens citation context, and turns feedback into an eval draft', async () => {
@@ -399,6 +478,39 @@ describe('WorkbenchPage workflows', () => {
     wrapper.unmount()
   })
 
+  it('opens the model connection drawer and restores keyboard focus on close', async () => {
+    const wrapper = mount(WorkbenchPage, { attachTo: document.body })
+    await flushPromises()
+
+    const trigger = wrapper.get('[data-testid="open-model-connection"]')
+    const mobileTrigger = wrapper.findAll('.mobile-workspace-nav button')
+      .find((button) => button.text() === '模型')
+    expect(mobileTrigger).toBeDefined()
+    expect(mobileTrigger?.attributes('aria-controls')).toBe('model-connection-drawer')
+    expect(mobileTrigger?.attributes('aria-expanded')).toBe('false')
+    expect(mobileTrigger?.find('span').exists()).toBe(false)
+    expect(trigger.text()).toContain('模型连接')
+    expect(trigger.find('svg').exists()).toBe(false)
+    const triggerElement = trigger.element as HTMLElement
+    triggerElement.focus()
+    await trigger.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('.model-connection-drawer').classes()).toContain('open')
+    expect(wrapper.text()).toContain('连接 DeepSeek')
+    expect(wrapper.text()).toContain('https://api.deepseek.com')
+    expect(wrapper.text()).toContain('deepseek-v4-flash')
+    expect(mobileTrigger?.attributes('aria-expanded')).toBe('true')
+    expect(document.activeElement).toBe(wrapper.get('.model-connection-drawer .drawer-close').element)
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await flushPromises()
+
+    expect(wrapper.get('.model-connection-drawer').classes()).not.toContain('open')
+    expect(document.activeElement).toBe(trigger.element)
+    wrapper.unmount()
+  })
+
   it('starts a genuinely empty conversation and clears answer state', async () => {
     const wrapper = mount(WorkbenchPage)
     await flushPromises()
@@ -413,5 +525,196 @@ describe('WorkbenchPage workflows', () => {
     expect((wrapper.get('textarea[name="question"]').element as HTMLTextAreaElement).value).toBe('')
     expect(wrapper.find('.answer-experience').exists()).toBe(false)
     expect(wrapper.find('.preset-row').exists()).toBe(true)
+  })
+
+  it('restores the active persisted conversation and its latest question after refresh', async () => {
+    knowledgeBases.push({
+      id: 'kb-2',
+      name: '研究资料',
+      description: '',
+      is_default: false,
+      document_count: 0,
+      created_at: '',
+      updated_at: '',
+    })
+    conversations = [{
+      id: 'conv-1',
+      title: 'RAG 如何评测？',
+      knowledge_base_ids: ['kb-2'],
+      message_count: 2,
+      created_at: '2026-07-28T08:00:00Z',
+      updated_at: '2026-07-28T08:01:00Z',
+    }]
+    localStorage.setItem('知证.active-conversation.v1', 'conv-1')
+
+    const wrapper = mount(WorkbenchPage)
+    await flushPromises()
+
+    expect((wrapper.get('textarea[name="question"]').element as HTMLTextAreaElement).value).toBe('RAG 如何评测？')
+    expect(wrapper.text()).toContain(askResponse.answer)
+    expect(wrapper.find('.answer-experience').exists()).toBe(true)
+    expect((wrapper.get('#knowledge-base-select').element as HTMLSelectElement).value).toBe('kb-2')
+    expect(calls.some((call) => call.path === '/api/documents?knowledge_base_id=kb-2')).toBe(true)
+  })
+
+  it('keeps retrieved evidence and reports an answer failure precisely', async () => {
+    failAnswerStream = true
+    const wrapper = mount(WorkbenchPage)
+    await flushPromises()
+
+    await wrapper.get('textarea[name="question"]').setValue('破军')
+    await wrapper.get('[data-testid="run-query"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('回答未完成 · 证据已保留')
+    expect(wrapper.text()).toContain('回答生成失败，已保留检索证据，请重试。')
+    expect(wrapper.text()).not.toContain('网络连接异常')
+    expect(wrapper.text()).toContain('尚未完成的片段')
+    expect(wrapper.text()).not.toContain('已通过引用核验')
+    expect(wrapper.find('.answer-actions').exists()).toBe(false)
+    expect(wrapper.text()).toContain('来源')
+  })
+
+  it('never labels weak evidence as having passed citation verification', async () => {
+    askResponse = answerFixture({
+      trust: {
+        ...answerFixture().trust!,
+        level: 'weak',
+        label: '证据偏弱',
+        reason: '引用与结论关联不足。',
+      },
+    })
+    const wrapper = mount(WorkbenchPage)
+    await flushPromises()
+
+    await wrapper.get('textarea[name="question"]').setValue('证据是否充分？')
+    await wrapper.get('[data-testid="run-query"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('引用核验未通过')
+    expect(wrapper.text()).not.toContain('已通过引用核验')
+  })
+
+  it('keeps a stopped partial answer visibly unfinalized and disables post-answer actions', async () => {
+    hangAnswerStream = true
+    const wrapper = mount(WorkbenchPage)
+    await flushPromises()
+
+    await wrapper.get('textarea[name="question"]').setValue('破军')
+    await wrapper.get('[data-testid="run-query"]').trigger('click')
+    await vi.waitFor(() => expect(wrapper.text()).toContain('尚未完成的片段'))
+    await wrapper.get('[aria-label="停止生成"]').trigger('click')
+    await vi.waitFor(() => expect(wrapper.find('[aria-label="停止生成"]').exists()).toBe(false))
+
+    expect(wrapper.text()).toContain('回答未完成 · 证据已保留')
+    expect(wrapper.text()).toContain('中断前生成的片段仅供参考，尚未完成引用审计。')
+    expect(wrapper.text()).not.toContain('已通过引用核验')
+    expect(wrapper.find('.answer-actions').exists()).toBe(false)
+  })
+
+  it('blocks keyboard and button duplicate sends while booting or already streaming', async () => {
+    hangAnswerStream = true
+    const wrapper = mount(WorkbenchPage)
+    const question = wrapper.get('textarea[name="question"]')
+    await question.setValue('破军')
+
+    expect(wrapper.get('[data-testid="run-query"]').attributes('disabled')).toBeDefined()
+    await question.trigger('keydown', { key: 'Enter', ctrlKey: true })
+    expect(calls.filter((call) => call.path.endsWith('/messages:stream'))).toHaveLength(0)
+
+    await flushPromises()
+    await wrapper.get('[data-testid="run-query"]').trigger('click')
+    await vi.waitFor(() => expect(wrapper.text()).toContain('尚未完成的片段'))
+    await question.trigger('keydown', { key: 'Enter', ctrlKey: true })
+    await question.trigger('keydown', { key: 'Enter', metaKey: true })
+
+    expect(calls.filter((call) => call.path.endsWith('/messages:stream'))).toHaveLength(1)
+    await wrapper.get('[aria-label="停止生成"]').trigger('click')
+    await vi.waitFor(() => expect(wrapper.find('[aria-label="停止生成"]').exists()).toBe(false))
+  })
+
+  it('cancels an in-flight answer before switching knowledge-base context', async () => {
+    hangAnswerStream = true
+    knowledgeBases.push({
+      id: 'kb-2',
+      name: '研究资料',
+      description: '',
+      is_default: false,
+      document_count: 0,
+      created_at: '',
+      updated_at: '',
+    })
+    const wrapper = mount(WorkbenchPage)
+    await flushPromises()
+
+    await wrapper.get('textarea[name="question"]').setValue('破军')
+    await wrapper.get('[data-testid="run-query"]').trigger('click')
+    await vi.waitFor(() => expect(wrapper.text()).toContain('尚未完成的片段'))
+
+    await wrapper.get('#knowledge-base-select').setValue('kb-2')
+    await flushPromises()
+
+    expect(wrapper.find('[aria-label="停止生成"]').exists()).toBe(false)
+    expect(wrapper.find('.answer-experience').exists()).toBe(false)
+    expect((wrapper.get('#knowledge-base-select').element as HTMLSelectElement).value).toBe('kb-2')
+    expect(calls.filter((call) => call.path.endsWith('/messages:stream'))).toHaveLength(1)
+  })
+
+  it('does not pair an older answer with a newer failed question after refresh', async () => {
+    includeNewerFailedTurn = true
+    conversations = [{
+      id: 'conv-1',
+      title: 'RAG 如何评测？',
+      knowledge_base_ids: ['default'],
+      message_count: 4,
+      created_at: '2026-07-28T08:00:00Z',
+      updated_at: '2026-07-28T08:03:00Z',
+    }]
+    localStorage.setItem('知证.active-conversation.v1', 'conv-1')
+
+    const wrapper = mount(WorkbenchPage)
+    await flushPromises()
+
+    expect((wrapper.get('textarea[name="question"]').element as HTMLTextAreaElement).value).toBe('破军')
+    expect(wrapper.text()).not.toContain(askResponse.answer)
+    expect(wrapper.text()).toContain('尚未完成的片段')
+    expect(wrapper.text()).toContain('回答未完成 · 证据已保留')
+    expect(wrapper.findAll('.citation-list li')).toHaveLength(1)
+    expect(wrapper.find('.answer-actions').exists()).toBe(false)
+    expect(wrapper.text()).toContain('上次回答生成未完成，请重试。')
+  })
+
+  it('restores a cancelled partial answer with its citations without marking it final', async () => {
+    includeNewerFailedTurn = true
+    restoredIncompleteStatus = 'cancelled'
+    conversations = [{
+      id: 'conv-1',
+      title: 'RAG 如何评测？',
+      knowledge_base_ids: ['default'],
+      message_count: 4,
+      created_at: '2026-07-28T08:00:00Z',
+      updated_at: '2026-07-28T08:03:00Z',
+    }]
+    localStorage.setItem('知证.active-conversation.v1', 'conv-1')
+
+    const wrapper = mount(WorkbenchPage)
+    await flushPromises()
+
+    expect((wrapper.get('textarea[name="question"]').element as HTMLTextAreaElement).value).toBe('破军')
+    expect(wrapper.text()).toContain('尚未完成的片段')
+    expect(wrapper.text()).toContain('回答未完成 · 证据已保留')
+    expect(wrapper.findAll('.citation-list li')).toHaveLength(1)
+    expect(wrapper.find('.answer-actions').exists()).toBe(false)
+    expect(wrapper.text()).toContain('上次回答已中断，可以重新发送问题。')
+  })
+
+  it('keeps the active conversation pointer when the conversation list is temporarily unavailable', async () => {
+    failConversationList = true
+    localStorage.setItem('知证.active-conversation.v1', 'conv-1')
+
+    mount(WorkbenchPage)
+    await flushPromises()
+
+    expect(localStorage.getItem('知证.active-conversation.v1')).toBe('conv-1')
   })
 })

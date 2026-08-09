@@ -4,6 +4,7 @@ import { onMounted, ref, watch } from 'vue'
 import { useSourceSync } from '../composables/useSourceSync'
 import { useWorkbenchContext } from '../composables/workbenchContext'
 import type { SourceType } from '../api'
+import { localizedSourceType, localizedStatus, localizedSystemText } from '../localization'
 
 const workbench = useWorkbenchContext()
 const state = useSourceSync()
@@ -81,7 +82,7 @@ onMounted(refresh)
         <textarea v-model="urls" name="source-urls" rows="3" required placeholder="https://example.com/guide"></textarea>
       </label>
       <label v-else-if="type === 'rss_atom'">
-        Feed URL
+        订阅 URL
         <input v-model="feedUrl" name="source-feed-url" type="url" required placeholder="https://example.com/feed.xml" />
       </label>
       <template v-else>
@@ -93,7 +94,7 @@ onMounted(refresh)
         </label>
         <label>
           相对目录
-          <input v-model="relativePath" name="source-relative-path" placeholder="notes/research" />
+          <input v-model="relativePath" name="source-relative-path" placeholder="研究笔记" />
         </label>
         <label class="checkbox-label">
           <input v-model="recursive" type="checkbox" />
@@ -110,17 +111,17 @@ onMounted(refresh)
     </form>
 
     <p v-if="state.error.value" class="task-error" role="alert">
-      {{ state.error.value }}
+      {{ localizedSystemText(state.error.value, '数据源操作失败，请重试。') }}
       <button class="button text-button" type="button" @click="refresh">重试</button>
     </p>
     <div v-if="state.sources.value.length" class="source-list" aria-live="polite">
       <article v-for="source in state.sources.value" :key="source.id">
         <div>
           <strong>{{ source.name }}</strong>
-          <span>{{ source.type }} · {{ source.item_count }} 条</span>
+          <span>{{ localizedSourceType(source.type) }} · {{ source.item_count }} 条</span>
         </div>
         <p v-if="state.latestRuns.value.get(source.id)" class="source-run-summary">
-          最近同步：{{ state.latestRuns.value.get(source.id)?.status }}
+          最近同步：{{ localizedStatus(state.latestRuns.value.get(source.id)?.status) }}
           · 新增/更新 {{ state.latestRuns.value.get(source.id)?.updated }}
           · 未变化 {{ state.latestRuns.value.get(source.id)?.unchanged }}
           · 失败 {{ state.latestRuns.value.get(source.id)?.failed }}

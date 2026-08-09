@@ -2,6 +2,7 @@
 import { nextTick, ref, watch } from 'vue'
 
 import { useWorkbenchContext } from '../composables/workbenchContext'
+import { localizedCompareProfile } from '../localization'
 
 const workbench = useWorkbenchContext()
 const questionInput = ref<HTMLTextAreaElement | null>(null)
@@ -162,6 +163,7 @@ watch(
       <div>
         <strong>请求没有完成</strong>
         <p>{{ workbench.error.value }}</p>
+        <small v-if="workbench.errorCode.value">错误代码：{{ workbench.errorCode.value }}</small>
         <small v-if="workbench.errorRequestId.value">请求 ID：{{ workbench.errorRequestId.value }}</small>
       </div>
       <div class="banner-actions">
@@ -250,7 +252,7 @@ watch(
               @click="workbench.workMode.value = 'search'"
             >检索</button>
           </div>
-          <span class="keyboard-hint">⌘ K 聚焦 · ⌘ Enter 发送</span>
+          <span class="keyboard-hint">⌘ K 聚焦 · ⌘ 回车发送</span>
         </div>
         <div class="composer-submit">
           <small>{{ workbench.question.value.length }}/4000</small>
@@ -267,7 +269,7 @@ watch(
             class="send-button"
             data-testid="run-query"
             :aria-label="workbench.workMode.value === 'answer' ? '发送问题并生成回答' : '开始检索证据'"
-            :disabled="!workbench.question.value.trim() || !workbench.expertParametersValid.value || workbench.queryAttachmentUploading.value"
+            :disabled="workbench.booting.value || workbench.loading.value || !workbench.question.value.trim() || !workbench.expertParametersValid.value || workbench.queryAttachmentUploading.value"
             @click="workbench.handleRun"
           >
             <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 19V5M6.5 10.5 12 5l5.5 5.5"/></svg>
@@ -306,7 +308,7 @@ watch(
     <section v-if="workbench.compareResult.value" class="comparison" aria-labelledby="comparison-title">
       <header class="subsection-heading">
         <h3 id="comparison-title">检索策略对比</h3>
-        <span>最佳：{{ workbench.compareResult.value.best_profile }}</span>
+        <span>最佳：{{ localizedCompareProfile(workbench.compareResult.value.best_profile) }}</span>
       </header>
       <div class="comparison-grid">
         <article
@@ -314,7 +316,7 @@ watch(
           :key="profile.id"
           :class="{ best: profile.id === workbench.compareResult.value.best_profile }"
         >
-          <strong>{{ profile.label }}</strong>
+          <strong>{{ localizedCompareProfile(profile.id, profile.label) }}</strong>
           <span>{{ profile.summary.returned }} 条 · 最高分 {{ profile.summary.top_score }}</span>
           <small>{{ profile.summary.top_source }}</small>
         </article>

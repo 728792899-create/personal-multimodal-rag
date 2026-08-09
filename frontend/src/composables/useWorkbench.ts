@@ -51,6 +51,7 @@ import {
   type WorkMode,
   type ConversationStreamEvent,
 } from '../api'
+import { localizedSystemText } from '../localization'
 import { useConversations } from './useConversations'
 import { useIngestionJobs } from './useIngestionJobs'
 import { useKnowledgeBases } from './useKnowledgeBases'
@@ -130,6 +131,7 @@ export function useWorkbench() {
   const rewriting = ref(false)
   const evalRunning = ref(false)
   const error = ref('')
+  const errorCode = ref('')
   const errorRequestId = ref('')
   const inspectorTab = ref<'trace' | 'graph' | 'citation' | 'document' | 'quality' | 'eval'>('trace')
   const lastRetry = shallowRef<null | (() => Promise<void>)>(null)
@@ -137,6 +139,7 @@ export function useWorkbench() {
   let runController: AbortController | null = null
   let uploadController: AbortController | null = null
   let importController: AbortController | null = null
+  let runGeneration = 0
 
   const totalChunks = computed(() => documents.value.reduce((sum, item) => sum + item.chunk_count, 0))
   const totalChars = computed(() => documents.value.reduce((sum, item) => sum + item.char_count, 0))
@@ -159,6 +162,11 @@ export function useWorkbench() {
   const citationAudit = qualityAudit.citationAudit
   const trust = qualityAudit.trust
   const streamAuditPending = computed(() => ['enriching', 'retrieving', 'streaming', 'auditing'].includes(conversationState.streamPhase.value))
+  const answerFinalized = computed(() => {
+    if (!answer.value) return false
+    if (workMode.value === 'search') return !loading.value
+    return conversationState.streamPhase.value === 'completed'
+  })
   const expertParametersValid = computed(() => {
     if (appMode.value !== 'expert') return true
     return Number.isInteger(Number(topK.value))
@@ -179,6 +187,7 @@ export function useWorkbench() {
 
   function clearError() {
     error.value = ''
+    errorCode.value = ''
     errorRequestId.value = ''
     lastRetry.value = null
   }
@@ -186,7 +195,8 @@ export function useWorkbench() {
   function reportError(caught: unknown, fallback: string, retry?: () => Promise<void>) {
     if (caught instanceof DOMException && caught.name === 'AbortError') return
     const typed = caught as ApiError
-    error.value = caught instanceof Error ? caught.message : fallback
+    error.value = localizedSystemText(caught instanceof Error ? caught.message : '', fallback)
+    errorCode.value = typed?.code || ''
     errorRequestId.value = typed?.requestId || ''
     lastRetry.value = retry || null
   }
@@ -234,6 +244,16 @@ export function useWorkbench() {
       graphState.load(knowledgeBaseState.selectedKnowledgeBaseId.value),
     ])
     results.push(...knowledgeResult)
+    if (results[3]?.status === 'fulfilled') {
+      try {
+        if (await conversationState.restoreActiveConversation()) {
+          await alignKnowledgeBaseWithActiveConversation()
+          hydrateConversation()
+        }
+      } catch (caught) {
+        results.push({ status: 'rejected', reason: caught })
+      }
+    }
     const failure = results.find((item) => item.status === 'rejected')
     if (failure?.status === 'rejected') reportError(failure.reason, '工作台初始化失败', boot)
     booting.value = false
@@ -309,6 +329,7 @@ export function useWorkbench() {
   }
 
   async function handleRun() {
+    if (booting.value || loading.value) return
     if (!question.value.trim()) return
     if (workMode.value === 'search' && multimodalQuery.attachments.value.length) {
       reportError(new ApiError('图片提问需使用“问答”模式以完成查询增强与最终审计。'), '当前模式不支持附件')
@@ -318,10 +339,13 @@ export function useWorkbench() {
       reportError(new ApiError('请先修复专家检索参数，再运行查询。'), '检索参数无效')
       return
     }
-    runController?.abort()
-    runController = new AbortController()
+    const generation = ++runGeneration
+    const requestController = new AbortController()
+    runController = requestController
     loading.value = true
     clearError()
+    answer.value = null
+    selectedCitation.value = null
     feedbackMessage.value = ''
     rewriteResult.value = null
     cardMessage.value = ''
@@ -330,7 +354,7 @@ export function useWorkbench() {
     try {
       const options = buildRetrievalOptions()
       if (workMode.value === 'answer') {
-        answer.value = await conversationState.askInConversation(
+        const nextAnswer = await conversationState.askInConversation(
           question.value.trim(),
           [knowledgeBaseState.selectedKnowledgeBaseId.value],
           options,
@@ -353,22 +377,41 @@ export function useWorkbench() {
             }
           },
         )
+        if (generation !== runGeneration) return
+        answer.value = nextAnswer
       } else {
-        answer.value = searchOnlyAnswer(await searchDocuments(question.value.trim(), options, { signal: runController.signal }))
+        const nextAnswer = searchOnlyAnswer(await searchDocuments(
+          question.value.trim(),
+          options,
+          { signal: requestController.signal },
+        ))
+        if (generation !== runGeneration) return
+        answer.value = nextAnswer
       }
       selectedCitation.value = answer.value.citations[0] ?? null
       inspectorTab.value = 'trace'
       await refreshActivity()
     } catch (caught) {
-      reportError(caught, '检索请求失败', handleRun)
+      if (generation === runGeneration) {
+        reportError(
+          caught,
+          answer.value?.citations.length
+            ? '回答生成未完成，已保留检索证据，请重试。'
+            : '查询请求失败，请重试。',
+          handleRun,
+        )
+      }
     } finally {
-      loading.value = false
-      runController = null
+      if (generation === runGeneration) loading.value = false
+      if (runController === requestController) runController = null
     }
   }
 
   function cancelRun() {
-    runController?.abort()
+    runGeneration += 1
+    const current = runController
+    runController = null
+    current?.abort()
     conversationState.cancelStream()
     loading.value = false
   }
@@ -528,6 +571,7 @@ export function useWorkbench() {
 
   async function selectKnowledgeBase(knowledgeBaseId: string) {
     if (knowledgeBaseId === knowledgeBaseState.selectedKnowledgeBaseId.value) return
+    if (loading.value) cancelRun()
     knowledgeBaseState.selectedKnowledgeBaseId.value = knowledgeBaseId
     scopedDocumentIds.value = []
     documentViewer.clear()
@@ -552,8 +596,7 @@ export function useWorkbench() {
 
   async function startNewConversation() {
     cancelRun()
-    conversationState.activeConversationId.value = ''
-    conversationState.conversationMessages.value = []
+    conversationState.clearActiveConversation()
     question.value = ''
     answer.value = null
     selectedCitation.value = null
@@ -570,24 +613,71 @@ export function useWorkbench() {
   }
 
   async function openConversation(conversationId: string) {
+    if (loading.value) cancelRun()
+    clearError()
     try {
       await conversationState.selectConversation(conversationId)
-      const assistant = [...conversationState.conversationMessages.value]
-        .reverse()
-        .find((item) => item.role === 'assistant' && item.status === 'completed')
-      const storedResponse = assistant?.metadata?.response
-      if (storedResponse && typeof storedResponse === 'object') {
-        answer.value = storedResponse as AskResponse
-        selectedCitation.value = answer.value.citations[0] ?? null
-      }
+      await alignKnowledgeBaseWithActiveConversation()
+      hydrateConversation()
     } catch (caught) {
       reportError(caught, '会话加载失败', () => openConversation(conversationId))
+    }
+  }
+
+  async function alignKnowledgeBaseWithActiveConversation() {
+    const active = conversationState.conversations.value.find(
+      (item) => item.id === conversationState.activeConversationId.value,
+    )
+    const knowledgeBaseId = active?.knowledge_base_ids[0]
+    if (
+      !knowledgeBaseId
+      || knowledgeBaseId === knowledgeBaseState.selectedKnowledgeBaseId.value
+      || !knowledgeBaseState.knowledgeBases.value.some((item) => item.id === knowledgeBaseId)
+    ) return
+    knowledgeBaseState.selectedKnowledgeBaseId.value = knowledgeBaseId
+    scopedDocumentIds.value = []
+    documentViewer.clear()
+    await Promise.all([refreshDocuments(), graphState.load(knowledgeBaseId)])
+  }
+
+  function hydrateConversation() {
+    const messages = conversationState.conversationMessages.value
+    let latestUserIndex = -1
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      if (messages[index].role === 'user') {
+        latestUserIndex = index
+        break
+      }
+    }
+    const user = latestUserIndex >= 0 ? messages[latestUserIndex] : undefined
+    const assistant = latestUserIndex >= 0
+      ? messages.slice(latestUserIndex + 1).find((item) => item.role === 'assistant')
+      : undefined
+    const storedResponse = assistant?.metadata?.response
+    question.value = user?.content || ''
+    answer.value = storedResponse && typeof storedResponse === 'object'
+      ? storedResponse as AskResponse
+      : null
+    selectedCitation.value = answer.value?.citations[0] ?? null
+    citationContext.value = null
+    compareResult.value = null
+    workMode.value = 'answer'
+    inspectorTab.value = 'trace'
+    if (assistant?.status === 'failed') {
+      error.value = '上次回答生成未完成，请重试。'
+      errorCode.value = 'PREVIOUS_ANSWER_FAILED'
+      lastRetry.value = handleRun
+    } else if (assistant?.status === 'cancelled' || assistant?.status === 'streaming') {
+      error.value = '上次回答已中断，可以重新发送问题。'
+      errorCode.value = 'PREVIOUS_ANSWER_INTERRUPTED'
+      lastRetry.value = handleRun
     }
   }
 
   function useHistory(item: HistoryItem) {
     appMode.value = 'user'
     workMode.value = 'answer'
+    conversationState.streamPhase.value = 'completed'
     question.value = item.question
     answer.value = item
     selectedCitation.value = item.citations[0] ?? null
@@ -763,10 +853,10 @@ export function useWorkbench() {
     graphMaxHops, parentWindow, modalityFilters, topK, candidateK, vectorBalance,
     mmrLambda, minScore, queryRewrite, scopedDocumentIds, documentFilter, inspectorTab,
     booting, loading, uploading, importingUrl, comparing, rebuildingId, loadingDocument,
-    loadingContext, feedbackSubmitting, rewriting, evalRunning, error, errorRequestId,
+    loadingContext, feedbackSubmitting, rewriting, evalRunning, error, errorCode, errorRequestId,
     totalChunks, totalChars, avgQualityLabel, bm25Weight, vectorWeight, scopeSet,
     scopeLabel, filteredDocuments, isRefusal, diagnostics, citationAudit, trust,
-    expertParametersValid,
+    answerFinalized, expertParametersValid,
     boot, handleRun, cancelRun, handleUpload, handleImportUrl, handleCompare,
     selectCitation, selectDocument, openCitationElement, removeDocument, rebuildOne, rebuildAll,
     toggleScope, clearScope, useHistory, eraseHistory, handleFeedback, handleRewrite,

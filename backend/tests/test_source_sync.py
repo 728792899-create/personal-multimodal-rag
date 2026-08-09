@@ -268,11 +268,11 @@ def test_source_root_resolver_rejects_absolute_traversal_and_symlink(tmp_path):
     root_id = resolver.public_roots()[0]["id"]
 
     assert resolver.resolve(root_id) == root.resolve()
-    with pytest.raises(ValueError, match="relative"):
+    with pytest.raises(ValueError, match="相对路径"):
         resolver.resolve(root_id, "../outside")
-    with pytest.raises(ValueError, match="relative"):
+    with pytest.raises(ValueError, match="相对路径"):
         resolver.resolve(root_id, str(outside))
-    with pytest.raises(ValueError, match="escapes"):
+    with pytest.raises(ValueError, match="超出允许的根目录"):
         resolver.resolve(root_id, "escape")
 
 
@@ -334,4 +334,4 @@ def test_interrupted_sync_run_is_recoverable_after_restart():
     recovered = registry.get_sync_run(run["id"])
     assert recovered["status"] == "failed"
     assert recovered["partial"] is True
-    assert "retry is safe" in recovered["error_message"]
+    assert "可以安全重试" in recovered["error_message"]

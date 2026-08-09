@@ -83,7 +83,7 @@ def test_template_enrichment_is_deterministic_and_uses_registry_cache(tmp_path: 
     enrichment = document.elements[1].metadata["enrichment"]
     assert first["enriched"] == 1
     assert second["cache_hits"] == 1
-    assert enrichment["description"].startswith("Table with 2 rows")
+    assert enrichment["description"].startswith("包含 2 行、2 列的表格")
     assert "Stage" in enrichment["keywords"]
     assert enrichment["provider"] == "template"
 

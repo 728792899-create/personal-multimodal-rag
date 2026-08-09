@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Snapshot aggregate, explicitly attested production usage without question text."""
+"""保存不含问题正文、且经过明确声明的生产使用量汇总快照。"""
 
 from __future__ import annotations
 
@@ -29,14 +29,14 @@ ALLOWED_FIELDS = {
 def snapshot(session: Session) -> dict:
     payload, _ = session.request("api/system/usage-evidence")
     if not isinstance(payload, dict):
-        raise ValueError("usage evidence endpoint returned an invalid payload")
+        raise ValueError("使用量证据接口返回了无效数据")
     unexpected = set(payload) - ALLOWED_FIELDS
     if unexpected:
         raise ValueError(
-            f"usage evidence contains unsupported fields: {sorted(unexpected)}"
+            f"使用量证据包含不受支持的字段：{sorted(unexpected)}"
         )
     if payload.get("attestation") != "human-originated":
-        raise ValueError("usage evidence attestation is missing")
+        raise ValueError("使用量证据缺少来源声明")
     return {
         "schema_version": 1,
         "observed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -46,7 +46,7 @@ def snapshot(session: Session) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Snapshot aggregate production usage evidence"
+        description="保存生产使用量汇总证据快照"
     )
     parser.add_argument("--base-url", default="http://127.0.0.1:5173")
     parser.add_argument(

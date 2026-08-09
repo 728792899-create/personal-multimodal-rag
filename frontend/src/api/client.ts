@@ -1,4 +1,5 @@
 import type { RequestOptions } from './types'
+import { localizedSystemText } from '../localization'
 
 let csrfToken = ''
 
@@ -30,16 +31,24 @@ function validationIssueMessage(issue: unknown): string {
   if (!issue || typeof issue !== 'object') return ''
   const record = issue as Record<string, unknown>
   const message = typeof record.msg === 'string'
-    ? record.msg.replace('Input should be a valid integer', '请输入有效整数')
-    : ''
+    ? localizedSystemText(record.msg.replace('Input should be a valid integer', '请输入有效整数'), '参数不符合要求')
+    : '参数不符合要求'
   const location = Array.isArray(record.loc)
-    ? record.loc.filter((item) => !['body', 'query', 'path'].includes(String(item))).join('.')
+    ? record.loc
+      .filter((item) => !['body', 'query', 'path'].includes(String(item)))
+      .map((item) => ({
+        candidate_k: '候选池',
+        knowledge_base_ids: '知识库范围',
+        min_score: '最低分',
+        top_k: '返回数量',
+      }[String(item)] || String(item)))
+      .join('.')
     : ''
   return [location, message].filter(Boolean).join('：')
 }
 
 export function formatApiErrorDetail(detail: unknown, fallback: string): string {
-  if (typeof detail === 'string' && detail.trim()) return detail.trim()
+  if (typeof detail === 'string' && detail.trim()) return localizedSystemText(detail, fallback)
   if (Array.isArray(detail)) {
     const messages = detail.map(validationIssueMessage).filter(Boolean)
     return messages.length ? `参数校验失败：${messages.join('；')}` : fallback
@@ -106,7 +115,7 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}, option
     }
     if (error instanceof ApiError) throw error
     if (error instanceof DOMException && error.name === 'AbortError') throw error
-    throw new ApiError(error instanceof Error ? error.message : '网络请求失败', { code: 'NETWORK_ERROR' })
+    throw new ApiError(localizedSystemText(error instanceof Error ? error.message : '', '网络请求失败'), { code: 'NETWORK_ERROR' })
   } finally {
     window.clearTimeout(timeoutId)
     options.signal?.removeEventListener('abort', handleCallerAbort)

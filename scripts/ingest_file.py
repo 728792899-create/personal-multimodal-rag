@@ -12,7 +12,7 @@ from app.services.document_processor import DocumentProcessor  # noqa: E402
 
 def main() -> None:
     if len(sys.argv) != 2:
-        raise SystemExit("Usage: python scripts/ingest_file.py <file>")
+        raise SystemExit("用法：python scripts/ingest_file.py <文件>")
 
     file_path = Path(sys.argv[1])
     processor = DocumentProcessor()
@@ -29,4 +29,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -17,13 +17,13 @@ QUALITY_THRESHOLDS = {
 def _load_evidence(path: str | Path) -> tuple[dict, list[str]]:
     target = Path(path)
     if not target.is_file():
-        return {}, ["release evidence file is not present"]
+        return {}, ["发布证据文件不存在。"]
     try:
         payload = json.loads(target.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return {}, ["release evidence file is unreadable or invalid JSON"]
+        return {}, ["发布证据文件不可读，或不是有效的 JSON。"]
     if not isinstance(payload, dict):
-        return {}, ["release evidence root must be a JSON object"]
+        return {}, ["发布证据的 JSON 根节点必须是对象。"]
     return payload, []
 
 
@@ -62,15 +62,23 @@ def build_release_readiness(path: str | Path) -> dict:
             }
         )
 
-    minimum("licensed_materials", "licensed real source materials", corpus.get("licensed_materials"), 20)
-    minimum("non_fixture_documents", "non-fixture indexed documents", corpus.get("non_fixture_documents"), 200)
-    minimum("annotated_questions", "human-annotated benchmark questions", corpus.get("annotated_questions"), 200)
-    minimum("real_questions", "real usage questions", usage.get("real_questions"), 100)
-    minimum("soak_days", "continuous deployment days", operations.get("soak_days"), 14)
-    boolean("restore_drill", "complete production restore drill", operations.get("restore_drill_passed"))
-    boolean("no_data_loss", "no known data-loss defect", operations.get("no_data_loss_defect"))
+    minimum("licensed_materials", "有明确许可证的真实资料来源", corpus.get("licensed_materials"), 20)
+    minimum("non_fixture_documents", "已索引的非 fixture 文档", corpus.get("non_fixture_documents"), 200)
+    minimum("annotated_questions", "人工标注的基准问题", corpus.get("annotated_questions"), 200)
+    minimum("real_questions", "真实使用问题", usage.get("real_questions"), 100)
+    minimum("soak_days", "连续部署运行天数", operations.get("soak_days"), 14)
+    boolean("restore_drill", "完整生产恢复演练", operations.get("restore_drill_passed"))
+    boolean("no_data_loss", "没有已知的数据丢失缺陷", operations.get("no_data_loss_defect"))
+    metric_labels = {
+        "recall_at_5": "Recall@5",
+        "mrr": "MRR",
+        "citation_accuracy": "引用准确率",
+        "citation_coverage": "引用覆盖率",
+        "refusal_accuracy": "拒答准确率",
+        "answer_acceptance": "可回答问题接受率",
+    }
     for metric, threshold in QUALITY_THRESHOLDS.items():
-        minimum(metric, metric.replace("_", " "), quality.get(metric), threshold)
+        minimum(metric, metric_labels[metric], quality.get(metric), threshold)
 
     passed = sum(1 for gate in gates if gate["passed"])
     return {

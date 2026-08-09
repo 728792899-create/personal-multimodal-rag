@@ -25,7 +25,7 @@ describe('LoginPage', () => {
     const wrapper = mount(LoginPage, {
       props: { submitting: false, error: 'Invalid administrator credentials' },
     })
-    expect(wrapper.get('[role="alert"]').text()).toContain('Invalid')
+    expect(wrapper.get('[role="alert"]').text()).toContain('管理员密码不正确')
   })
 
   it('uses Chinese semantics for visible product and session copy', () => {
@@ -40,6 +40,6 @@ describe('LoginPage', () => {
     expect(wrapper.text()).toContain('证据溯源')
     expect(wrapper.text()).toContain('本地控制')
     expect(wrapper.text()).toContain('已启用 CSRF 防护')
-    expect(wrapper.text()).toContain('HttpOnly Cookie')
+    expect(wrapper.text()).toContain('仅 HTTP 可访问的会话令牌')
   })
 })

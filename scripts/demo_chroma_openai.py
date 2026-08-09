@@ -49,7 +49,7 @@ def optional_dimension() -> int | None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run a real Chroma + OpenAI embedding RAG demo.")
+    parser = argparse.ArgumentParser(description="运行真实的 Chroma + OpenAI Embedding RAG 演示。")
     parser.add_argument("--sample", default=str(ROOT / "samples" / "rag-notes.md"))
     parser.add_argument("--question", default="如何优化 RAG 的召回质量？")
     parser.add_argument("--top-k", type=int, default=5)
@@ -74,7 +74,7 @@ def main() -> None:
     base_url = os.getenv("OPENAI_BASE_URL") or None
     collection = args.collection or f"openai_demo_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
-    print("=== Real Chroma + OpenAI Embedding Demo ===")
+    print("=== 真实 Chroma + OpenAI Embedding 演示 ===")
     print(
         json.dumps(
             {
@@ -97,7 +97,7 @@ def main() -> None:
     processor = DocumentProcessor()
     document = processor.parse_file(sample)
     chunks = processor.split(document)
-    print(f"\nParsed document: {document.file_name}, chunks={len(chunks)}, chars={len(document.text)}")
+    print(f"\n文档解析完成：{document.file_name}，chunks={len(chunks)}，字符数={len(document.text)}")
 
     embedding_provider = OpenAICompatibleEmbeddingProvider(
         api_key=api_key,
@@ -120,28 +120,28 @@ def main() -> None:
     )
     engine = RagEngine(retriever)
 
-    print("Embedding chunks with OpenAI and upserting into Chroma...")
+    print("正在使用 OpenAI 生成 chunk Embedding 并写入 Chroma……")
     try:
         retriever.add_document(document, chunks)
     except Exception as exc:
         if exc.__class__.__name__.endswith("NotFoundError"):
             raise SystemExit(
                 "Embedding 请求返回 404。当前 OPENAI_BASE_URL/模型可能只支持 Chat API，"
-                "没有 OpenAI-compatible embeddings endpoint。"
+                "没有 OpenAI-compatible Embedding endpoint。"
             ) from exc
         if exc.__class__.__name__.endswith("BadRequestError"):
             raise SystemExit(
-                "Embedding 请求被拒绝。当前模型可能是 Chat/Responses 模型，不能用于 embeddings。"
+                "Embedding 请求被拒绝。当前模型可能是 Chat/Responses 模型，不能用于 Embedding。"
             ) from exc
         raise
-    print("Chroma upsert complete.")
+    print("Chroma 写入完成。")
 
     answer = engine.ask(args.question, top_k=args.top_k)
-    print(f"\nQuestion: {args.question}")
-    print("\nAnswer:\n" + answer["answer"])
-    print("\nRetrieval trace:")
+    print(f"\n问题：{args.question}")
+    print("\n回答：\n" + answer["answer"])
+    print("\n检索 Trace：")
     print(json.dumps(answer["retrieval_trace"], ensure_ascii=False, indent=2))
-    print("\nCitations:")
+    print("\n引用：")
     for item in answer["citations"]:
         print(
             "- "

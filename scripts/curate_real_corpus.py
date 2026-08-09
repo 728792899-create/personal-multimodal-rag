@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Build a licensed bilingual corpus from live Wikipedia revisions.
+"""从实时 Wikipedia 修订版本构建许可明确的双语语料。
 
-Downloaded material is operator evidence under ``data/`` and is intentionally
-excluded from Git. Each document retains its canonical URL, revision ID,
-retrieval time, license metadata, and SHA-256 digest.
+下载内容是保存在 ``data/`` 下的运维证据，刻意排除在 Git 之外。
+每份文档都会保留规范 URL、修订 ID、获取时间、许可证元数据和 SHA-256 摘要。
 """
 
 from __future__ import annotations
@@ -133,7 +132,7 @@ def api(language: str, params: dict, *, attempts: int = 4) -> dict:
             last_error = exc
             if attempt + 1 < attempts:
                 time.sleep(2**attempt)
-    raise RuntimeError(f"Wikipedia API failed for {language}: {type(last_error).__name__}")
+    raise RuntimeError(f"Wikipedia API 调用失败（{language}）：{type(last_error).__name__}")
 
 
 def rights(language: str) -> dict:
@@ -229,22 +228,22 @@ def verify_manifest(output: Path, manifest: dict, *, minimum_documents: int) -> 
         relative = Path(str(item.get("file") or ""))
         path = (output / relative).resolve()
         if output.resolve() not in path.parents or not path.is_file():
-            errors.append(f"missing or unsafe corpus file: {relative}")
+            errors.append(f"语料文件缺失或路径不安全：{relative}")
             continue
         digest = sha256(path.read_bytes())
         if digest != item.get("sha256"):
-            errors.append(f"checksum mismatch: {relative}")
+            errors.append(f"校验和不匹配：{relative}")
         if digest in hashes:
-            errors.append(f"duplicate content hash: {relative}")
+            errors.append(f"内容哈希重复：{relative}")
         hashes.add(digest)
         source_url = str(item.get("source_url") or "")
         if not source_url or source_url in sources:
-            errors.append(f"missing or duplicate source URL: {relative}")
+            errors.append(f"来源 URL 缺失或重复：{relative}")
         sources.add(source_url)
         if not item.get("license_name") or not item.get("license_url"):
-            errors.append(f"license metadata missing: {relative}")
+            errors.append(f"缺少许可证元数据：{relative}")
     if len(documents) < minimum_documents:
-        errors.append(f"only {len(documents)} documents; {minimum_documents} required")
+        errors.append(f"仅有 {len(documents)} 份文档；要求至少 {minimum_documents} 份")
     return {
         "valid": not errors,
         "documents": len(documents),
@@ -268,7 +267,7 @@ def build_wikipedia(output: Path, *, per_language: int) -> dict:
     for language in ("en", "zh"):
         license_info = rights(language)
         if not license_info["name"] or not license_info["url"]:
-            raise RuntimeError(f"Wikipedia did not return license metadata for {language}")
+            raise RuntimeError(f"Wikipedia 未返回 {language} 的许可证元数据")
         candidates = fetch_pages(
             language,
             discover_page_ids(language, per_language),
@@ -315,7 +314,7 @@ def build_wikipedia(output: Path, *, per_language: int) -> dict:
             accepted += 1
         if accepted < per_language:
             raise RuntimeError(
-                f"only {accepted} suitable {language} documents found; {per_language} required"
+                f"仅找到 {accepted} 份合适的 {language} 文档；要求 {per_language} 份"
             )
     manifest = {
         "schema_version": 1,
@@ -341,8 +340,8 @@ def gh_api(endpoint: str) -> dict:
     )
     if result.returncode:
         raise RuntimeError(
-            f"GitHub API failed for {endpoint}: "
-            f"{result.stderr.strip().splitlines()[-1] if result.stderr.strip() else 'unknown error'}"
+            f"GitHub API 调用失败（{endpoint}）："
+            f"{result.stderr.strip().splitlines()[-1] if result.stderr.strip() else '未知错误'}"
         )
     return json.loads(result.stdout)
 
@@ -458,7 +457,7 @@ def build_github(
             license_id = str(license_payload.get("license", {}).get("spdx_id") or "")
             license_url = str(license_payload.get("html_url") or "")
             if license_id not in ALLOWED_LICENSES or not license_url:
-                failures.append(f"{repository}: unsupported or unrecognized license {license_id}")
+                failures.append(f"{repository}：许可证不受支持或无法识别 {license_id}")
                 continue
             tree = gh_api(f"repos/{repository}/git/trees/{commit}?recursive=1")
             accepted_from_repo = 0
@@ -525,13 +524,13 @@ def build_github(
     }
     if len(final_documents) < target_documents:
         raise RuntimeError(
-            f"only {len(documents)} licensed GitHub documents collected; "
-            f"{target_documents} required"
+            f"仅收集到 {len(documents)} 份许可明确的 GitHub 文档；"
+            f"要求 {target_documents} 份"
         )
     if len(final_repositories) < minimum_repositories:
         raise RuntimeError(
-            f"only {len(final_repositories)} licensed repositories represented; "
-            f"{minimum_repositories} required"
+            f"仅覆盖 {len(final_repositories)} 个许可明确的仓库；"
+            f"要求 {minimum_repositories} 个"
         )
     kept_files = {str(item["file"]) for item in final_documents}
     for path in output.glob("gh-*.md"):
@@ -557,7 +556,7 @@ def build_github(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Curate and verify a licensed real corpus")
+    parser = argparse.ArgumentParser(description="整理并验证许可明确的真实语料")
     parser.add_argument("--output", type=Path, default=Path("data/sources/real-corpus"))
     parser.add_argument("--source", choices=["github", "wikipedia"], default="github")
     parser.add_argument("--target", type=int, default=200)

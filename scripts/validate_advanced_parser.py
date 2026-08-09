@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Submit a real fixture to the isolated parser and save a content-free report."""
+"""向隔离解析器提交真实样例，并保存不含正文的验收报告。"""
 
 from __future__ import annotations
 
@@ -43,7 +43,7 @@ with httpx.Client(base_url="http://127.0.0.1:8090", timeout=180) as client:
         time.sleep(2)
     else:
         client.delete(f"/v1/jobs/{job_id}")
-        status = {"id": job_id, "status": "timed_out", "error": "validation timeout"}
+        status = {"id": job_id, "status": "timed_out", "error": "验收超时"}
 print(json.dumps({"capabilities": capabilities.json(), "job": status}))
 """
 
@@ -184,5 +184,5 @@ if __name__ == "__main__":
         json.JSONDecodeError,
         subprocess.CalledProcessError,
     ) as exc:
-        print(f"advanced parser validation failed: {type(exc).__name__}", file=sys.stderr)
+        print(f"高级解析器验收失败：{type(exc).__name__}", file=sys.stderr)
         raise SystemExit(1)

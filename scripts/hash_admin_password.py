@@ -10,10 +10,10 @@ from app.services.auth import AuthService
 
 
 def main() -> int:
-    password = getpass.getpass("Administrator password: ")
-    confirmation = getpass.getpass("Confirm password: ")
+    password = getpass.getpass("管理员密码：")
+    confirmation = getpass.getpass("再次输入密码：")
     if password != confirmation:
-        raise SystemExit("Passwords do not match")
+        raise SystemExit("两次输入的密码不一致。")
     print(AuthService.hash_password(password))
     return 0
 

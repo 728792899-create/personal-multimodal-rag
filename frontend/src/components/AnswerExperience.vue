@@ -3,6 +3,7 @@ import { computed } from 'vue'
 
 import { exportHistoryUrl, type ChunkResult } from '../api'
 import { useWorkbenchContext } from '../composables/workbenchContext'
+import { localizedSystemText } from '../localization'
 
 const workbench = useWorkbenchContext()
 const emit = defineEmits<{
@@ -11,11 +12,18 @@ const emit = defineEmits<{
 
 const resultLabel = computed(() => {
   if (workbench.streamAuditPending.value) return '生成中 · 待审计'
-  if (workbench.isRefusal.value) return '已安全拒答'
   if (workbench.workMode.value === 'search') return '检索完成'
+  if (!workbench.answerFinalized.value) {
+    return workbench.answer.value?.citations.length ? '回答未完成 · 证据已保留' : '回答未完成'
+  }
+  if (workbench.isRefusal.value) return '已安全拒答'
   if (!workbench.answer.value?.answer) return '检索完成 · 无正文'
   return '回答已生成'
 })
+
+const trustPassed = computed(() => (
+  ['strong', 'medium'].includes(workbench.trust.value?.level || '')
+))
 
 function percent(value?: number) {
   return `${Math.round((value || 0) * 100)}%`
@@ -38,6 +46,7 @@ function openCitation(item: ChunkResult) {
       </div>
       <div
         :class="['result-status', { refused: workbench.isRefusal.value, pending: workbench.streamAuditPending.value }]"
+        data-testid="answer-result-status"
         role="status"
         aria-live="polite"
       >
@@ -50,19 +59,30 @@ function openCitation(item: ChunkResult) {
       <span class="status-signal" aria-hidden="true"></span>
       <div><strong>正在核验引用</strong><p>审计完成前，回答不会被标记为可信结论。</p></div>
     </section>
+    <section v-else-if="!workbench.answerFinalized.value" class="trust-summary trust-incomplete" role="status" aria-live="polite">
+      <div>
+        <span class="trust-label">未完成</span>
+        <strong>这不是已审计的最终回答</strong>
+        <p>中断前生成的片段仅供参考，尚未完成引用审计。</p>
+      </div>
+    </section>
     <section v-else-if="workbench.trust.value" :class="['trust-summary', `trust-${workbench.trust.value.level}`]">
       <div>
-        <span class="trust-label">{{ workbench.trust.value.label }}</span>
+        <span class="trust-label">{{ localizedSystemText(workbench.trust.value.label, '证据状态') }}</span>
         <strong>
           {{
             workbench.workMode.value === 'search'
               ? '请逐条核验来源'
               : workbench.isRefusal.value
                 ? '证据不足，系统没有补写结论'
-                : '已通过引用核验'
+                : trustPassed
+                  ? '已通过引用核验'
+                  : workbench.trust.value.level === 'weak'
+                    ? '引用核验未通过'
+                    : '证据关联不足'
           }}
         </strong>
-        <p>{{ workbench.trust.value.reason }}</p>
+        <p>{{ localizedSystemText(workbench.trust.value.reason, '请查看引用证据后再判断。') }}</p>
       </div>
       <dl>
         <div><dt>{{ workbench.workMode.value === 'search' ? '匹配度' : '可信度' }}</dt><dd>{{ percent(workbench.answer.value.confidence || 0) }}</dd></div>
@@ -79,8 +99,24 @@ function openCitation(item: ChunkResult) {
       <p>证据已经就绪，正在组织回答。</p>
     </div>
     <div v-else class="empty-state compact-empty">
-      <strong>{{ workbench.workMode.value === 'search' ? '当前是只检索模式' : '回答链路未返回正文' }}</strong>
-      <p>{{ workbench.workMode.value === 'search' ? '系统没有生成结论，请逐条核验证据。' : '系统保留了可用检索证据，请查看诊断并重试生成。' }}</p>
+      <strong>
+        {{
+          workbench.workMode.value === 'search'
+            ? '当前是只检索模式'
+            : workbench.error.value && workbench.answer.value.citations.length
+              ? '回答生成未完成'
+              : '回答链路未返回正文'
+        }}
+      </strong>
+      <p>
+        {{
+          workbench.workMode.value === 'search'
+            ? '系统没有生成结论，请逐条核验证据。'
+            : workbench.error.value && workbench.answer.value.citations.length
+              ? `检索已经完成，并保留了 ${workbench.answer.value.citations.length} 条证据；请重试回答生成。`
+              : '系统保留了可用检索证据，请查看诊断并重试生成。'
+        }}
+      </p>
     </div>
 
     <details v-if="workbench.diagnostics.value.length" class="diagnostic-stack">
@@ -88,8 +124,8 @@ function openCitation(item: ChunkResult) {
       <div>
         <article v-for="item in workbench.diagnostics.value" :key="`${item.level}-${item.title}`" :class="['diagnostic-item', item.level]">
           <div>
-            <strong>{{ item.title }}</strong>
-            <p>{{ item.message }}</p>
+            <strong>{{ localizedSystemText(item.title, '检索诊断') }}</strong>
+            <p>{{ localizedSystemText(item.message, '请检查检索设置后重试。') }}</p>
           </div>
           <div v-if="item.actions?.length" class="inline-actions">
             <button
@@ -98,7 +134,7 @@ function openCitation(item: ChunkResult) {
               type="button"
               class="button secondary-button"
               @click="workbench.handleDiagnosticAction(action)"
-            >{{ action.label }}</button>
+            >{{ localizedSystemText(action.label, '执行建议') }}</button>
           </div>
         </article>
       </div>
@@ -124,7 +160,7 @@ function openCitation(item: ChunkResult) {
               <strong>{{ item.filename }}</strong>
               <span>{{ item.snippet || item.text }}</span>
               <small v-if="workbench.appMode.value === 'expert'">
-                片段 {{ item.index + 1 }} · rerank {{ item.rerank_score.toFixed(3) }} · BM25 {{ item.bm25_score.toFixed(3) }} · vector {{ item.vector_score.toFixed(3) }}
+                片段 {{ item.index + 1 }} · 重排序 {{ item.rerank_score.toFixed(3) }} · BM25 {{ item.bm25_score.toFixed(3) }} · 向量 {{ item.vector_score.toFixed(3) }}
               </small>
             </span>
             <span class="citation-open" aria-hidden="true">↗</span>
@@ -137,7 +173,7 @@ function openCitation(item: ChunkResult) {
       </div>
     </section>
 
-    <section v-if="workbench.answer.value.answer && !workbench.streamAuditPending.value" class="answer-actions" aria-labelledby="answer-actions-title">
+    <section v-if="workbench.answer.value.answer && workbench.answerFinalized.value" class="answer-actions" aria-labelledby="answer-actions-title">
       <h3 id="answer-actions-title" class="sr-only">回答操作与反馈</h3>
       <div class="inline-actions answer-tool-row">
         <button type="button" class="answer-tool" :disabled="workbench.rewriting.value" @click="workbench.handleRewrite('highlights')">整理为要点</button>
@@ -151,7 +187,7 @@ function openCitation(item: ChunkResult) {
         >导出</a>
       </div>
       <div v-if="workbench.rewriteResult.value" class="rewrite-result">
-        <strong>{{ workbench.rewriteResult.value.label }}</strong>
+        <strong>{{ localizedSystemText(workbench.rewriteResult.value.label, '整理后的回答') }}</strong>
         <p>{{ workbench.rewriteResult.value.rewritten }}</p>
       </div>
       <p v-if="workbench.cardMessage.value" class="success-copy">{{ workbench.cardMessage.value }}</p>

@@ -48,6 +48,7 @@ async function installOfflineApi(page: Page) {
   const askBodies: Array<Record<string, unknown>> = []
   let evalDrafts: Array<Record<string, unknown>> = []
   let conversations: Array<Record<string, unknown>> = []
+  let conversationMessages: Array<Record<string, unknown>> = []
   let knowledgeBases: Array<Record<string, unknown>> = [
     { id: 'default', name: '默认知识库', description: '', is_default: true, document_count: 0, created_at: '', updated_at: '' },
   ]
@@ -167,6 +168,33 @@ async function installOfflineApi(page: Page) {
     }
     if (path === '/api/index-jobs') return json({ jobs })
     if (path === '/api/documents') return json({ documents })
+    if (path === '/api/search' && method === 'POST') {
+      const base = answerFixture()
+      const results = Array.from({ length: 5 }, (_, index) => ({
+        ...base.citations[0],
+        id: `search-${index + 1}`,
+        document_id: `search-document-${index + 1}`,
+        filename: `检索证据-${index + 1}.md`,
+        index,
+        text: `第 ${index + 1} 条脱敏检索证据：引用必须能回到原始资料，并说明召回、重排序与拒答门的判定依据。`,
+        snippet: `第 ${index + 1} 条脱敏检索证据：引用必须能回到原始资料，并说明召回、重排序与拒答门的判定依据。`,
+        score: 0.92 - index * 0.03,
+        rerank_score: 0.92 - index * 0.03,
+        matched_terms: ['检索', '引用', '拒答'],
+      }))
+      return json({
+        results,
+        trace: {
+          ...base.retrieval_trace,
+          returned: results.length,
+          pipeline: {
+            ...base.retrieval_trace.pipeline,
+            rerank: { ...base.retrieval_trace.pipeline.rerank, returned: results.length },
+          },
+        },
+        diagnostics: [],
+      })
+    }
     if (path === '/api/knowledge/overview') return json({
       ...overviewFixture,
       document_count: documents.length,
@@ -176,13 +204,18 @@ async function installOfflineApi(page: Page) {
     if (path === '/api/conversations' && method === 'POST') {
       const conversation = { id: 'conv-1', title: '新会话', knowledge_base_ids: ['default'], message_count: 0, created_at: '', updated_at: '' }
       conversations = [conversation]
+      conversationMessages = []
       return json({ conversation }, 201)
     }
     if (path === '/api/conversations') return json({ conversations })
-    if (path === '/api/conversations/conv-1/messages') return json({ messages: [] })
+    if (path === '/api/conversations/conv-1/messages') return json({ messages: conversationMessages })
     if (path === '/api/conversations/conv-1/messages:stream') {
       const body = request.postDataJSON() as Record<string, unknown>
       askBodies.push(body)
+      const turn = askBodies.length
+      const requestId = `request-${turn}`
+      const userMessageId = `user-${turn}`
+      const assistantMessageId = `assistant-${turn}`
       let response = answerFixture()
       if (String(body.question).includes('Kubernetes')) {
         const base = answerFixture()
@@ -216,7 +249,39 @@ async function installOfflineApi(page: Page) {
           : [{ type: 'answer.delta', delta: response.answer }, { type: 'answer.completed', response }]),
         { type: 'done', status: 'completed' },
       ]
-      const stream = events.map((event, index) => `event: ${event.type}\ndata: ${JSON.stringify({ request_id: 'req', conversation_id: 'conv-1', message_id: 'msg', sequence: index + 1, ...event })}\n\n`).join('')
+      conversationMessages.push(
+        {
+          id: userMessageId,
+          conversation_id: 'conv-1',
+          role: 'user',
+          content: String(body.question || ''),
+          status: 'completed',
+          metadata: {},
+          created_at: '',
+          updated_at: '',
+        },
+        {
+          id: assistantMessageId,
+          conversation_id: 'conv-1',
+          role: 'assistant',
+          content: response.answer,
+          status: 'completed',
+          metadata: { response },
+          created_at: '',
+          updated_at: '',
+        },
+      )
+      conversations = conversations.map((conversation) => ({
+        ...conversation,
+        message_count: conversationMessages.length,
+      }))
+      const stream = events.map((event, index) => `event: ${event.type}\ndata: ${JSON.stringify({
+        request_id: requestId,
+        conversation_id: 'conv-1',
+        message_id: assistantMessageId,
+        sequence: index + 1,
+        ...event,
+      })}\n\n`).join('')
       return route.fulfill({ status: 200, contentType: 'text/event-stream', body: stream })
     }
     if (path.startsWith('/api/chunks/')) return json({
@@ -264,16 +329,16 @@ test('upload, URL import, grounded answer, citation and feedback draft', async (
     name: 'quality-guide.md', mimeType: 'text/markdown', buffer: Buffer.from('# 评测\nRecall@K 与 MRR。'),
   })
   await page.getByTestId('upload-button').click()
-  await expect(page.getByRole('button', { name: /quality-guide\.md markdown/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /quality-guide\.md Markdown 文档/ })).toBeVisible()
 
   await page.getByTestId('url-input').fill('https://example.com/guide')
   await page.getByTestId('url-import-button').click()
-  await expect(page.getByRole('button', { name: /example\.com-guide\.html url/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /example\.com-guide\.html 网页导入/ })).toBeVisible()
   await page.getByRole('button', { name: '关闭资料库' }).click()
 
   await page.getByRole('textbox', { name: '问题' }).fill('RAG 如何评测？')
   await page.getByTestId('run-query').click()
-  await expect(page.getByRole('status')).toContainText('回答已生成')
+  await expect(page.getByTestId('answer-result-status')).toContainText('回答已生成')
   await expect(page.getByText('RAG 使用固定黄金集评测召回和引用质量。[1]')).toBeVisible()
 
   await page.getByTestId('citation-1').click()
@@ -294,7 +359,7 @@ test('expert parameters and no-evidence refusal are explicit', async ({ page }) 
   await page.getByRole('textbox', { name: '问题' }).fill('资料里有 Kubernetes 配置吗？')
   await page.getByTestId('run-query').click()
 
-  await expect(page.getByRole('status')).toContainText('已安全拒答')
+  await expect(page.getByTestId('answer-result-status')).toContainText('已安全拒答')
   await expect(page.getByText('没有可引用证据')).toBeVisible()
   await expect(page.locator('[data-stage="decision"]')).toContainText('回答决策')
   await expect(page.locator('[data-stage="decision"]')).toContainText('拒绝回答')
@@ -329,7 +394,7 @@ test('knowledge-base creation, narrow layout and failed job retry stay usable', 
   const taskSection = page.locator('details.task-section')
   if (!(await taskSection.getAttribute('open'))) await taskSection.locator('summary').click()
   await taskSection.getByRole('button', { name: '重试' }).click()
-  await expect(taskSection.getByText('succeeded')).toBeVisible()
+  await expect(taskSection.getByText('已完成')).toBeVisible()
   await expect(page.locator('#main-workspace')).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 })
@@ -345,7 +410,7 @@ test('image question, graph controls and accessible graph evidence stay connecte
   await page.locator('.attachment-detail select').selectOption('high')
   await page.getByRole('textbox', { name: '问题' }).fill('图中 Alpha 如何连到 Beta？')
   await page.getByTestId('run-query').click()
-  await expect(page.getByRole('status')).toContainText('回答已生成')
+  await expect(page.getByTestId('answer-result-status')).toContainText('回答已生成')
   expect(api.askBodies[0]).toMatchObject({ attachments: [{ id: 'query-1', detail: 'high' }], strategy: 'auto' })
 
   await page.getByTestId('mode-expert').click()
@@ -456,7 +521,7 @@ test('URL source subscription creates and reports an incremental sync', async ({
 
   await expect(manager.getByText('产品资料订阅')).toBeVisible()
   await manager.getByRole('button', { name: '立即同步' }).click()
-  await expect(manager.getByText(/最近同步：succeeded/)).toBeVisible()
+  await expect(manager.getByText(/最近同步：已完成/)).toBeVisible()
   await expect(manager.getByText('新增/更新 1')).toBeVisible()
 })
 
@@ -483,6 +548,23 @@ test.describe('README screenshot capture', () => {
     await page.goto('/')
     await expect(page.getByRole('heading', { name: '向你的知识库提问' })).toBeVisible()
     await saveReadmeScreenshot(page, '14-evidence-ledger-mobile.png')
+  })
+
+  test('writes the localized retrieval-only source screenshot', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Desktop screenshots are captured once.')
+    await installOfflineApi(page)
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/')
+    await expect(page.getByRole('heading', { name: '向你的知识库提问' })).toBeVisible()
+    await page.getByRole('button', { name: '检索', exact: true }).click()
+    await page.getByRole('textbox', { name: '问题' }).fill('如何检查混合检索、重排序和拒答门？')
+    await page.getByTestId('run-query').click()
+
+    await expect(page.getByTestId('answer-result-status')).toContainText('检索完成')
+    await expect(page.getByText('当前是只检索模式')).toBeVisible()
+    await expect(page.getByTestId('citation-5')).toBeVisible()
+    await expect(page.locator('.keyboard-hint')).toHaveText('⌘ K 聚焦 · ⌘ 回车发送')
+    await saveReadmeScreenshot(page, '16-question-first-sources.png')
   })
 
   test('writes the localized sign-in screenshot', async ({ page }, testInfo) => {

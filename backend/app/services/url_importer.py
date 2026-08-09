@@ -93,10 +93,10 @@ def fetch_url(url: str, title: str = "", timeout: float = 12, max_bytes: int = 2
         content_type = response.headers.get("content-type", "")
         media_type = content_type.split(";", 1)[0].strip().lower()
         if media_type and media_type not in ALLOWED_CONTENT_TYPES:
-            raise ValueError(f"Unsupported URL content type: {media_type}")
+            raise ValueError(f"不支持的 URL 内容类型：{media_type}")
         raw = response.read(max_bytes + 1)
     if len(raw) > max_bytes:
-        raise ValueError(f"URL content is too large; max {max_bytes} bytes")
+        raise ValueError(f"URL 内容过大，最大允许 {max_bytes} bytes。")
     return imported_url_from_payload(url, raw, content_type, title=title)
 
 
@@ -104,7 +104,7 @@ def imported_url_from_payload(url: str, raw: bytes, content_type: str, *, title:
     parsed = _validate_public_url(url)
     media_type = content_type.split(";", 1)[0].strip().lower()
     if media_type and media_type not in ALLOWED_CONTENT_TYPES:
-        raise ValueError(f"Unsupported URL content type: {media_type}")
+        raise ValueError(f"不支持的 URL 内容类型：{media_type}")
     encoding = _encoding_from_content_type(content_type)
     body = raw.decode(encoding, errors="ignore")
     if "html" in content_type.lower() or "<html" in body[:500].lower():
@@ -164,17 +164,17 @@ def is_blocked_host(hostname: str) -> bool:
 def _validate_public_url(url: str):
     parsed = urlparse(url)
     if parsed.scheme.lower() not in {"http", "https"}:
-        raise ValueError("Only http/https URLs are supported")
+        raise ValueError("仅支持 http/https URL。")
     if not parsed.hostname:
-        raise ValueError("URL must include a valid hostname")
+        raise ValueError("URL 必须包含有效的主机名。")
     if parsed.username is not None or parsed.password is not None:
-        raise ValueError("URLs with embedded credentials are not supported")
+        raise ValueError("不支持包含凭据的 URL。")
     try:
         parsed.port
     except ValueError as exc:
-        raise ValueError("URL contains an invalid port") from exc
+        raise ValueError("URL 包含无效端口。") from exc
     if is_blocked_host(parsed.hostname):
-        raise ValueError("URL resolves to a private, special, or blocked address")
+        raise ValueError("URL 解析到私有、特殊或已阻止的地址。")
     return parsed
 
 

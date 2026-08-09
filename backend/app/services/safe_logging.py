@@ -6,7 +6,11 @@ from urllib.parse import urlsplit, urlunsplit
 
 _SENSITIVE_PATTERNS = (
     re.compile(r"(?i)(authorization\s*:\s*bearer)\s+[^\s,;]+"),
-    re.compile(r"(?i)\b([A-Za-z0-9_-]*(?:api[_-]?key|token|password|secret))\s*[:=]\s*[^\s,;]+"),
+    re.compile(
+        r"(?i)([\"']?[A-Za-z0-9_-]*(?:api[_-]?key|apikey|credential|token|password|secret)"
+        r"[\"']?\s*[:=]\s*)"
+        r"(?:\"[^\"]*\"|'[^']*'|[^\s,;}\]]+)"
+    ),
     re.compile(r"\bsk-[A-Za-z0-9_-]{8,}\b"),
 )
 _PRIVATE_METADATA_KEYS = {
@@ -25,9 +29,28 @@ def redact_sensitive_text(value: object) -> str:
 
     cleaned = str(value)
     cleaned = _SENSITIVE_PATTERNS[0].sub(r"\1 [REDACTED]", cleaned)
-    cleaned = _SENSITIVE_PATTERNS[1].sub(lambda match: f"{match.group(1)}=[REDACTED]", cleaned)
+    cleaned = _SENSITIVE_PATTERNS[1].sub(
+        lambda match: f"{match.group(1)}[REDACTED]",
+        cleaned,
+    )
     cleaned = _SENSITIVE_PATTERNS[2].sub("[REDACTED]", cleaned)
     return cleaned[:1_000]
+
+
+def public_error_message(
+    value: object,
+    fallback: str = "请求处理失败，请稍后重试。",
+) -> str:
+    """Return only an application-owned message for API and SSE responses.
+
+    Exception text is never trusted, even when it already contains Chinese:
+    third-party errors can embed private paths, URLs, filenames, or user input.
+    Callers should keep the redacted exception in internal logs and provide a
+    bounded, context-specific fallback for the public response.
+    """
+
+    _ = value
+    return redact_sensitive_text(fallback)
 
 
 def sanitize_url_for_log(value: str) -> str:

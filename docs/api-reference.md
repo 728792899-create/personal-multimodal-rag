@@ -6,57 +6,59 @@ FastAPI 默认提供交互式 OpenAPI 页面：
 - OpenAPI JSON：`http://127.0.0.1:8010/openapi.json`
 - 通过前端 Nginx 访问业务 API：`http://127.0.0.1:5173/api/*`
 
-当前 API 服务于单用户 Production Local RC，字段会随 RC 迭代。外部集成应固定版本或在升级前比较 OpenAPI schema。
+当前 API 服务于单用户本地生产候选版，字段会随候选版迭代。外部集成应固定版本或在升级前比较 OpenAPI 结构定义。
 
-## 认证、workspace、请求 ID 与限流
+## 认证、工作区、请求 ID 与限流
 
-`demo` 默认关闭认证；`local-production` 可启用 session；`production` 强制 Argon2id 管理员密码、HttpOnly/Secure/SameSite Cookie 与 CSRF。兼容 Bearer token 仍可用于受控脚本，但不是 production 浏览器认证方式。
+`demo` 默认关闭认证；`local-production` 可启用会话；`production` 强制 Argon2id 管理员密码、HttpOnly/Secure/SameSite Cookie 与 CSRF。兼容 Bearer 令牌仍可用于受控脚本，但不是生产浏览器认证方式。
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| POST | `/api/auth/login` | 校验管理员密码并创建 HttpOnly session；独立限流 |
-| POST | `/api/auth/logout` | 撤销当前 session；要求 CSRF |
-| GET | `/api/auth/session` | 返回认证状态、服务端解析的 workspace 和 CSRF token |
+| POST | `/api/auth/login` | 校验管理员密码并创建 HttpOnly 会话；独立限流 |
+| POST | `/api/auth/logout` | 撤销当前会话；要求 CSRF |
+| GET | `/api/auth/session` | 返回认证状态、服务端解析的工作区和 CSRF 令牌 |
 
-workspace 永远从服务端 session 解析。浏览器请求体、query 或 header 中自报的 workspace 都不构成授权依据。
+工作区永远从服务端会话解析。浏览器请求体、查询参数或请求头中自报的工作区都不构成授权依据。
 
-服务端为每个请求生成或透传请求 ID，错误排查时应记录该 ID，但不要复制 Authorization、完整 URL query 或资料原文到公共 issue。
+服务端为每个请求生成或透传请求 ID，错误排查时应记录该 ID，但不要复制 Authorization、完整 URL 查询参数或资料原文到公开问题单。
 
-进程内限流超过阈值时返回 `429` 和 `Retry-After`。这是本地 Beta 防护，不等价于分布式网关限流。
+进程内限流超过阈值时返回 `429` 和 `Retry-After`。这是本地候选版防护，不等价于分布式网关限流。
 
 ## 健康与就绪
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/health` | 进程健康；用于 liveness |
-| GET | `/ready` | schema、队列深度和脱敏 Provider 状态；未配置外部 Provider 时为 `degraded` |
-| GET | `/api/system/readiness-report` | runtime、metadata/object/vector/queue/provider 的逐项就绪报告 |
-| GET | `/api/providers/status` | 只读能力、配置完整性与运行模式；不返回 Key/带凭据 URL |
-| GET | `/metrics` | Prometheus 文本格式；不包含正文、问题、Cookie、Key 或 URL query |
+| GET | `/health` | 进程健康；用于存活检查 |
+| GET | `/ready` | 结构定义、队列深度和脱敏模型提供方状态；未配置外部模型提供方时为 `degraded` |
+| GET | `/api/system/readiness-report` | 运行时、元数据/对象/向量/队列/模型提供方的逐项就绪报告 |
+| GET | `/api/providers/status` | 只读能力、配置完整性与运行模式；不返回密钥/带凭据 URL |
+| POST | `/api/providers/deepseek/runtime` | 管理员会话临时验证并连接 DeepSeek；要求 CSRF，不持久化密钥 |
+| DELETE | `/api/providers/deepseek/runtime` | 清除当前进程临时连接并恢复服务启动配置；要求 CSRF |
+| GET | `/metrics` | Prometheus 文本格式；不包含正文、问题、Cookie、密钥或 URL 查询参数 |
 | GET | `/docs` | Swagger UI |
 
 ```bash
 curl --fail http://127.0.0.1:8010/ready
 ```
 
-`production` 任一必需依赖不可用时 `/ready` 返回 `503`，不会静默切回 template。
+`production` 任一必需依赖不可用时 `/ready` 返回 `503`，不会静默切回模板回答。
 
 ## 文档 API
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET | `/api/documents` | 文档、索引状态与质量摘要 |
-| GET | `/api/documents/{document_id}` | 文档页、chunk 与 metadata |
+| GET | `/api/documents/{document_id}` | 文档页、分块与元数据 |
 | GET | `/api/documents/{document_id}/elements` | 按原始顺序返回类型化文档元素 |
 | GET | `/api/documents/{document_id}/source` | 受控下载原件；无受管原件时 `404` |
-| GET | `/api/assets/{asset_id}` | 受控读取文档资源；不暴露 object key/本地路径 |
+| GET | `/api/assets/{asset_id}` | 受控读取文档资源；不暴露对象键/本地路径 |
 | POST | `/api/documents` | `multipart/form-data` 上传并索引 |
 | POST | `/api/imports/url` | 导入公开 HTTP(S) 页面 |
-| DELETE | `/api/documents/{document_id}` | 删除 registry、索引和受管上传文件 |
+| DELETE | `/api/documents/{document_id}` | 删除注册表、索引和受管上传文件 |
 | POST | `/api/documents/{document_id}/rebuild` | 重建单文档索引 |
 | POST | `/api/documents/{document_id}/reindex` | 0.3 语义别名；行为与 rebuild 兼容 |
 | POST | `/api/documents/rebuild-all` | 重建全部文档索引 |
-| GET | `/api/parsers/status` | 内置/高级解析 profile 的可用性；不触发模型下载 |
+| GET | `/api/parsers/status` | 内置/高级解析配置的可用性；不触发模型下载 |
 
 同步上传/URL API为 0.1 客户端保留。0.2 前端默认使用后面的异步任务接口。
 
@@ -85,7 +87,7 @@ URL 导入只允许公开 HTTP(S) 地址。回环、内网、链路本地、嵌�
 | --- | --- | --- |
 | GET / POST | `/api/knowledge-bases` | 列表 / 创建知识库 |
 | PATCH | `/api/knowledge-bases/{id}` | 改名或更新描述 |
-| GET | `/api/knowledge-bases/{id}/graph?limit=500` | provenance-backed Graph-lite 快照；只返回所选 KB |
+| GET | `/api/knowledge-bases/{id}/graph?limit=500` | 具有来源依据的轻量图谱快照；只返回所选知识库 |
 | DELETE | `/api/knowledge-bases/{id}?force=false` | 有文档/终态任务时需 `force=true`；活动任务始终 `409`；默认库不可删除 |
 
 ### 临时查询图片
@@ -100,12 +102,12 @@ URL 导入只允许公开 HTTP(S) 地址。回环、内网、链路本地、嵌�
 | POST | `/api/ingestions/file` | multipart 文件入队，返回 `202` + `IndexJob` |
 | POST | `/api/ingestions/url` | URL 入队，返回 `202` + `IndexJob` |
 | GET | `/api/index-jobs`、`/api/index-jobs/{id}` | 任务中心与单任务状态 |
-| POST | `/api/index-jobs/{id}/retry` | 仅 failed/cancelled 可重试 |
-| DELETE | `/api/index-jobs/{id}` | 请求取消；running 先进入 cancelling |
+| POST | `/api/index-jobs/{id}/retry` | 仅失败/已取消的任务可重试 |
+| DELETE | `/api/index-jobs/{id}` | 请求取消；运行中的任务先进入取消中 |
 
-文件表单字段是 `file`、`knowledge_base_id`、可选 `parser_profile`、`enrich_modalities` 和 `build_graph`。默认是 `builtin/true/true`；`mineru/docling/paddleocr/auto` 需要隔离 parser worker。任务状态为 `queued/running/succeeded/failed/cancelling/cancelled`；阶段包含 `receive/validate/parse/extract_elements/enrich_modalities/chunk/embed/graph_extract/graph_write/quality/complete`。重复幂等请求会返回已有任务，不重复创建文档。
+文件表单字段是 `file`、`knowledge_base_id`、可选 `parser_profile`、`enrich_modalities` 和 `build_graph`。默认是 `builtin/true/true`；`mineru/docling/paddleocr/auto` 需要隔离解析工作进程。任务状态为 `queued/running/succeeded/failed/cancelling/cancelled`；阶段包含 `receive/validate/parse/extract_elements/enrich_modalities/chunk/embed/graph_extract/graph_write/quality/complete`。重复幂等请求会返回已有任务，不重复创建文档。
 
-强制删除知识库会级联清理其文档与终态任务，并从持久会话范围移除该库；若会话不再选择任何库，则回退到默认库。为避免 worker 写回已删除空间，仍处于 queued/running/cancelling 的任务必须先取消并等待终态。
+强制删除知识库会级联清理其文档与终态任务，并从持久会话范围移除该库；若会话不再选择任何库，则回退到默认库。为避免工作进程写回已删除空间，仍处于 queued/running/cancelling 的任务必须先取消并等待终态。
 
 ```bash
 curl --fail-with-body -F knowledge_base_id=default \
@@ -122,12 +124,12 @@ curl --fail-with-body -F knowledge_base_id=default \
 | POST | `/api/sources/{id}/sync` | 启动增量发现；内容变化进入原有索引任务 |
 | POST | `/api/sources/{id}/deletions:confirm` | 人工确认连续两次缺失的删除候选 |
 | GET | `/api/sync-runs`、`/api/sync-runs/{id}` | 查看发现、未变化、更新、失败和候选数 |
-| POST | `/api/sync-runs/{id}/retry` | 对失败或中断的 run 做幂等重试 |
+| POST | `/api/sync-runs/{id}/retry` | 对失败或中断的同步运行做幂等重试 |
 | GET | `/api/exports/history/{id}.md` | 导出带引用的单次回答 |
 | GET | `/api/exports/conversations/{id}.md` | 导出带引用的持久会话 |
 | GET | `/api/exports/knowledge-cards/{id}.md` | 导出知识卡片 |
 
-目录来源只接受 `GET /api/sources` 响应 `capabilities.directory_roots` 返回的不可逆 root ID 与相对路径；不能提交任意服务器路径。空结果、304 和部分失败都不会推进删除计数。完整非空同步连续两次未发现某条目后，它只进入候选状态，仍需显式确认。详见[持续数据源与增量同步](source-sync.md)。
+目录来源只接受 `GET /api/sources` 响应 `capabilities.directory_roots` 返回的不可逆根目录 ID 与相对路径；不能提交任意服务器路径。空结果、304 和部分失败都不会推进删除计数。完整非空同步连续两次未发现某条目后，它只进入候选状态，仍需显式确认。详见[持续数据源与增量同步](source-sync.md)。
 
 ## 检索与问答 API
 
@@ -167,7 +169,7 @@ curl --fail-with-body \
 | 字段 | 类型/范围 | 默认 | 说明 |
 | --- | --- | ---: | --- |
 | `top_k` | 1–12 | 5 | 返回给回答阶段的证据数 |
-| `candidate_k` | 1–80 或 null | provider 默认 | 初始候选池 |
+| `candidate_k` | 1–80 或 null | 模型提供方默认 | 初始候选池 |
 | `search_mode` | hybrid / keyword / semantic | hybrid | 召回分支 |
 | `search_profile` | balanced / precision / recall | balanced | 目标导向预设 |
 | `strategy` | hybrid / hybrid_graph / auto | hybrid | 图谱显式启用或按多跳/多实体门控 |
@@ -177,16 +179,16 @@ curl --fail-with-body \
 | `vector_weight` | 0–1 或 null | 环境默认 | 融合向量权重 |
 | `mmr_lambda` | 0–1 或 null | 环境默认 | 相关性/多样性权衡 |
 | `min_score` | 0–1 或 null | 环境默认 | 请求级最低分 |
-| `query_rewrite` | boolean | true | 是否允许查询改写 adapter |
-| `rerank_enabled` | boolean | true | 是否运行 reranker |
-| `graph_weight` | 0–1 | 0.25 | Graph evidence 在加权 RRF 中的权重 |
-| `graph_max_hops` | 1–4 | 2 | provenance-backed path 最大跳数 |
-| `modality_filters` | element type[] | [] | 只召回指定 text/image/table/equation 等 chunk |
-| `parent_window` | 0–3 | 1 | 引用 parent-child 相邻 chunk 窗口 |
+| `query_rewrite` | boolean | true | 是否允许查询改写适配器 |
+| `rerank_enabled` | boolean | true | 是否运行重排器 |
+| `graph_weight` | 0–1 | 0.25 | 图谱证据在加权 RRF 中的权重 |
+| `graph_max_hops` | 1–4 | 2 | 具有来源依据路径的最大跳数 |
+| `modality_filters` | 元素类型数组 | [] | 只召回指定文本/图片/表格/公式等分块 |
+| `parent_window` | 0–3 | 1 | 引用父子相邻分块窗口 |
 
-`hybrid_graph` 不把图边直接当答案：图只返回 element ID，再映射到现有 chunk 参与 RRF。`auto` 只有在至少两个 entity seed 或明确多跳意图、且存在可验证路径时启用；图谱后仍运行 MMR、rerank、拒答与引用审计。
+`hybrid_graph` 不把图边直接当答案：图只返回元素 ID，再映射到现有分块参与 RRF。`auto` 只有在至少两个实体种子或明确多跳意图、且存在可验证路径时启用；图谱后仍运行 MMR、重排、拒答与引用审计。
 
-`attachments` 为可选图片引用，`detail` 可为 `low/high/original/auto`。离线 profile 用 OCR/元数据扩展检索；视觉 enrichment Provider 按 detail 发送图片并返回结构化描述。
+`attachments` 为可选图片引用，`detail` 可为 `low/high/original/auto`。离线配置用 OCR/元数据扩展检索；视觉增强模型提供方按细节级别发送图片并返回结构化描述。
 
 ### 问答响应结构
 
@@ -232,15 +234,15 @@ error
 done
 ```
 
-纯文本请求的原有顺序不变。带图片时在 `retrieval.started` 前增加两个 query enrichment 事件；completed payload 只返回可见摘要，不暴露 object key。无证据时不会调用生成 Provider，而是发送 `refusal` 后 `done`。有证据时 `answer.delta` 只代表待审计正文；引用、confidence 与 citation audit 以 `answer.completed.response` 为准。客户端应按 `sequence` 去重，收到 `done` 后结束；中断连接会把 assistant message 标记为 `cancelled`。
+纯文本请求的原有顺序不变。带图片时在 `retrieval.started` 前增加两个查询增强事件；完成负载只返回可见摘要，不暴露对象键。无证据时不会调用生成模型提供方，而是发送 `refusal` 后 `done`。有证据时 `answer.delta` 只代表待审计正文；引用、置信度与引用审计以 `answer.completed.response` 为准。客户端应按 `sequence` 去重，收到 `done` 后结束；中断连接会把助手消息标记为 `cancelled`。
 
 ## 质量、反馈与知识工具
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/api/knowledge/overview` | 文档、chunk 和历史问题概览 |
-| POST | `/api/evaluate` | 运行内存中的简易 case 集 |
-| POST | `/api/eval/cases` | 保存人工 eval draft |
+| GET | `/api/knowledge/overview` | 文档、分块和历史问题概览 |
+| POST | `/api/evaluate` | 运行内存中的简易案例集 |
+| POST | `/api/eval/cases` | 保存人工评测草稿 |
 | GET | `/api/eval/drafts` | 合并人工与反馈生成的草稿 |
 | POST | `/api/eval/run-drafts` | 对草稿运行评测 |
 | POST | `/api/feedback` | 保存赞/踩、失败类型和历史快照 |
@@ -251,7 +253,7 @@ done
 | DELETE | `/api/knowledge/cards/{card_id}` | 删除卡片 |
 | POST | `/api/knowledge/gaps` | 检索并分析资料缺口 |
 | GET | `/api/operations` | 安全化操作事件 |
-| GET | `/api/metrics` | Beta 业务与质量摘要 |
+| GET | `/api/metrics` | 候选版业务与质量摘要 |
 
 负反馈示例：
 
@@ -275,13 +277,13 @@ curl --fail-with-body \
 | 状态码 | 常见原因 | 客户端行为 |
 | ---: | --- | --- |
 | 400 | 无效文件、URL、字段或解析失败 | 修正输入；不要盲目重试 |
-| 401 | Bearer token 缺失或错误 | 重新认证；不记录 token |
-| 404 | 文档、chunk 或卡片不存在 | 刷新当前资源列表 |
+| 401 | Bearer 令牌缺失或错误 | 重新认证；不记录令牌 |
+| 404 | 文档、分块或卡片不存在 | 刷新当前资源列表 |
 | 413 | 文件超过 `MAX_UPLOAD_BYTES` | 压缩或调整显式上限 |
-| 422 | Pydantic schema 校验失败 | 按字段错误修正 payload |
+| 422 | Pydantic 结构定义校验失败 | 按字段错误修正请求负载 |
 | 429 | 进程内限流 | 等待 `Retry-After` 后重试 |
 | 409 | 有内容的 KB 删除、不可重试任务或索引冲突 | 刷新状态并执行显式操作 |
-| 503 | production 外部 Provider 未配置/不可用 | 查看 `/api/providers/status`，不要期待静默模板降级 |
+| 503 | 生产配置外部模型提供方未配置/不可用 | 查看 `/api/providers/status`，不要期待静默模板降级 |
 | 500 | 未处理的服务端错误 | 记录请求 ID，查看安全日志 |
 
-前端 client 同时处理 Abort、请求超时和 Nginx 502/504，并保留最近一次成功回答，避免错误页面抹掉可用证据。
+前端客户端同时处理中止、请求超时和 Nginx 502/504，并保留最近一次成功回答，避免错误页面抹掉可用证据。

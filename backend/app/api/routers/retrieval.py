@@ -23,7 +23,7 @@ def search(q: str, top_k: int = 5, search_mode: str = "hybrid"):
 def chunk_context(chunk_id: str, window: int = 1):
     result = build_citation_context(list(retriever.vector_store.chunks.values()), chunk_id, window=max(0, min(window, 3)))
     if not result.get("found"):
-        raise HTTPException(status_code=404, detail="Chunk not found")
+        raise HTTPException(status_code=404, detail="证据片段不存在或已被删除。")
     return result
 
 
@@ -39,6 +39,10 @@ def compare_search(payload: SearchCompareRequest):
 
 @router.post("/ask")
 def ask(payload: AskRequest):
+    answer_generator_snapshot = rag_engine.snapshot_answer_generator()
+    answer_provider = str(
+        getattr(answer_generator_snapshot, "name", "") or "unknown"
+    )
     try:
         active_bases = payload.knowledge_base_ids or ["default"]
         retrieval_query, query_attachments = query_asset_service.enrich_query(
@@ -49,6 +53,7 @@ def ask(payload: AskRequest):
         response = rag_engine.ask(
             payload.question,
             retrieval_query=retrieval_query,
+            answer_generator_snapshot=answer_generator_snapshot,
             **retrieval_options(payload),
         )
         response["retrieval_trace"]["query_attachments"] = query_attachments
@@ -56,13 +61,16 @@ def ask(payload: AskRequest):
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     except Exception as exc:
         production_metrics.record_provider_error(
-            provider=settings.answer_provider,
+            provider=answer_provider,
             operation="ask",
         )
-        if not settings.provider_fallback_allowed and settings.answer_provider.lower() not in {"template", "local", "none"}:
+        if (
+            not settings.provider_fallback_allowed
+            and answer_provider.lower() not in {"template", "local", "none"}
+        ):
             raise HTTPException(
                 status_code=503,
-                detail="Configured answer provider is unavailable; inspect provider status and request logs.",
+                detail="当前配置的回答 Provider 暂时不可用，请检查 Provider 状态后重试。",
             ) from exc
         raise
     response["gap_report"] = analyze_knowledge_gaps(
@@ -79,7 +87,7 @@ def ask(payload: AskRequest):
     )
     response["history_id"] = history["id"]
     response["created_at"] = history["created_at"]
-    production_metrics.record_answer(response, provider=settings.answer_provider)
+    production_metrics.record_answer(response, provider=answer_provider)
     registry.log_operation(
         "ask",
         f"完成问答：{payload.question[:40]}",

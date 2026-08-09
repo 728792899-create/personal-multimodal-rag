@@ -24,7 +24,7 @@ onMounted(refresh)
   <div v-if="loading" class="app-loading" role="status">正在检查工作区会话…</div>
   <main v-else-if="sessionCheckFailed" class="app-session-error">
     <section role="alert" aria-labelledby="session-error-title">
-      <p class="kicker">Workspace unavailable</p>
+      <p class="kicker">工作区暂不可用</p>
       <h1 id="session-error-title">无法确认工作区会话</h1>
       <p>{{ error }}</p>
       <button class="button primary" type="button" @click="refresh">重试连接</button>
@@ -38,6 +38,11 @@ onMounted(refresh)
   />
   <WorkbenchPage
     v-else
+    :can-manage-providers="Boolean(
+      session?.required
+      && session?.authenticated
+      && ['owner', 'admin'].includes(session?.role || '')
+    )"
     :show-logout="Boolean(session?.required)"
     :signing-out="submitting"
     @sign-out="signOut"

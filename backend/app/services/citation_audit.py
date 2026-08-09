@@ -6,7 +6,17 @@ from app.services.text_utils import tokenize
 
 
 GROUNDING_OVERLAP_THRESHOLD = 0.34
-_CITATION_INDEX_RE = re.compile(r"\[(\d+)\]")
+_CITATION_GROUP_RE = re.compile(r"\[\s*(\d+(?:\s*,\s*\d+)*)\s*\]")
+_STRUCTURAL_HEADING_RE = re.compile(
+    r"^(?:#{1,6}\s*)?(?:答案|依据|不确定性|后续建议)\s*[:：]?$"
+)
+
+
+def _citation_indexes(text: str) -> list[int]:
+    indexes: list[int] = []
+    for match in _CITATION_GROUP_RE.finditer(text):
+        indexes.extend(int(value.strip()) for value in match.group(1).split(","))
+    return indexes
 
 
 def audit_answer(
@@ -24,17 +34,21 @@ def audit_answer(
     weakly_grounded_claims = []
 
     for sentence in sentences:
-        has_marker = _has_citation_marker(sentence, citation_names)
-        if has_marker:
+        citation_indexes, evidence_texts = _referenced_evidence(sentence, citations, citation_names)
+        has_valid_reference = _has_valid_reference(
+            sentence,
+            citation_indexes,
+            citation_count=len(citations),
+        )
+        if has_valid_reference:
             supported.append(sentence)
         else:
             unsupported.append(sentence)
 
-        citation_indexes, evidence_texts = _referenced_evidence(sentence, citations, citation_names)
-        overlap = _best_token_overlap(sentence, evidence_texts) if has_marker else 0.0
-        if has_marker and overlap >= overlap_threshold:
+        overlap = _best_token_overlap(sentence, evidence_texts) if has_valid_reference else 0.0
+        if has_valid_reference and overlap >= overlap_threshold:
             grounded.append(sentence)
-        elif has_marker:
+        elif has_valid_reference:
             weakly_grounded_claims.append(
                 {
                     "sentence": sentence,
@@ -55,6 +69,7 @@ def audit_answer(
         evidence_count=len(citations),
         source_count=source_count,
         coverage=coverage,
+        grounding=grounding,
     )
 
     recommendations = []
@@ -104,25 +119,26 @@ def _trust_label(
     evidence_count: int,
     source_count: int,
     coverage: float,
+    grounding: float,
 ) -> tuple[dict, str]:
     if evidence_count == 0 or confidence < threshold:
         return (
             {"level": "unknown", "text": "无法确定"},
             "没有达到拒答阈值的可用证据。",
         )
-    if confidence >= 0.35 and evidence_count >= 3 and coverage >= 0.65:
+    if confidence >= 0.35 and evidence_count >= 3 and coverage >= 0.65 and grounding >= 0.65:
         return (
             {"level": "strong", "text": "证据充分"},
-            "检索分数、证据数量和引用覆盖率均较好。",
+            "检索分数、证据数量、引用覆盖率和语义支持度均较好。",
         )
-    if confidence >= 0.16 and evidence_count >= 2 and coverage >= 0.45:
+    if confidence >= 0.16 and evidence_count >= 2 and coverage >= 0.45 and grounding >= 0.45:
         return (
             {"level": "medium", "text": "证据一般"},
-            "已有可用证据，但仍建议查看引用上下文。",
+            "已有可用且语义相关的证据，但仍建议查看引用上下文。",
         )
     return (
         {"level": "weak", "text": "证据较弱"},
-        "证据数量、分数或引用覆盖率偏低，回答需要谨慎使用。",
+        "证据数量、分数、引用覆盖率或语义支持度偏低，回答需要谨慎使用。",
     )
 
 
@@ -130,22 +146,62 @@ def _answer_sentences(answer: str) -> list[str]:
     candidates: list[str] = []
     for line in answer.splitlines():
         cleaned = line.strip()
-        if not cleaned or cleaned in {"答案：", "依据：", "不确定性：", "后续建议："}:
+        if not cleaned or _STRUCTURAL_HEADING_RE.fullmatch(cleaned):
             continue
-        pieces = re.split(r"(?<=[。.!?？])\s+(?!\[\d+\])", cleaned)
-        for piece in pieces:
+        for piece in _sentence_pieces(cleaned):
             normalized = piece.strip()
             if len(normalized) >= 8:
                 candidates.append(normalized)
     return candidates
 
 
-def _has_citation_marker(sentence: str, citation_names: list[str]) -> bool:
-    if re.search(r"\[\d+\]", sentence):
-        return True
-    if re.search(r"(chunk\s*\d+|第\s*\d+\s*页|片段\s*\d+)", sentence, flags=re.IGNORECASE):
-        return True
-    return any(name and name in sentence for name in citation_names)
+def _sentence_pieces(text: str) -> list[str]:
+    pieces: list[str] = []
+    start = 0
+    cursor = 0
+    while cursor < len(text):
+        character = text[cursor]
+        is_boundary = character in "。！？!?"
+        if character == ".":
+            following = text[cursor + 1 : cursor + 2]
+            is_boundary = not following or following.isspace() or following == "["
+        if not is_boundary:
+            cursor += 1
+            continue
+
+        end = cursor + 1
+        marker_cursor = end
+        while marker_cursor < len(text):
+            while marker_cursor < len(text) and text[marker_cursor].isspace():
+                marker_cursor += 1
+            marker = _CITATION_GROUP_RE.match(text, marker_cursor)
+            if not marker:
+                break
+            end = marker.end()
+            marker_cursor = end
+
+        piece = text[start:end].strip()
+        if piece:
+            pieces.append(piece)
+        start = end
+        cursor = end
+
+    tail = text[start:].strip()
+    if tail:
+        pieces.append(tail)
+    return pieces
+
+
+def _has_valid_reference(
+    sentence: str,
+    citation_indexes: list[int],
+    *,
+    citation_count: int,
+) -> bool:
+    explicit_indexes = _citation_indexes(sentence)
+    if explicit_indexes:
+        return bool(explicit_indexes) and all(1 <= index <= citation_count for index in explicit_indexes)
+    return bool(citation_indexes)
 
 
 def _referenced_evidence(
@@ -153,7 +209,7 @@ def _referenced_evidence(
     citations: list[dict],
     citation_names: list[str],
 ) -> tuple[list[int], list[str]]:
-    citation_indexes = [int(value) for value in _CITATION_INDEX_RE.findall(sentence)]
+    citation_indexes = _citation_indexes(sentence)
     if citation_indexes:
         selected = [citations[index - 1] for index in citation_indexes if 1 <= index <= len(citations)]
         return citation_indexes, [_citation_text(item) for item in selected]
@@ -186,7 +242,7 @@ def _citation_text(citation: dict) -> str:
 
 
 def _best_token_overlap(sentence: str, evidence_texts: list[str]) -> float:
-    claim_without_markers = _CITATION_INDEX_RE.sub("", sentence)
+    claim_without_markers = _CITATION_GROUP_RE.sub("", sentence)
     claim_tokens = set(tokenize(claim_without_markers))
     if not claim_tokens or not evidence_texts:
         return 0.0

@@ -4,7 +4,7 @@ import hashlib
 import json
 import time
 from app.services.production_metrics import production_metrics
-from app.services.safe_logging import redact_sensitive_text
+from app.services.safe_logging import public_error_message
 
 
 class SourceSyncService:
@@ -27,9 +27,9 @@ class SourceSyncService:
         started_at = time.perf_counter()
         source = self.registry.get_source(source_id)
         if not source:
-            raise ValueError("Source not found")
+            raise ValueError("数据源不存在或已被删除。")
         if not source["enabled"]:
-            raise ValueError("Source is disabled")
+            raise ValueError("该数据源已停用。")
         run = self.registry.start_sync_run(source_id)
         discovered = unchanged = updated = failed = deletion_candidates = 0
         partial = False
@@ -156,7 +156,12 @@ class SourceSyncService:
                     failed += 1
                     partial = True
                     error_message = "; ".join(
-                        item for item in [error_message, redact_sensitive_text(exc)] if item
+                        item
+                        for item in [
+                            error_message,
+                            public_error_message(exc, "数据源条目处理失败。"),
+                        ]
+                        if item
                     )
 
             # A 304, an empty discovery, or any partial failure can never
@@ -202,7 +207,7 @@ class SourceSyncService:
                 failed=max(1, failed),
                 partial=True,
                 empty_result=empty_result,
-                error_message=redact_sensitive_text(exc),
+                error_message=public_error_message(exc, "数据源同步失败，请稍后重试。"),
             ) or run
             production_metrics.record_source_sync(completed, source_type=source["type"])
             production_metrics.observe(
@@ -253,15 +258,15 @@ class SourceSyncService:
     def retry(self, run_id: str) -> dict:
         run = self.registry.get_sync_run(run_id)
         if not run:
-            raise ValueError("Sync run not found")
+            raise ValueError("同步记录不存在或已被删除。")
         if run["status"] not in {"failed", "partial"}:
-            raise ValueError("Only failed or partial sync runs can be retried")
+            raise ValueError("只有失败或部分成功的同步记录可以重试。")
         return self.sync(run["source_id"])
 
     def confirm_deletions(self, source_id: str, item_ids: list[str] | None = None) -> dict:
         source = self.registry.get_source(source_id)
         if not source:
-            raise ValueError("Source not found")
+            raise ValueError("数据源不存在或已被删除。")
         selected = set(item_ids or [])
         removed_items = 0
         removed_documents = 0

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bounded Compose fault injection with explicit opt-in and consistency checks."""
+"""执行有边界、需明确确认且带一致性检查的 Compose 故障注入。"""
 
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ def consistency_snapshot(compose_file: Path) -> dict:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Inject one recoverable production Compose failure")
+    parser = argparse.ArgumentParser(description="注入一个可恢复的生产 Compose 故障")
     parser.add_argument(
         "--scenario",
         choices=[*sorted(SCENARIOS), "all"],
@@ -124,7 +124,7 @@ def main() -> int:
         print(json.dumps({"dry_run": True, "scenarios": plans}, indent=2))
         return 0
     if os.getenv("RAG_CHAOS_CONFIRM") != "I_UNDERSTAND":
-        print("set RAG_CHAOS_CONFIRM=I_UNDERSTAND before --execute", file=sys.stderr)
+        print("执行 --execute 前请设置 RAG_CHAOS_CONFIRM=I_UNDERSTAND。", file=sys.stderr)
         return 2
     results = [
         run_scenario(args.compose_file, scenario)
@@ -147,5 +147,5 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except (subprocess.CalledProcessError, json.JSONDecodeError) as exc:
-        print(f"chaos drill failed: {exc}", file=sys.stderr)
+        print(f"混沌演练失败：{exc}", file=sys.stderr)
         raise SystemExit(1)

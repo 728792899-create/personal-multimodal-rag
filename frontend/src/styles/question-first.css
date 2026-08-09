@@ -567,6 +567,15 @@
   line-height: 1.55;
 }
 
+.trust-summary.trust-incomplete {
+  border-left-color: var(--warning);
+  background: var(--bg-warning);
+}
+
+.trust-summary.trust-incomplete .trust-label {
+  color: var(--warning);
+}
+
 .trust-label {
   display: inline;
   color: var(--qa-accent);

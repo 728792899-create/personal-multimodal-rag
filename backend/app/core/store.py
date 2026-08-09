@@ -58,6 +58,7 @@ from app.services.source_connectors import (
 )
 from app.services.source_sync import SourceSyncService
 from app.services.fetch_worker_client import FetchWorkerClient
+from app.services.runtime_answer_provider import RuntimeAnswerProviderManager
 from app.services.url_importer import fetch_url
 
 
@@ -146,6 +147,8 @@ def create_answer_generator():
                     model=settings.answer_model,
                     api_key=settings.answer_api_key,
                     timeout_seconds=settings.answer_timeout_seconds,
+                    thinking_mode=settings.answer_thinking_mode,
+                    max_tokens=settings.answer_max_tokens,
                 ),
                 "openai_compatible_chat",
             )
@@ -159,6 +162,8 @@ def create_answer_generator():
                 base_url=settings.ollama_base_url,
                 model=settings.ollama_chat_model,
                 timeout_seconds=settings.answer_timeout_seconds,
+                num_ctx=settings.ollama_num_ctx,
+                num_predict=settings.ollama_num_predict,
             ),
             "ollama",
         )
@@ -389,6 +394,11 @@ rag_engine = RagEngine(
     grounding_min_confidence=settings.grounding_min_confidence,
     citation_overlap_threshold=settings.citation_overlap_threshold,
     allow_generation_fallback=settings.provider_fallback_allowed,
+)
+runtime_answer_provider = RuntimeAnswerProviderManager(
+    rag_engine,
+    timeout_seconds=settings.answer_timeout_seconds,
+    max_tokens=settings.answer_max_tokens,
 )
 ingestion_worker = IngestionWorker(
     registry,

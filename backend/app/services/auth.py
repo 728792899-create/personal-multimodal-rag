@@ -33,9 +33,9 @@ class AuthService:
         try:
             from argon2 import PasswordHasher
         except ImportError as exc:
-            raise RuntimeError("Install argon2-cffi to enable session authentication") from exc
+            raise RuntimeError("启用会话认证需要安装 argon2-cffi。") from exc
         if not password_hash.startswith("$argon2"):
-            raise ValueError("ADMIN_PASSWORD_HASH must contain an Argon2id hash")
+            raise ValueError("ADMIN_PASSWORD_HASH 必须配置为 Argon2id 哈希。")
         self.registry = registry
         self.password_hash = password_hash
         self.session_secret = (session_secret or secrets.token_hex(32)).encode("utf-8")
@@ -46,11 +46,11 @@ class AuthService:
     @staticmethod
     def hash_password(password: str) -> str:
         if len(password) < 12:
-            raise ValueError("Administrator password must contain at least 12 characters")
+            raise ValueError("管理员密码至少需要 12 个字符。")
         try:
             from argon2 import PasswordHasher
         except ImportError as exc:
-            raise RuntimeError("Install argon2-cffi to hash administrator passwords") from exc
+            raise RuntimeError("生成管理员密码哈希需要安装 argon2-cffi。") from exc
         return PasswordHasher().hash(password)
 
     def login(self, password: str) -> tuple[str, WorkspaceContext]:
@@ -59,7 +59,7 @@ class AuthService:
         except Exception:
             verified = False
         if not verified:
-            raise ValueError("Invalid administrator credentials")
+            raise ValueError("管理员密码不正确。")
         raw_token = secrets.token_urlsafe(48)
         token_hash = self._token_hash(raw_token)
         csrf_token = secrets.token_urlsafe(32)

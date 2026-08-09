@@ -89,6 +89,31 @@ def test_component_failure_makes_readiness_fail_closed():
     assert report["components"]["object_store"]["healthy"] is False
 
 
+def test_startup_answer_status_uses_the_public_provider_identity():
+    settings = replace(
+        Settings(),
+        answer_provider="openai_compatible_chat",
+        answer_base_url="https://api.deepseek.com",
+        answer_model="deepseek-v4-flash",
+        answer_api_key="configured-for-contract-test",
+    )
+    report = build_readiness_report(
+        settings,
+        answer_status={
+            "provider": "deepseek_official",
+            "configured": True,
+            "runtime_override": False,
+        },
+    )
+
+    assert report["answer_provider"] == {
+        "current": "deepseek_official",
+        "startup": "openai_compatible_chat",
+        "runtime_override": False,
+    }
+    assert report["components"]["answer"]["provider"] == "deepseek_official"
+
+
 def test_demo_runtime_checks_never_probe_external_provider(monkeypatch):
     class Healthy:
         def health(self):
@@ -157,3 +182,121 @@ def test_ollama_readiness_probe_is_non_generating_and_deduplicated(monkeypatch):
 
     assert probe_provider_health(settings) == {"answer": True, "embedding": True}
     assert calls == ["http://ollama:11434/api/tags"]
+
+
+def test_runtime_answer_override_is_current_provider_and_skips_startup_probe(
+    monkeypatch,
+):
+    class Healthy:
+        def health(self):
+            return True
+
+    probe_calls: list[bool] = []
+
+    def embedding_only_probe(_settings, *, probe_answer=True, **_kwargs):
+        probe_calls.append(probe_answer)
+        return {"embedding": True}
+
+    monkeypatch.setattr(
+        "app.services.runtime_readiness.probe_provider_health",
+        embedding_only_probe,
+    )
+    settings = replace(
+        Settings(),
+        runtime_mode="local-production",
+        answer_provider="ollama",
+        embedding_provider="ollama",
+        vector_store="chroma",
+        provider_fallback_allowed=False,
+    )
+    active = {
+        "provider": "deepseek_official",
+        "configured": True,
+        "health": "ready",
+        "connected": True,
+        "active": True,
+        "runtime_override": True,
+        "credential": "must-not-be-exported",
+    }
+
+    checks = collect_runtime_checks(
+        settings,
+        registry=Healthy(),
+        object_store=Healthy(),
+        queue=None,
+        vector_store=Healthy(),
+        answer_status=active,
+    )
+    report = build_readiness_report(
+        settings,
+        checks=checks,
+        answer_status=active,
+    )
+
+    assert probe_calls == [False]
+    assert checks["answer"] is True
+    assert report["ready"] is True
+    assert report["answer_provider"] == {
+        "current": "deepseek_official",
+        "startup": "ollama",
+        "runtime_override": True,
+    }
+    assert report["components"]["answer"] == {
+        "provider": "deepseek_official",
+        "configured": True,
+        "runtime_override": True,
+        "startup_provider": "ollama",
+        "active": True,
+        "health_basis": "validated_on_connect",
+        "live_probe": "not_run",
+        "healthy": True,
+    }
+    assert "must-not-be-exported" not in repr(report)
+
+
+def test_unhealthy_runtime_answer_override_fails_readiness_without_fallback_probe(
+    monkeypatch,
+):
+    class Healthy:
+        def health(self):
+            return True
+
+    monkeypatch.setattr(
+        "app.services.runtime_readiness.probe_provider_health",
+        lambda *_args, **_kwargs: {"embedding": True},
+    )
+    settings = replace(
+        Settings(),
+        runtime_mode="local-production",
+        answer_provider="ollama",
+        embedding_provider="ollama",
+        vector_store="chroma",
+        provider_fallback_allowed=False,
+    )
+    active = {
+        "provider": "deepseek_official",
+        "configured": True,
+        "health": "unavailable",
+        "connected": True,
+        "active": True,
+        "runtime_override": True,
+    }
+
+    checks = collect_runtime_checks(
+        settings,
+        registry=Healthy(),
+        object_store=Healthy(),
+        queue=None,
+        vector_store=Healthy(),
+        answer_status=active,
+    )
+    report = build_readiness_report(
+        settings,
+        checks=checks,
+        answer_status=active,
+    )
+
+    assert checks["answer"] is False
+    assert report["ready"] is False
+    assert report["components"]["answer"]["provider"] == "deepseek_official"
+    assert report["components"]["answer"]["healthy"] is False

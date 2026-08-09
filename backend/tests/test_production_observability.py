@@ -72,7 +72,91 @@ def test_telemetry_scrubber_removes_credentials_bodies_questions_and_query():
 
     assert scrubbed["request"] == "[Filtered]"
     assert scrubbed["extra"]["question"] == "[Filtered]"
-    assert scrubbed["extra"]["safe"] == "stage=rerank"
+    assert scrubbed["extra"]["safe"] == "[Filtered]"
+
+
+def test_telemetry_scrubber_canary_covers_stack_extra_breadcrumb_and_urls():
+    canary = "telemetry-canary-4f36f5e0"
+    event = {
+        "exception": {
+            "values": [
+                {
+                    "type": "ProviderError",
+                    "value": (
+                        f'upstream payload {{"api_key":"{canary}"}}'
+                    ),
+                    "stacktrace": {
+                        "frames": [
+                            {
+                                "module": "app.provider",
+                                "function": "connect",
+                                "vars": {
+                                    "harmless_name": canary,
+                                    "api-key": canary,
+                                },
+                            }
+                        ]
+                    },
+                }
+            ]
+        },
+        "extra": {
+            "stage": "provider-validation",
+            "opaque": canary,
+            "api_key": canary,
+            "api-key": canary,
+            "apikey": canary,
+            "credential": canary,
+            "secret": canary,
+        },
+        "breadcrumbs": {
+            "values": [
+                {
+                    "category": "provider",
+                    "level": "error",
+                    "message": canary,
+                    "data": {
+                        "method": "GET",
+                        "route": "/models",
+                        "url": (
+                            f"https://user:{canary}@api.example/models"
+                            f"?api_key={canary}#private"
+                        ),
+                        "opaque": canary,
+                    },
+                }
+            ]
+        },
+        "contexts": {
+            "provider": {
+                "credential": canary,
+                "url": (
+                    f"https://user:{canary}@api.example/v1"
+                    f"?secret={canary}#private"
+                ),
+            }
+        },
+    }
+
+    scrubbed = scrub_telemetry_event(event)
+    encoded = json.dumps(scrubbed, ensure_ascii=False)
+
+    assert canary not in encoded
+    assert "user:" not in encoded
+    assert "?api_key=" not in encoded
+    assert "?secret=" not in encoded
+    assert scrubbed["extra"]["stage"] == "provider-validation"
+    exception = scrubbed["exception"]["values"][0]
+    assert exception["type"] == "ProviderError"
+    assert exception["value"] == "[Filtered]"
+    assert exception["stacktrace"]["frames"][0]["module"] == "app.provider"
+    assert exception["stacktrace"]["frames"][0]["vars"] == "[Filtered]"
+    breadcrumb = scrubbed["breadcrumbs"]["values"][0]
+    assert breadcrumb["category"] == "provider"
+    assert breadcrumb["level"] == "error"
+    assert breadcrumb["message"] == "[Filtered]"
+    assert breadcrumb["data"]["url"] == "https://api.example/models"
+    assert event["extra"]["opaque"] == canary
 
 
 def test_release_readiness_is_blocked_without_external_evidence(tmp_path):

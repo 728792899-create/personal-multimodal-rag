@@ -79,7 +79,7 @@ class RequestGuardMiddleware:
                         scope,
                         send,
                         429,
-                        "Too many login attempts",
+                        "登录尝试过于频繁，请稍后重试。",
                         request_id,
                         started_at,
                         extra_headers=[(b"retry-after", str(login_retry_after).encode("ascii"))],
@@ -91,7 +91,7 @@ class RequestGuardMiddleware:
                     scope,
                     send,
                     429,
-                    "Rate limit exceeded",
+                    "请求过于频繁，请稍后重试。",
                     request_id,
                     started_at,
                     extra_headers=[(b"retry-after", str(retry_after).encode("ascii"))],
@@ -103,12 +103,12 @@ class RequestGuardMiddleware:
             if path not in _PUBLIC_AUTH_PATHS:
                 if self.auth_service and not (identity or bearer_authorized):
                     await self._guard_response(
-                        scope, send, 401, "Authentication required", request_id, started_at
+                        scope, send, 401, "请先登录后再继续。", request_id, started_at
                     )
                     return
                 if not self.auth_service and self.auth_token and not bearer_authorized:
                     await self._guard_response(
-                        scope, send, 401, "Authentication required", request_id, started_at
+                        scope, send, 401, "请先登录后再继续。", request_id, started_at
                     )
                     return
                 if (
@@ -120,7 +120,7 @@ class RequestGuardMiddleware:
                     )
                 ):
                     await self._guard_response(
-                        scope, send, 403, "CSRF token required", request_id, started_at
+                        scope, send, 403, "缺少有效的 CSRF token，请刷新页面后重试。", request_id, started_at
                     )
                     return
 

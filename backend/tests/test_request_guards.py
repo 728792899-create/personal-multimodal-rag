@@ -23,8 +23,12 @@ def test_optional_bearer_auth_protects_api_but_not_health():
     client = TestClient(guarded_app(auth_token="secret", rate_limit_requests=20, rate_limit_window_seconds=60))
 
     assert client.get("/health").status_code == 200
-    assert client.get("/api/value").status_code == 401
-    assert client.get("/api/value", headers={"Authorization": "Bearer wrong"}).status_code == 401
+    missing = client.get("/api/value")
+    wrong = client.get("/api/value", headers={"Authorization": "Bearer wrong"})
+    assert missing.status_code == 401
+    assert missing.json()["detail"] == "请先登录后再继续。"
+    assert wrong.status_code == 401
+    assert wrong.json()["detail"] == "请先登录后再继续。"
     assert client.get("/api/value", headers={"Authorization": "Bearer secret"}).status_code == 200
 
 
@@ -40,4 +44,4 @@ def test_rate_limit_returns_retry_after_and_request_id():
     assert first.headers["x-request-id"]
     assert limited.status_code == 429
     assert int(limited.headers["retry-after"]) >= 1
-    assert limited.json()["detail"] == "Rate limit exceeded"
+    assert limited.json()["detail"] == "请求过于频繁，请稍后重试。"

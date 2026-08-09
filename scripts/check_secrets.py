@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail CI when tracked or pending text files contain likely live credentials."""
+"""当已跟踪或待提交文件疑似包含真实凭据时让 CI 失败。"""
 
 from __future__ import annotations
 
@@ -16,6 +16,10 @@ PATTERNS = {
     "OpenAI-style key": re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b"),
     "GitHub token": re.compile(r"\bgh(?:p|o|u|s|r)_[A-Za-z0-9]{30,}\b"),
     "AWS access key": re.compile(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b"),
+}
+DISPLAY_LABELS = {
+    "private key": "私钥",
+    "OpenAI-style key": "OpenAI 格式的 Key",
 }
 
 
@@ -49,12 +53,14 @@ def main() -> int:
         for label, pattern in PATTERNS.items():
             for match in pattern.finditer(content):
                 line = content.count("\n", 0, match.start()) + 1
-                findings.append(f"{path.relative_to(ROOT)}:{line}: possible {label}")
+                findings.append(
+                    f"{path.relative_to(ROOT)}:{line}：疑似包含 {DISPLAY_LABELS.get(label, label)}"
+                )
 
     if findings:
-        print("Secret scan failed:\n" + "\n".join(f"- {item}" for item in findings))
+        print("敏感信息扫描失败：\n" + "\n".join(f"- {item}" for item in findings))
         return 1
-    print(f"Secret scan passed ({len(candidate_files())} text/binary candidates inspected safely).")
+    print(f"敏感信息扫描通过（已安全检查 {len(candidate_files())} 个文本或二进制候选文件）。")
     return 0
 
 

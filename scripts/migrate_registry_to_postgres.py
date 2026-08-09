@@ -12,7 +12,7 @@ from app.services.registry_migration import migrate_sqlite_to_postgres
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Copy the local SQLite registry into a PostgreSQL registry.",
+        description="将本地 SQLite registry 迁移到 PostgreSQL registry。",
     )
     parser.add_argument("--sqlite", required=True)
     parser.add_argument("--postgres-dsn", required=True)

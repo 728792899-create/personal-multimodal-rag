@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 
 from app.services.document_quality import assess_document_quality, lifecycle_event, summarize_document
-from app.services.safe_logging import redact_sensitive_text
+from app.services.safe_logging import public_error_message, redact_sensitive_text
 from app.services.url_importer import fetch_url
 from app.services.object_store import LocalObjectStore
 from app.services.parser_worker import ParserJobCancelled, document_from_content_list
@@ -103,6 +103,8 @@ class IngestionWorker:
                     )
                 except Exception:
                     self._stop.wait(self.settings.ingestion_poll_seconds)
+            if message is not None and self._ack_terminal_signal(message):
+                continue
             try:
                 processed = self.run_once()
             except Exception as exc:
@@ -118,6 +120,21 @@ class IngestionWorker:
                     pass
             if not processed and self.job_signal_queue is None:
                 self._stop.wait(self.settings.ingestion_poll_seconds)
+
+    def _ack_terminal_signal(self, message) -> bool:
+        """Acknowledge a stale signal whose durable job is already terminal."""
+
+        try:
+            job = self.registry.get_index_job(message.aggregate_id)
+        except Exception:
+            return False
+        if not job or job.get("status") not in {"succeeded", "failed", "cancelled"}:
+            return False
+        try:
+            self.job_signal_queue.acknowledge(message.message_id)
+        except Exception:
+            return False
+        return True
 
     def run_once(self) -> bool:
         self._recover_stale_periodically()
@@ -145,7 +162,14 @@ class IngestionWorker:
             self._mark_source_item(job, "", "cancelled")
         except Exception as exc:
             final_status = "failed"
-            self.registry.fail_index_job(job["id"], "INGESTION_FAILED", redact_sensitive_text(exc))
+            self.registry.fail_index_job(
+                job["id"],
+                "INGESTION_FAILED",
+                public_error_message(
+                    exc,
+                    "索引任务处理失败，请检查文件或 Provider 状态后重试。",
+                ),
+            )
             self._mark_source_item(job, "", "failed")
         finally:
             heartbeat_stop.set()
@@ -195,13 +219,13 @@ class IngestionWorker:
             asset = self.registry.get_asset(asset_id, include_private=True) if asset_id else None
             path = self.object_store.path_for(asset["object_key"]) if asset else Path(str(job["payload"].get("staged_path") or ""))
             if not path.is_file():
-                raise ValueError("Durable source object is unavailable")
+                raise ValueError("原始文件对象不可用，请重新上传。")
             use_worker = parser_profile in {"mineru", "docling", "paddleocr"} or (
                 parser_profile == "auto" and str(self.settings.parser_provider).lower() != "builtin"
             )
             if use_worker:
                 if self.parser_client is None:
-                    raise ValueError("Parser worker is not configured")
+                    raise ValueError("未配置解析 Worker。")
                 try:
                     parsed = self.parser_client.parse(
                         path,
@@ -224,7 +248,10 @@ class IngestionWorker:
                     document = self.processor.parse_file(path, original_name=job["source_name"])
                     document.metadata.update({
                         "parser_fallback_from": parser_profile,
-                        "parser_fallback_reason": redact_sensitive_text(exc),
+                        "parser_fallback_reason": public_error_message(
+                            exc,
+                            "高级解析失败，已回退到内置解析器。",
+                        ),
                     })
             else:
                 document = self.processor.parse_file(path, original_name=job["source_name"])
@@ -255,7 +282,7 @@ class IngestionWorker:
             )
             document.title = imported.title
         else:
-            raise ValueError("Unsupported ingestion source")
+            raise ValueError("不支持该入库来源。")
         parse_ended = datetime.utcnow()
         document.metadata.update(
             {

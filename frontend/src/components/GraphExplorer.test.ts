@@ -20,7 +20,7 @@ describe('GraphExplorer', () => {
     expect(wrapper.findAll('.graph-node')).toHaveLength(2)
     expect(wrapper.findAll('.graph-node').every((node) => node.attributes('tabindex') === '0')).toBe(true)
     expect(wrapper.get('table').text()).toContain('Alpha')
-    expect(wrapper.get('table').text()).toContain('uses')
+    expect(wrapper.get('table').text()).toContain('使用')
     expect(wrapper.get('table').text()).toContain('Alpha uses Beta')
   })
 })

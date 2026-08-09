@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue'
 
 import { deleteQueryAsset, uploadQueryAssets, type QueryAsset, type QueryAttachmentRef } from '../api'
+import { localizedSystemText } from '../localization'
 
 
 export function useMultimodalQuery() {
@@ -27,7 +28,7 @@ export function useMultimodalQuery() {
       const created = await uploadQueryAssets(selected, knowledgeBaseId, { signal: controller.signal })
       attachments.value.push(...created)
     } catch (caught) {
-      error.value = caught instanceof Error ? caught.message : '图片上传失败'
+      error.value = localizedSystemText(caught instanceof Error ? caught.message : '', '图片上传失败')
     } finally {
       uploading.value = false
       controller = null

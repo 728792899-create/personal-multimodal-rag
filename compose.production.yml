@@ -35,6 +35,8 @@ x-backend-environment: &backend-environment
   OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
   OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-qwen3:8b}
   OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}
+  OLLAMA_NUM_CTX: ${OLLAMA_NUM_CTX:-4096}
+  OLLAMA_NUM_PREDICT: ${OLLAMA_NUM_PREDICT:-256}
   ENRICHMENT_PROVIDER: template
   QUERY_REWRITE_PROVIDER: none
   INDEX_VERSION: production-v1

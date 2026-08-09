@@ -76,13 +76,13 @@ def test_query_asset_lifecycle_and_offline_enrichment(tmp_path: Path):
 def test_query_assets_reject_invalid_oversized_and_animated_images(tmp_path: Path):
     oversized_payload = image_bytes()
     query_assets = service(tmp_path, max_bytes=len(oversized_payload) - 1)
-    with pytest.raises(QueryAssetError, match="byte limit"):
+    with pytest.raises(QueryAssetError, match="大小上限"):
         query_assets.create(oversized_payload, "large.png", "default")
 
     query_assets = service(tmp_path / "animated")
-    with pytest.raises(QueryAssetError, match="Animated GIF"):
+    with pytest.raises(QueryAssetError, match="动态 GIF"):
         query_assets.create(image_bytes(animated=True), "moving.gif", "default")
-    with pytest.raises(QueryAssetError, match="signature"):
+    with pytest.raises(QueryAssetError, match="签名"):
         query_assets.create(b"not an image", "fake.png", "default")
 
 
@@ -94,7 +94,7 @@ def test_query_asset_creation_cleans_unreferenced_object_after_ocr_failure(tmp_p
         ocr_adapter=FailingOCR(),
     )
 
-    with pytest.raises(QueryAssetError, match="processing failed") as failure:
+    with pytest.raises(QueryAssetError, match="处理失败") as failure:
         query_assets.create(image_bytes(), "diagram.png", "default")
 
     assert failure.value.status_code == 503
@@ -106,13 +106,13 @@ def test_query_asset_expiry_and_knowledge_base_boundary(tmp_path: Path):
     other = query_assets.registry.create_knowledge_base("Other")
     created = query_assets.create(image_bytes(), "private.png", other["id"])
 
-    with pytest.raises(QueryAssetError, match="selected knowledge base") as forbidden:
+    with pytest.raises(QueryAssetError, match="当前选择的知识库") as forbidden:
         query_assets.enrich_query("question", [{"id": created["id"]}], ["default"])
     assert forbidden.value.status_code == 403
 
     with query_assets.registry.transaction() as connection:
         connection.execute("UPDATE assets SET expires_at = '2000-01-01T00:00:00' WHERE asset_id = ?", (created["id"],))
-    with pytest.raises(QueryAssetError, match="expired") as expired:
+    with pytest.raises(QueryAssetError, match="已过期") as expired:
         query_assets.enrich_query("question", [{"id": created["id"]}], [other["id"]])
     assert expired.value.status_code == 410
     assert query_assets.registry.get_asset(created["id"]) is None

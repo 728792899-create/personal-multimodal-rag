@@ -73,7 +73,7 @@ def test_empty_upload_is_rejected_and_removed(monkeypatch, tmp_path):
     )
 
     assert response.status_code == 400
-    assert "empty" in response.json()["detail"].lower()
+    assert "为空" in response.json()["detail"]
     assert list(tmp_path.iterdir()) == []
 
 
@@ -87,5 +87,5 @@ def test_image_extension_requires_matching_file_signature(monkeypatch, tmp_path)
     )
 
     assert response.status_code == 400
-    assert "signature" in response.json()["detail"].lower()
+    assert "签名" in response.json()["detail"]
     assert list(tmp_path.iterdir()) == []

@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 
 import type { KnowledgeGraph } from '../api'
+import { localizedGraphNodeType, localizedRelation } from '../localization'
 
 
 const props = defineProps<{ graph: KnowledgeGraph }>()
@@ -25,9 +26,9 @@ function shortLabel(value: string) {
   <section class="graph-explorer" aria-labelledby="graph-explorer-title">
     <header class="subsection-heading stacked-heading">
       <div><h3 id="graph-explorer-title">证据图谱</h3><span>{{ graph.summary.extraction_version }}</span></div>
-      <span class="status-badge neutral">{{ graph.summary.node_count }} nodes · {{ graph.summary.edge_count }} edges</span>
+      <span class="status-badge neutral">{{ graph.summary.node_count }} 个节点 · {{ graph.summary.edge_count }} 条关系</span>
     </header>
-    <div v-if="!graph.nodes.length" class="empty-state compact-empty"><strong>暂无图谱证据</strong><p>重建文档索引后，显式关系会连同 provenance 进入此处。</p></div>
+    <div v-if="!graph.nodes.length" class="empty-state compact-empty"><strong>暂无图谱证据</strong><p>重建文档索引后，带来源依据的显式关系会出现在这里。</p></div>
     <template v-else>
       <svg class="graph-canvas" viewBox="0 0 640 360" role="img" aria-labelledby="graph-svg-title graph-svg-desc">
         <title id="graph-svg-title">当前知识库的证据关系图</title>
@@ -47,7 +48,7 @@ function shortLabel(value: string) {
           :transform="`translate(${positions[node.node_id].x} ${positions[node.node_id].y})`"
           tabindex="0"
           role="img"
-          :aria-label="`${node.type}: ${node.label}`"
+          :aria-label="`节点类型：${localizedGraphNodeType(node.type)}；${node.label}`"
           :class="['graph-node', `node-${node.type}`]"
         >
           <circle r="27" />
@@ -61,7 +62,7 @@ function shortLabel(value: string) {
           <tbody>
             <tr v-for="edge in graph.edges.slice(0, 80)" :key="edge.edge_id">
               <td>{{ graph.nodes.find((node) => node.node_id === edge.source_node_id)?.label || edge.source_node_id }}</td>
-              <td>{{ edge.relation }}</td>
+              <td>{{ localizedRelation(edge.relation) }}</td>
               <td>{{ graph.nodes.find((node) => node.node_id === edge.target_node_id)?.label || edge.target_node_id }}</td>
               <td>{{ edge.evidence_span || `${edge.evidence_element_ids.length} 个元素` }}</td>
             </tr>

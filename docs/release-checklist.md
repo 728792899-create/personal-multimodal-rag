@@ -1,15 +1,15 @@
-# Release Checklist
+# 发布检查清单
 
-## 仓库与 PR 已验证（0.4 RC）
+## 仓库与拉取请求已验证（0.4 候选版）
 
 - [x] `git diff --check` 无空白错误。
-- [x] `npm run lint:secrets` 确认没有提交真实 Key、DSN、私有 URL 或用户资料。
-- [x] Python/npm 依赖文件与前端 lockfile 已提交，默认测试不下载模型或调用付费 API。
+- [x] `npm run lint:secrets` 确认没有提交真实密钥、DSN、私有 URL 或用户资料。
+- [x] Python/npm 依赖文件与前端锁定文件已提交，默认测试不下载模型或调用付费 API。
 - [x] 上传白名单、大小、空文件、签名、像素、动画、失败清理和知识库边界测试通过。
 - [x] URL SSRF、重定向、内容类型、超时和大小限制测试通过。
-- [x] Production URL 抓取隔离、DNS pinning、重定向重校验和无 secret/data volume 契约通过。
-- [x] 协作取消、过期租约、三次重试、Parser 超时/清理和取消不 fallback 测试通过。
-- [x] SQLite Backup API 与对象存储隔离恢复契约通过；缺失对象和不安全 key 会 fail closed。
+- [x] 生产 URL 抓取隔离、DNS 固定、重定向重校验和无密钥/数据卷契约通过。
+- [x] 协作取消、过期租约、三次重试、解析器超时/清理和取消不回退测试通过。
+- [x] SQLite Backup API 与对象存储隔离恢复契约通过；缺失对象和不安全键会安全失败。
 
 ## 自动质量门
 
@@ -19,31 +19,31 @@
 - [x] `npm run test:parser-contract` 与 `npm run test:asset-security`
 - [x] `npm run test:restore-drill`
 - [x] `npm run test:e2e`
-- [x] `npm run verify:production` 的 fail-closed Compose、认证/队列/对象/来源、备份 manifest 和 blocked benchmark contract。
+- [x] `npm run verify:production` 的失败即关闭 Compose、认证/队列/对象/来源、备份清单和阻断基准契约。
 - [x] 100 条固定集的 12 项指标均达到 `eval/thresholds.json`。
-- [x] Browser 人工检查普通、专家、390px、图片提问、Graph、精确引用、拒答与错误恢复。
+- [x] 浏览器人工检查普通、专家、390px、图片提问、图谱、精确引用、拒答与错误恢复。
 
 ## 本地容器与数据
 
 - [x] `docker compose up --build --wait -d`
-- [x] 前后端 healthcheck 均 healthy。
+- [x] 前后端健康检查均通过。
 - [x] 从前端域名访问 `/api/documents` 成功。
-- [x] 上传、级联删除、服务重启、索引恢复与 504 Retry 通过。
-- [x] GitHub Actions 的 docs、backend、frontend、retrieval-eval、multimodal-eval、graph-eval、parser-contract、asset-security、docker-compose 全绿。
+- [x] 上传、级联删除、服务重启、索引恢复与 504 重试通过。
+- [x] GitHub Actions 的文档、后端、前端、检索评测、多模态评测、图谱评测、解析器契约、资源安全、Docker Compose 全部通过。
 
 ## 部署负责人必须完成（未完成前不得发布 1.0）
 
-- [ ] 生产环境已配置 TLS、可信代理、Argon2id 管理员 session、CSRF 和 secret files。
+- [ ] 生产环境已配置 TLS、可信代理、Argon2id 管理员会话、CSRF 和密钥文件。
 - [x] 生产备份/恢复演练覆盖 PostgreSQL/pgvector 和 MinIO，对账无数据丢失。
-- [ ] 至少 20 份有明确许可证的真实资料、200 份非 fixture 文档和 200 条人工标注问题进入私有证据清单。（资料/文档已达标，人工标注 0/200）
+- [ ] 至少 20 份有明确许可证的真实资料、200 份非固定样例文档和 200 条人工标注问题进入私有证据清单。（资料/文档已达标，人工标注 0/200）
 - [ ] 真实语料 Recall@5、MRR、引用准确率/覆盖率、拒答和接受率全部达到 1.0 门槛。
 - [ ] 在参考环境记录 50,000 chunks 的 API、五并发检索和任务入队 p95。
-- [x] API、worker、Redis、PostgreSQL、MinIO 故障注入后无丢失和重复文档。
+- [x] API、工作进程、Redis、PostgreSQL、MinIO 故障注入后无丢失和重复文档。
 - [ ] 完成 14 天持续运行、100 次真实问题且无未关闭的数据丢失级缺陷。
 - [ ] 数据保留、删除与日志脱敏策略已由部署负责人确认。
-- [ ] 下载并抽查当前提交的 eval/Playwright artifact。
-- [x] MinerU Advanced parser 真实 PNG smoke 通过；Docling/PaddleOCR 未安装并明确保持未验收。
-- [ ] 镜像使用不可变 tag/digest，记录迁移顺序。
+- [ ] 下载并抽查当前提交的评测/Playwright 报告产物。
+- [x] MinerU 高级解析器真实 PNG 冒烟检查通过；Docling/PaddleOCR 未安装并明确保持未验收。
+- [ ] 镜像使用不可变标签/摘要，记录迁移顺序。
 - [ ] 回滚版本与数据库兼容性已确认。
 - [ ] 发布后检查 `/health`、`/ready`、错误率、p95 延迟和拒答率。
 - [ ] 失败时回滚镜像；索引任务可重复执行且不会删除原始对象。

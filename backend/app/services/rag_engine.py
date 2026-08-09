@@ -6,7 +6,7 @@ from app.services.answer_generator import BaseAnswerGenerator, TemplateAnswerGen
 from app.services.citation_audit import audit_answer
 from app.services.embeddings import MockEmbeddingProvider
 from app.services.retriever import HybridRetriever
-from app.services.safe_logging import redact_private_metadata, redact_sensitive_text
+from app.services.safe_logging import public_error_message, redact_private_metadata
 
 
 LOW_INFORMATION_MATCHES = {
@@ -33,14 +33,28 @@ class RagEngine:
         self.citation_overlap_threshold = citation_overlap_threshold
         self.allow_generation_fallback = allow_generation_fallback
 
+    def snapshot_answer_generator(self) -> BaseAnswerGenerator:
+        """Return the generator reference that one request must use end to end.
+
+        Runtime provider changes replace this reference atomically. Capturing it
+        once prevents a request from generating with one provider while metrics
+        or persisted traces are labelled with a later provider.
+        """
+
+        return self.answer_generator
+
     def ask(
         self,
         question: str,
         top_k: int = 5,
         retrieval_query: str | None = None,
+        answer_generator_snapshot: BaseAnswerGenerator | None = None,
         **retrieval_options,
     ) -> dict:
         started = time.perf_counter()
+        answer_generator = (
+            answer_generator_snapshot or self.snapshot_answer_generator()
+        )
         active_query = retrieval_query or question
         ranked, trace = self.retriever.search(active_query, top_k=top_k, **retrieval_options)
         trace["query_enrichment_used"] = active_query != question
@@ -86,7 +100,7 @@ class RagEngine:
                 "citations": [],
                 "retrieval_trace": trace,
                 "generation_trace": {
-                    "answer_provider": self.answer_generator.name,
+                    "answer_provider": answer_generator.name,
                     "answer_model": "-",
                     "grounded": True,
                     "skipped": True,
@@ -100,7 +114,7 @@ class RagEngine:
         citations = [self._chunk_to_dict(item) for item in ranked]
         generation_started = time.perf_counter()
         try:
-            generated = self.answer_generator.generate(question, citations, trace)
+            generated = answer_generator.generate(question, citations, trace)
         except Exception as exc:
             if not self.allow_generation_fallback:
                 raise
@@ -108,8 +122,11 @@ class RagEngine:
             generated["generation_trace"] = {
                 **generated.get("generation_trace", {}),
                 "answer_provider": "template",
-                "fallback_from": self.answer_generator.name,
-                "fallback_reason": redact_sensitive_text(exc),
+                "fallback_from": answer_generator.name,
+                "fallback_reason": public_error_message(
+                    exc,
+                    "回答 Provider 暂时不可用，已使用离线 template。",
+                ),
                 "grounded": True,
             }
         generation_ended = time.perf_counter()
@@ -142,10 +159,14 @@ class RagEngine:
         question: str,
         top_k: int = 5,
         retrieval_query: str | None = None,
+        answer_generator_snapshot: BaseAnswerGenerator | None = None,
         **retrieval_options,
     ):
         """Stream a grounded answer while preserving the same refusal/audit gates as ask()."""
         started = time.perf_counter()
+        answer_generator = (
+            answer_generator_snapshot or self.snapshot_answer_generator()
+        )
         active_query = retrieval_query or question
         ranked, trace = self.retriever.search(active_query, top_k=top_k, **retrieval_options)
         trace["conversation_context_used"] = active_query != question
@@ -174,7 +195,7 @@ class RagEngine:
                 "citations": [],
                 "retrieval_trace": trace,
                 "generation_trace": {
-                    "answer_provider": self.answer_generator.name,
+                    "answer_provider": answer_generator.name,
                     "answer_model": "-",
                     "grounded": True,
                     "skipped": True,
@@ -194,6 +215,15 @@ class RagEngine:
             "response": {
                 "citations": citations,
                 "retrieval_trace": trace,
+                "generation_trace": {
+                    "answer_provider": answer_generator.name,
+                    "answer_model": getattr(
+                        getattr(answer_generator, "client", None),
+                        "model",
+                        "-",
+                    ),
+                    "status": "pending",
+                },
                 "confidence": round(float(confidence), 4),
                 "diagnostics": diagnostics,
             },
@@ -202,7 +232,7 @@ class RagEngine:
         fragments: list[str] = []
         first_token_recorded = False
         try:
-            for delta in self.answer_generator.stream(question, citations, trace):
+            for delta in answer_generator.stream(question, citations, trace):
                 if not delta:
                     continue
                 fragments.append(delta)
@@ -210,6 +240,8 @@ class RagEngine:
                     trace["performance"]["first_token_ms"] = round((time.perf_counter() - started) * 1000, 2)
                     first_token_recorded = True
                 yield {"type": "answer.delta", "delta": delta}
+            if not "".join(fragments).strip():
+                raise ValueError("Answer provider returned no text output")
         except Exception as exc:
             if not self.allow_generation_fallback or fragments:
                 raise
@@ -221,13 +253,16 @@ class RagEngine:
                 yield {"type": "answer.delta", "delta": delta}
             generation_trace = {
                 **fallback.get("generation_trace", {}),
-                "fallback_from": self.answer_generator.name,
-                "fallback_reason": redact_sensitive_text(exc),
+                "fallback_from": answer_generator.name,
+                "fallback_reason": public_error_message(
+                    exc,
+                    "回答 Provider 暂时不可用，已使用离线 template。",
+                ),
             }
         else:
             generation_trace = {
-                "answer_provider": self.answer_generator.name,
-                "answer_model": getattr(getattr(self.answer_generator, "client", None), "model", "-"),
+                "answer_provider": answer_generator.name,
+                "answer_model": getattr(getattr(answer_generator, "client", None), "model", "-"),
                 "grounded": True,
                 "citation_count": len(citations),
                 "streamed": True,

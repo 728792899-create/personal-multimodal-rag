@@ -58,7 +58,7 @@ class ParserWorkerClient:
         cancel_check: Callable[[], bool] | None = None,
     ) -> dict:
         if profile not in PARSER_PROFILES or profile == "builtin":
-            raise ValueError("A heavy parser profile is required")
+            raise ValueError("请选择高级解析 profile。")
         with path.open("rb") as handle:
             def submit_job():
                 handle.seek(0)
@@ -73,12 +73,12 @@ class ParserWorkerClient:
             )
         job_id = str(response.json().get("id") or "")
         if not job_id:
-            raise ValueError("Parser worker returned no job id")
+            raise ValueError("解析 Worker 未返回任务 ID。")
         deadline = time.monotonic() + self.timeout_seconds
         while time.monotonic() < deadline:
             if cancel_check and cancel_check():
                 self._cleanup(job_id)
-                raise ParserJobCancelled("Parser job cancelled")
+                raise ParserJobCancelled("解析任务已取消。")
             status = self.executor.run(
                 lambda: self._checked(self._client().get(f"{self.base_url}/v1/jobs/{job_id}"))
             )
@@ -87,18 +87,18 @@ class ParserWorkerClient:
             if state == "succeeded":
                 result = payload.get("result")
                 if not isinstance(result, dict):
-                    raise ValueError("Parser worker returned an invalid result")
+                    raise ValueError("解析 Worker 返回了无效结果。")
                 self._cleanup(job_id)
                 return result
             if state in {"failed", "cancelled"}:
-                error = str(payload.get("error") or f"Parser job {state}")
+                error = str(payload.get("error") or f"解析任务状态异常：{state}")
                 self._cleanup(job_id)
                 if state == "cancelled":
                     raise ParserJobCancelled(error)
                 raise ValueError(error)
             time.sleep(self.poll_seconds)
         self._cleanup(job_id)
-        raise TimeoutError("Parser worker timed out")
+        raise TimeoutError("解析 Worker 请求超时。")
 
     def _cleanup(self, job_id: str) -> None:
         try:
@@ -143,7 +143,7 @@ def document_from_content_list(
         elif raw_type == "image":
             captions = raw.get("image_caption") or raw.get("img_caption") or []
             caption = " ".join(str(item) for item in captions) if isinstance(captions, list) else str(captions or "")
-            text = caption or f"Image on page {page_number or 1}"
+            text = caption or f"第 {page_number or 1} 页的图片"
             element = _element(document_id, elements, "image", text, page_number, heading_path, raw)
             element.caption = caption
         elif raw_type == "table":
@@ -168,7 +168,7 @@ def document_from_content_list(
         for page, parts in sorted(page_text.items(), key=lambda item: (-1 if item[0] is None else item[0]))
     ]
     if not pages:
-        raise ValueError("Parser worker returned no readable content")
+        raise ValueError("解析 Worker 未返回可读内容。")
     digest = hashlib.sha256(source_path.read_bytes()).hexdigest()
     return Document(
         document_id=document_id,

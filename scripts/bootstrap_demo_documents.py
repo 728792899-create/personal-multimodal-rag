@@ -36,29 +36,29 @@ DEMO_CASES = [
 def main() -> None:
     health = get_json("/health")
     if health.get("status") != "ok":
-        raise SystemExit("Backend is not healthy. Start it with: cd backend && python3 -m uvicorn app.main:app --reload --port 8010")
+        raise SystemExit("后端健康检查未通过。请运行：cd backend && python3 -m uvicorn app.main:app --reload --port 8010")
 
     files = sorted(SAMPLES.glob("*.md"))
     if not files:
-        raise SystemExit(f"No demo files found under {SAMPLES}")
+        raise SystemExit(f"在 {SAMPLES} 下未找到演示文件。")
 
-    print("Uploading demo documents...")
+    print("正在上传演示文档……")
     for file_path in files:
         result = upload_file(file_path)
         doc = result.get("document", {})
         status = "deduped" if result.get("deduped") else "indexed"
         print(f"- {status}: {doc.get('filename')} chunks={doc.get('chunk_count')}")
 
-    print("Creating eval cases...")
+    print("正在创建评测用例……")
     for case in DEMO_CASES:
         created = post_json("/api/eval/cases", case)
-        print(f"- case: {created.get('case', {}).get('question')}")
+        print(f"- 用例：{created.get('case', {}).get('question')}")
 
-    print("\nDemo questions:")
+    print("\n演示问题：")
     for case in DEMO_CASES:
         print(f"- {case['question']}")
 
-    print("\nOpen the workbench: http://127.0.0.1:5173")
+    print("\n打开工作台：http://127.0.0.1:5173")
 
 
 def get_json(path: str) -> dict:
@@ -104,5 +104,5 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as exc:
-        print(f"bootstrap failed: {exc}", file=sys.stderr)
+        print(f"演示资料初始化失败：{exc}", file=sys.stderr)
         raise

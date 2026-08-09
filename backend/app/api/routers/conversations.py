@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import copy
 import json
+import logging
+import queue
 import re
+import threading
 import uuid
 from datetime import datetime, timezone
+from typing import Iterator
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -12,11 +17,112 @@ from app.api.common import retrieval_options
 from app.config import settings
 from app.core.store import query_asset_service, rag_engine, registry
 from app.models.schemas import ConversationCreate, ConversationMessageRequest, ConversationUpdate
-from app.services.safe_logging import redact_sensitive_text
+from app.services.safe_logging import public_error_message
 from app.services.production_metrics import production_metrics
 
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
+logger = logging.getLogger(__name__)
+
+
+SSE_HEARTBEAT_SECONDS = 15.0
+_STREAM_END = object()
+
+
+def _stream_with_heartbeats(items: Iterator[dict]) -> Iterator[dict | None]:
+    """Consume a blocking provider generator without leaving the SSE socket idle.
+
+    Provider clients are synchronous and can spend minutes loading a local model
+    before the first answer token. A small producer thread lets the response
+    emit SSE comments during that wait, so reverse proxies do not mistake a
+    healthy in-flight request for an abandoned connection.
+    """
+
+    output: queue.Queue[object] = queue.Queue()
+    stopped = threading.Event()
+
+    def produce() -> None:
+        try:
+            for item in items:
+                if stopped.is_set():
+                    break
+                # The RAG engine intentionally reuses and enriches the same trace
+                # object through generation and citation audit. Snapshot at the
+                # producer boundary so an already-emitted retrieval event cannot
+                # be rewritten by a later stage before the SSE consumer encodes it.
+                output.put(copy.deepcopy(item))
+        except Exception as exc:
+            output.put(exc)
+        finally:
+            output.put(_STREAM_END)
+
+    producer = threading.Thread(
+        target=produce,
+        name="conversation-answer-stream",
+        daemon=True,
+    )
+    producer.start()
+    try:
+        while True:
+            try:
+                item = output.get(timeout=max(0.001, SSE_HEARTBEAT_SECONDS))
+            except queue.Empty:
+                yield None
+                continue
+            if item is _STREAM_END:
+                return
+            if isinstance(item, Exception):
+                raise item
+            yield item
+    finally:
+        stopped.set()
+
+
+def _stream_error(exc: Exception) -> tuple[str, str]:
+    error_name = type(exc).__name__.lower()
+    if isinstance(exc, TimeoutError) or "timeout" in error_name:
+        return (
+            "ANSWER_PROVIDER_TIMEOUT",
+            public_error_message(
+                exc,
+                "回答服务在规定时间内未返回正文，请稍后重试或检查本地模型状态。",
+            ),
+        )
+    return (
+        "STREAM_FAILED",
+        public_error_message(
+            exc,
+            "流式回答失败，请稍后重试；如问题持续，请查看服务状态。",
+        ),
+    )
+
+
+def _incomplete_response(
+    retrieval_snapshot: dict | None,
+    answer: str,
+    *,
+    status: str,
+    answer_provider: str = "unknown",
+) -> dict | None:
+    """Build a reloadable evidence snapshot for interrupted answer generation."""
+
+    if retrieval_snapshot is None:
+        return None
+    response = copy.deepcopy(retrieval_snapshot)
+    response["answer"] = answer
+    generation_trace = response.get("generation_trace")
+    if not isinstance(generation_trace, dict):
+        generation_trace = {}
+    response["generation_trace"] = {
+        **generation_trace,
+        "answer_provider": generation_trace.get("answer_provider")
+        or answer_provider
+        or "unknown",
+        "streamed": bool(answer),
+        "incomplete": True,
+        "status": status,
+    }
+    return response
 
 
 CONTEXT_DEPENDENT_QUESTION = re.compile(
@@ -62,7 +168,7 @@ def create_conversation(payload: ConversationCreate):
 def get_conversation(conversation_id: str):
     conversation = registry.get_conversation(conversation_id)
     if not conversation:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+        raise HTTPException(status_code=404, detail="会话不存在或已被删除。")
     return {"conversation": conversation}
 
 
@@ -77,21 +183,21 @@ def update_conversation(conversation_id: str, payload: ConversationUpdate):
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     if not conversation:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+        raise HTTPException(status_code=404, detail="会话不存在或已被删除。")
     return {"conversation": conversation}
 
 
 @router.delete("/{conversation_id}")
 def delete_conversation(conversation_id: str):
     if not registry.delete_conversation(conversation_id):
-        raise HTTPException(status_code=404, detail="Conversation not found")
+        raise HTTPException(status_code=404, detail="会话不存在或已被删除。")
     return {"deleted": True}
 
 
 @router.get("/{conversation_id}/messages")
 def list_conversation_messages(conversation_id: str, limit: int = 200):
     if not registry.get_conversation(conversation_id):
-        raise HTTPException(status_code=404, detail="Conversation not found")
+        raise HTTPException(status_code=404, detail="会话不存在或已被删除。")
     return {"messages": registry.list_conversation_messages(conversation_id, limit)}
 
 
@@ -103,19 +209,19 @@ def stream_conversation_message(
 ):
     conversation = registry.get_conversation(conversation_id)
     if not conversation:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+        raise HTTPException(status_code=404, detail="会话不存在或已被删除。")
     identity = request.scope.get("state", {}).get("identity")
     usage_evidence: dict = {}
     if payload.record_as_real_usage:
         if settings.runtime_mode.lower() != "production":
             raise HTTPException(
                 status_code=409,
-                detail="Real usage evidence can only be recorded in production mode",
+                detail="只有 production 模式可以记录真实使用证据。",
             )
         if identity is None:
             raise HTTPException(
                 status_code=401,
-                detail="Authenticated operator confirmation is required",
+                detail="记录真实使用证据前，需要已登录的管理员明确确认。",
             )
         usage_evidence = {
             "attestation": "human-originated",
@@ -126,10 +232,16 @@ def stream_conversation_message(
 
     request_id = str(uuid.uuid4())
     assistant_message_id = str(uuid.uuid4())
+    answer_generator_snapshot = rag_engine.snapshot_answer_generator()
+    answer_provider = str(
+        getattr(answer_generator_snapshot, "name", "") or "unknown"
+    )
 
     def events():
         sequence = 0
-        finalized = False
+        message_finalized = False
+        answer_fragments: list[str] = []
+        retrieval_snapshot: dict | None = None
 
         def encode(event_type: str, data: dict) -> str:
             nonlocal sequence
@@ -178,16 +290,34 @@ def stream_conversation_message(
             yield encode("retrieval.started", {"context_message_count": context_question_count})
             options = retrieval_options(payload)
             options["knowledge_base_ids"] = conversation["knowledge_base_ids"]
-            for item in rag_engine.stream(payload.question, retrieval_query=retrieval_query, **options):
+            terminal_event_received = False
+            stream = rag_engine.stream(
+                payload.question,
+                retrieval_query=retrieval_query,
+                answer_generator_snapshot=answer_generator_snapshot,
+                **options,
+            )
+            for item in _stream_with_heartbeats(stream):
+                if item is None:
+                    yield ": keep-alive\n\n"
+                    continue
                 event_type = item["type"]
                 if event_type == "retrieval.completed":
                     item["response"].setdefault("retrieval_trace", {})["query_attachments"] = query_attachments
+                    retrieval_snapshot = copy.deepcopy(item["response"])
                     yield encode(event_type, item["response"])
                 elif event_type == "answer.delta":
-                    yield encode(event_type, {"delta": item["delta"]})
+                    delta = str(item.get("delta") or "")
+                    if delta:
+                        answer_fragments.append(delta)
+                        yield encode(event_type, {"delta": delta})
                 elif event_type == "refusal":
+                    terminal_event_received = True
                     response = item["response"]
-                    production_metrics.record_answer(response, provider=settings.answer_provider)
+                    production_metrics.record_answer(
+                        response,
+                        provider=answer_provider,
+                    )
                     response.setdefault("retrieval_trace", {})["query_attachments"] = query_attachments
                     registry.save_conversation_message(
                         conversation_id,
@@ -197,10 +327,15 @@ def stream_conversation_message(
                         metadata={"response": response, "refused": True},
                         message_id=assistant_message_id,
                     )
+                    message_finalized = True
                     yield encode(event_type, {"response": response})
                 elif event_type == "answer.completed":
+                    terminal_event_received = True
                     response = item["response"]
-                    production_metrics.record_answer(response, provider=settings.answer_provider)
+                    production_metrics.record_answer(
+                        response,
+                        provider=answer_provider,
+                    )
                     response.setdefault("retrieval_trace", {})["query_attachments"] = query_attachments
                     registry.save_conversation_message(
                         conversation_id,
@@ -210,8 +345,10 @@ def stream_conversation_message(
                         metadata={"response": response, "refused": False},
                         message_id=assistant_message_id,
                     )
+                    message_finalized = True
                     yield encode(event_type, {"response": response})
-            finalized = True
+            if not terminal_event_received:
+                raise RuntimeError("Answer stream ended without a terminal event")
             yield encode(
                 "done",
                 {
@@ -223,29 +360,65 @@ def stream_conversation_message(
             raise
         except Exception as exc:
             production_metrics.record_provider_error(
-                provider=settings.answer_provider,
+                provider=answer_provider,
                 operation="stream",
             )
-            message = redact_sensitive_text(exc)
+            code, message = _stream_error(exc)
+            partial_answer = "".join(answer_fragments)
+            failed_response = _incomplete_response(
+                retrieval_snapshot,
+                partial_answer,
+                status="failed",
+                answer_provider=answer_provider,
+            )
+            failed_metadata = {
+                "error": message,
+                "error_code": code,
+                "request_id": request_id,
+                "partial": bool(partial_answer),
+            }
+            if failed_response is not None:
+                failed_metadata["response"] = failed_response
+            logger.warning(
+                "conversation stream failed request_id=%s provider=%s error_type=%s partial=%s",
+                request_id,
+                answer_provider,
+                type(exc).__name__,
+                bool(partial_answer),
+            )
             registry.save_conversation_message(
                 conversation_id,
                 "assistant",
-                "",
+                partial_answer,
                 status="failed",
-                metadata={"error": message},
+                metadata=failed_metadata,
                 message_id=assistant_message_id,
             )
-            finalized = True
-            yield encode("error", {"code": "STREAM_FAILED", "message": message})
+            message_finalized = True
+            yield encode("error", {"code": code, "message": message})
             yield encode("done", {"status": "failed"})
         finally:
-            if not finalized:
+            if not message_finalized:
+                partial_answer = "".join(answer_fragments)
+                cancelled_response = _incomplete_response(
+                    retrieval_snapshot,
+                    partial_answer,
+                    status="cancelled",
+                    answer_provider=answer_provider,
+                )
+                cancelled_metadata = {
+                    "cancelled": True,
+                    "request_id": request_id,
+                    "partial": bool(partial_answer),
+                }
+                if cancelled_response is not None:
+                    cancelled_metadata["response"] = cancelled_response
                 registry.save_conversation_message(
                     conversation_id,
                     "assistant",
-                    "",
+                    partial_answer,
                     status="cancelled",
-                    metadata={"cancelled": True},
+                    metadata=cancelled_metadata,
                     message_id=assistant_message_id,
                 )
 

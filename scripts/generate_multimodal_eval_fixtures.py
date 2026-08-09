@@ -51,15 +51,15 @@ def generate() -> None:
 def check() -> None:
     files = sorted(TARGET.glob("img-*.png"))
     if len(files) != len(LABELS):
-        raise SystemExit(f"Expected {len(LABELS)} image fixtures, found {len(files)}")
+        raise SystemExit(f"应有 {len(LABELS)} 个图片 fixture，实际找到 {len(files)} 个")
     for path in files:
         if path.stat().st_size > 1_000_000:
-            raise SystemExit(f"Fixture exceeds 1 MB: {path}")
+            raise SystemExit(f"Fixture 超过 1 MB：{path}")
         with Image.open(path) as image:
             if image.format != "PNG" or image.size != (640, 360) or int(getattr(image, "n_frames", 1)) != 1:
-                raise SystemExit(f"Invalid fixture contract: {path}")
+                raise SystemExit(f"Fixture 契约无效：{path}")
             image.verify()
-    print(f"Multimodal fixtures passed: {len(files)} PNG files at 640x360")
+    print(f"多模态 fixture 检查通过：{len(files)} 个 640x360 PNG 文件")
 
 
 def main() -> None:

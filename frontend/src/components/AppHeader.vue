@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useWorkbenchContext } from '../composables/workbenchContext'
+import { localizedProvider } from '../localization'
 import ProductMark from './ProductMark.vue'
 
 const workbench = useWorkbenchContext()
@@ -8,16 +9,19 @@ const props = withDefaults(defineProps<{
   signingOut?: boolean
   libraryOpen?: boolean
   inspectorOpen?: boolean
+  modelConnectionOpen?: boolean
 }>(), {
   showLogout: false,
   signingOut: false,
   libraryOpen: false,
   inspectorOpen: false,
+  modelConnectionOpen: false,
 })
 const emit = defineEmits<{
   signOut: []
   openLibrary: []
   openInspector: []
+  openModelConnection: []
 }>()
 </script>
 
@@ -60,7 +64,7 @@ const emit = defineEmits<{
       <span
         v-if="workbench.appMode.value === 'expert' && workbench.providerStatus.value"
         :class="['provider-health', workbench.providerStatus.value.status]"
-        :title="`${workbench.providerStatus.value.providers.answer.provider} · ${workbench.providerStatus.value.providers.vector_store.provider}`"
+        :title="`${localizedProvider(workbench.providerStatus.value.providers.answer.provider)} · ${localizedProvider(workbench.providerStatus.value.providers.vector_store.provider)}`"
       >
         <i aria-hidden="true"></i>
         {{ workbench.providerStatus.value.status === 'ready' ? '服务就绪' : '服务降级' }}
@@ -70,6 +74,17 @@ const emit = defineEmits<{
         class="provider-health pending"
       ><i aria-hidden="true"></i>正在检查服务</span>
 
+      <button
+        id="open-model-connection"
+        type="button"
+        class="header-tool model-connection-trigger"
+        data-testid="open-model-connection"
+        :aria-expanded="props.modelConnectionOpen"
+        aria-controls="model-connection-drawer"
+        @click="emit('openModelConnection')"
+      >
+        <span>模型连接</span>
+      </button>
       <button
         id="open-library"
         type="button"

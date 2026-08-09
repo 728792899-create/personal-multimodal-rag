@@ -30,7 +30,7 @@ GROUPS = {
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run a focused deterministic 0.3 evaluation group")
+    parser = argparse.ArgumentParser(description="运行聚焦且确定性的 0.3 分组评测")
     parser.add_argument("group", choices=sorted(GROUPS))
     args = parser.parse_args()
     spec = GROUPS[args.group]

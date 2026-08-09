@@ -54,9 +54,9 @@ def _validated_config(source_type: str, config: dict) -> dict:
             )
         )
         if not values:
-            raise ValueError("At least one URL is required")
+            raise ValueError("请至少填写一个 URL。")
         if len(values) > 200:
-            raise ValueError("A URL list can contain at most 200 entries")
+            raise ValueError("一个 URL 列表最多包含 200 项。")
         for value in values:
             _validate_public_url(value)
         return {"urls": values}
@@ -68,7 +68,7 @@ def _validated_config(source_type: str, config: dict) -> dict:
             "etag": str(config.get("etag") or ""),
             "last_modified": str(config.get("last_modified") or ""),
         }
-    raise ValueError("Unsupported source type")
+    raise ValueError("不支持该数据源类型。")
 
 
 @router.get("/sources")
@@ -85,10 +85,10 @@ def list_sources(knowledge_base_id: str = ""):
 @router.post("/sources", status_code=201)
 def create_source(payload: SourceCreate):
     if not registry.get_knowledge_base(payload.knowledge_base_id):
-        raise HTTPException(status_code=404, detail="Knowledge base not found")
+        raise HTTPException(status_code=404, detail="知识库不存在或已被删除。")
     try:
         if not payload.name.strip():
-            raise ValueError("Source name is required")
+            raise ValueError("请填写数据源名称。")
         config = _validated_config(payload.type, payload.config)
         source = registry.create_source(
             source_type=payload.type,
@@ -106,7 +106,7 @@ def create_source(payload: SourceCreate):
 def get_source(source_id: str):
     source = registry.get_source(source_id)
     if not source:
-        raise HTTPException(status_code=404, detail="Source not found")
+        raise HTTPException(status_code=404, detail="数据源不存在或已被删除。")
     return {"source": source, "items": registry.list_source_items(source_id)}
 
 
@@ -114,7 +114,7 @@ def get_source(source_id: str):
 def update_source(source_id: str, payload: SourceUpdate):
     current = registry.get_source(source_id)
     if not current:
-        raise HTTPException(status_code=404, detail="Source not found")
+        raise HTTPException(status_code=404, detail="数据源不存在或已被删除。")
     try:
         config = (
             _validated_config(current["type"], payload.config)
@@ -136,7 +136,7 @@ def update_source(source_id: str, payload: SourceUpdate):
 @router.delete("/sources/{source_id}")
 def delete_source(source_id: str):
     if not registry.delete_source(source_id):
-        raise HTTPException(status_code=404, detail="Source not found")
+        raise HTTPException(status_code=404, detail="数据源不存在或已被删除。")
     return {"deleted": True, "source_id": source_id}
 
 
@@ -145,7 +145,7 @@ def sync_source(source_id: str):
     try:
         run = source_sync_service.sync(source_id)
     except ValueError as exc:
-        status = 404 if str(exc) == "Source not found" else 409
+        status = 404 if str(exc) == "数据源不存在或已被删除。" else 409
         raise HTTPException(status_code=status, detail=str(exc)) from exc
     if run["status"] == "failed":
         return {"sync_run": run, "accepted": False}
@@ -172,7 +172,7 @@ def list_sync_runs(
 def get_sync_run(run_id: str):
     run = registry.get_sync_run(run_id)
     if not run:
-        raise HTTPException(status_code=404, detail="Sync run not found")
+        raise HTTPException(status_code=404, detail="同步记录不存在或已被删除。")
     return {"sync_run": run}
 
 
@@ -181,5 +181,5 @@ def retry_sync_run(run_id: str):
     try:
         return {"sync_run": source_sync_service.retry(run_id)}
     except ValueError as exc:
-        status = 404 if str(exc) == "Sync run not found" else 409
+        status = 404 if str(exc) == "同步记录不存在或已被删除。" else 409
         raise HTTPException(status_code=status, detail=str(exc)) from exc

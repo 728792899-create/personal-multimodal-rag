@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Perform and verify an explicitly destructive PostgreSQL + S3 restore drill."""
+"""执行并验证需明确确认的破坏性 PostgreSQL 与 S3 恢复演练。"""
 
 from __future__ import annotations
 
@@ -85,7 +85,7 @@ def consistency_snapshot(compose_file: Path) -> dict:
     )
     payload = json.loads(raw)
     if not isinstance(payload, dict):
-        raise ValueError("production consistency snapshot is invalid")
+        raise ValueError("生产一致性快照无效。")
     return payload
 
 
@@ -95,7 +95,7 @@ def object_action(
     object_key: str,
 ) -> dict:
     if action not in {"verify", "delete"}:
-        raise ValueError("unsupported object action")
+        raise ValueError("不支持的对象操作。")
     code = (
         "import hashlib,json,sys;"
         "from app.core.store import object_store;"
@@ -185,7 +185,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--confirm",
         default="",
-        help='Required literal "DESTROY_AND_RESTORE"',
+        help='必须明确传入 "DESTROY_AND_RESTORE"',
     )
     return parser.parse_args()
 
@@ -194,7 +194,7 @@ def main() -> int:
     args = parse_args()
     if args.confirm != "DESTROY_AND_RESTORE":
         print(
-            "refusing destructive drill: pass --confirm DESTROY_AND_RESTORE",
+            "已拒绝破坏性演练：请传入 --confirm DESTROY_AND_RESTORE。",
             file=sys.stderr,
         )
         return 2
@@ -208,7 +208,7 @@ def main() -> int:
     before = consistency_snapshot(compose_file)
     sample = before.get("sample_object")
     if not isinstance(sample, dict) or not sample.get("object_key"):
-        raise RuntimeError("restore drill requires at least one indexed source object")
+        raise RuntimeError("恢复演练至少需要一个已索引的源对象。")
     subprocess.run(
         [
             sys.executable,
@@ -246,7 +246,7 @@ def main() -> int:
         str(sample["object_key"]),
     )
     if deleted.get("deleted") is not True:
-        raise RuntimeError("failed to delete the selected object before restore")
+        raise RuntimeError("恢复前未能删除所选对象。")
     subprocess.run(
         [
             sys.executable,
@@ -325,5 +325,5 @@ if __name__ == "__main__":
         subprocess.CalledProcessError,
         json.JSONDecodeError,
     ) as exc:
-        print(f"destructive restore drill failed: {exc}", file=sys.stderr)
+        print(f"破坏性恢复演练失败：{exc}", file=sys.stderr)
         raise SystemExit(1)

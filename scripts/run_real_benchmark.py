@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate operator-supplied real-corpus evidence without inventing results."""
+"""验证运维人员提供的真实语料证据，不补写或伪造结果。"""
 
 from __future__ import annotations
 
@@ -17,28 +17,28 @@ from app.services.release_readiness import build_release_readiness  # noqa: E402
 
 def markdown(report: dict) -> str:
     lines = [
-        "# Real-corpus 1.0 readiness report",
+        "# 真实语料 1.0 就绪度报告",
         "",
-        f"- Candidate: `{report['candidate_version']}`",
-        f"- Target: `{report['target_version']}`",
-        f"- Status: **{report['status']}**",
-        f"- Evidence updated: `{report['evidence_updated_at'] or 'not recorded'}`",
+        f"- 候选版本：`{report['candidate_version']}`",
+        f"- 目标版本：`{report['target_version']}`",
+        f"- 状态：**{report['status']}**",
+        f"- 证据更新时间：`{report['evidence_updated_at'] or '未记录'}`",
         "",
-        "| Gate | Observed | Required | Result |",
+        "| 门槛 | 实际 | 要求 | 结果 |",
         "| --- | ---: | ---: | :---: |",
     ]
     for gate in report["gates"]:
         lines.append(
             f"| {gate['label']} | {gate['observed']} | {gate['required']} | "
-            f"{'pass' if gate['passed'] else 'blocked'} |"
+            f"{'通过' if gate['passed'] else '未达标'} |"
         )
     if report["errors"]:
-        lines.extend(["", "## Evidence errors", ""])
+        lines.extend(["", "## 证据错误", ""])
         lines.extend(f"- {item}" for item in report["errors"])
     lines.extend(
         [
             "",
-            "> This report accepts only operator-owned evidence. Repository fixtures are not counted as real deployment proof.",
+            "> 本报告仅接受运维人员持有的证据；仓库内 fixture 不计入真实部署证明。",
             "",
         ]
     )
@@ -46,12 +46,12 @@ def markdown(report: dict) -> str:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Validate 1.0 real-corpus and operational evidence")
+    parser = argparse.ArgumentParser(description="验证 1.0 真实语料与运维证据")
     parser.add_argument(
         "--manifest",
         type=Path,
         default=Path(os.getenv("RAG_REAL_BENCHMARK_MANIFEST", "")) if os.getenv("RAG_REAL_BENCHMARK_MANIFEST") else None,
-        help="Private/operator-supplied JSON evidence manifest",
+        help="由运维人员提供的私有 JSON 证据清单",
     )
     parser.add_argument(
         "--report",
@@ -61,7 +61,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--contract-only",
         action="store_true",
-        help="Validate the sanitized blocked example; used by CI and does not claim a benchmark result",
+        help="仅验证脱敏的未达标示例；供 CI 使用，不代表真实基准测试结果",
     )
     return parser.parse_args()
 
@@ -73,8 +73,8 @@ def main() -> int:
         manifest = ROOT / "eval" / "real" / "manifest.example.json"
     if manifest is None:
         print(
-            "RAG_REAL_BENCHMARK_MANIFEST is required. Copy eval/real/manifest.example.json "
-            "outside the repository and populate it from licensed, non-fixture evidence.",
+            "必须设置 RAG_REAL_BENCHMARK_MANIFEST。请将 eval/real/manifest.example.json "
+            "复制到仓库外，并使用许可明确、非 fixture 的真实证据填写。",
             file=sys.stderr,
         )
         return 2

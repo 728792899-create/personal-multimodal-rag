@@ -38,11 +38,11 @@ def build_auth_router(auth_service: AuthService | None) -> APIRouter:
     @router.post("/login")
     def login(payload: LoginRequest, response: Response):
         if auth_service is None:
-            raise HTTPException(status_code=409, detail="Session authentication is disabled")
+            raise HTTPException(status_code=409, detail="当前实例未启用会话认证。")
         try:
             raw_token, context = auth_service.login(payload.password)
         except ValueError as exc:
-            raise HTTPException(status_code=401, detail="Invalid administrator credentials") from exc
+            raise HTTPException(status_code=401, detail="管理员密码不正确。") from exc
         response.set_cookie(
             auth_service.cookie_name,
             raw_token,

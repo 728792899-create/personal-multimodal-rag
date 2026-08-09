@@ -8,7 +8,7 @@
 
 <!-- Visual assets are pinned to an immutable commit to avoid short-lived GitHub raw/main cache reuse. Update this revision whenever a visual changes. -->
 
-![PDF, URL, image and note evidence flowing through hybrid retrieval and a refusal gate](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/325861226185384a9a4b1803d0224e0eaad98b41/docs/assets/social-preview.png)
+![PDF, URL, image and note evidence flowing through hybrid retrieval and a refusal gate](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/581b39fa4f3ec82fc7680fec94605bce3bd2691d/docs/assets/social-preview.png)
 
 **A local-first multimodal RAG workbench where retrieval, refusal and citation quality stay inspectable.**
 
@@ -22,7 +22,7 @@ The default path remains deterministic and offline: hash embeddings, an in-memor
 
 **0.4.0-rc.1 Production Local** separates three supported paths: `demo` for zero-key review, `local-production` for SQLite/local objects/Chroma/Ollama, and `production` for PostgreSQL/pgvector, S3/MinIO, Redis Streams, ClamAV and a fail-closed real provider. It also adds Argon2id session authentication, CSRF, a server-resolved workspace boundary, transactional outbox/DLQ, checksum-verified SQLite migration, incremental directory/URL/RSS sources, guarded deletion candidates and citation-aware Markdown exports. The project deliberately does not claim “production-ready” before its real-corpus, recovery and 14-day soak gates are met.
 
-The private 2026-07-23 production run indexed **200 non-fixture documents from 21 licensed source groups into 5,159 768-dimensional vectors** and passed destructive PostgreSQL/pgvector/MinIO recovery plus five API/worker/Redis/PostgreSQL/MinIO fault scenarios. A real MinerU job passed. Ollama embeddings passed, while all three `qwen3:8b` generation contracts timed out at 180 seconds on this host. The non-backfillable soak chain has honestly retained four host/container-runtime gaps and reset after each excessive interval; as of 2026-07-26 its longest continuous window is 81,984 seconds and the current window started at `2026-07-26T04:57:18Z`. Human review remains 0/200, attested real questions 0/100, and Sentry has no DSN. The release therefore remains an RC. See the [production validation runbook](docs/production-validation.md).
+The private 2026-07-23 production run indexed **200 non-fixture documents from 21 licensed source groups into 5,159 768-dimensional vectors** and passed destructive PostgreSQL/pgvector/MinIO recovery plus five API/worker/Redis/PostgreSQL/MinIO fault scenarios. A real MinerU job passed. Ollama embeddings passed, while all three `qwen3:8b` generation contracts timed out at 180 seconds on this host. The non-backfillable soak chain has honestly retained five host/container-runtime gaps and reset after each excessive interval. At the recorded verification (`2026-07-27T10:26:11Z`), the SHA-256 chain was valid with 943 samples and 23 failures; its longest continuous window remains 81,984 seconds. The recorded `TimeoutError` at `2026-07-27T10:10:58Z` reset the current window at `2026-07-27T10:16:11Z`; it was not backfilled. Human review remains 0/200, attested real questions 0/100, and Sentry has no DSN. The release therefore remains an RC. See the [production validation runbook](docs/production-validation.md).
 
 ## What reviewers can verify
 
@@ -32,21 +32,21 @@ The private 2026-07-23 production run indexed **200 non-fixture documents from 2
 | Simple and debug (expert) modes | Stage-by-stage retrieval Trace | pytest, Vitest and Playwright |
 | Precise element citations and context | Citation and graph provenance audit | Fixed 100-case offline golden set |
 | Feedback to evaluation draft | Request IDs, timeout, cancel and retry | Health checks and multi-lane CI |
-| Durable local index jobs and source sync | Lease recovery, DLQ boundaries and restore drill | 179 backend passes, 3 skipped + 2 PostgreSQL contracts / 27 frontend / 14 E2E |
+| Durable local index jobs and source sync | Lease recovery, DLQ boundaries and restore drill | 183 backend passes, 3 skipped / 31 frontend / 14 E2E |
 
-![System map from ingestion to evidence-constrained answers and evaluation](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/325861226185384a9a4b1803d0224e0eaad98b41/docs/assets/system-overview.svg)
+![System map from ingestion to evidence-constrained answers and evaluation](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/581b39fa4f3ec82fc7680fec94605bce3bd2691d/docs/assets/system-overview.svg)
 
 ## Interface
 
-![Production Local sign-in boundary](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/325861226185384a9a4b1803d0224e0eaad98b41/docs/screenshots/13-evidence-ledger-login.png)
+![Production Local sign-in boundary](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/581b39fa4f3ec82fc7680fec94605bce3bd2691d/docs/screenshots/13-evidence-ledger-login.png)
 
 The default experience is a **question-first** single canvas. Everyday users see the prompt, answer, and sources; file upload, library management, and retrieval traces live in on-demand drawers. `Cmd/Ctrl + K` focuses the prompt, `Esc` closes a drawer, and BM25, vector, Graph, MMR, and rerank controls only appear in debug mode.
 
 | Question-first home | Retrieval debugging | 390-pixel layout |
 | --- | --- | --- |
-| ![Minimal multimodal knowledge-base question page](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/325861226185384a9a4b1803d0224e0eaad98b41/docs/screenshots/01-workbench-beta.png) | ![On-demand advanced retrieval parameters](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/325861226185384a9a4b1803d0224e0eaad98b41/docs/screenshots/15-question-first-debug.png) | ![Question page and bottom shortcuts at a 390-pixel viewport](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/325861226185384a9a4b1803d0224e0eaad98b41/docs/screenshots/14-evidence-ledger-mobile.png) |
+| ![Minimal multimodal knowledge-base question page](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/581b39fa4f3ec82fc7680fec94605bce3bd2691d/docs/screenshots/01-workbench-beta.png) | ![On-demand advanced retrieval parameters](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/581b39fa4f3ec82fc7680fec94605bce3bd2691d/docs/screenshots/15-question-first-debug.png) | ![Question page and bottom shortcuts at a 390-pixel viewport](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/581b39fa4f3ec82fc7680fec94605bce3bd2691d/docs/screenshots/14-evidence-ledger-mobile.png) |
 
-![Search-only FastAPI reverse-proxy result with five relevant, inspectable sources](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/325861226185384a9a4b1803d0224e0eaad98b41/docs/screenshots/16-question-first-sources.png)
+![Search-only FastAPI reverse-proxy result with five relevant, inspectable sources](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/581b39fa4f3ec82fc7680fec94605bce3bd2691d/docs/screenshots/16-question-first-sources.png)
 
 Simple mode hides provider internals, retrieval weights, and raw scores. It leads with the result and sources; selecting a source opens the evidence and debugging drawer.
 
@@ -112,7 +112,7 @@ previously validated public IP, and response size/time limits are enforced.
 
 ## Architecture and request lifecycle
 
-![Browser, Nginx, middleware, domain routers, services and provider adapters in one request lifecycle](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/325861226185384a9a4b1803d0224e0eaad98b41/docs/assets/request-lifecycle.svg)
+![Browser, Nginx, middleware, domain routers, services and provider adapters in one request lifecycle](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/581b39fa4f3ec82fc7680fec94605bce3bd2691d/docs/assets/request-lifecycle.svg)
 
 The Vue application is split into a page, domain components, the `useWorkbench` composable, and API modules. FastAPI keeps a stable composition root while document, retrieval and quality routes live in separate domain routers. The service layer owns ingestion, retrieval, answer generation and citation audit; provider adapters retain offline fallbacks.
 
@@ -120,7 +120,7 @@ Read the [architecture guide](docs/architecture.md), [code tour](docs/code-tour.
 
 ## Deterministic evaluation
 
-![One-hundred-case offline scorecard covering retrieval, multimodal extraction and graph evidence](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/325861226185384a9a4b1803d0224e0eaad98b41/docs/assets/evaluation-scorecard.svg)
+![One-hundred-case offline scorecard covering retrieval, multimodal extraction and graph evidence](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/581b39fa4f3ec82fc7680fec94605bce3bd2691d/docs/assets/evaluation-scorecard.svg)
 
 | Metric | Recorded result | CI minimum |
 | --- | ---: | ---: |
@@ -158,7 +158,7 @@ is exposed by `GET /api/system/readiness-report`.
 
 ## Security and production boundary
 
-![Trust boundaries between the browser, API, untrusted input, providers and storage](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/325861226185384a9a4b1803d0224e0eaad98b41/docs/assets/security-boundaries.svg)
+![Trust boundaries between the browser, API, untrusted input, providers and storage](https://raw.githubusercontent.com/728792899-create/personal-multimodal-rag/581b39fa4f3ec82fc7680fec94605bce3bd2691d/docs/assets/security-boundaries.svg)
 
 Implemented controls cover upload type/size/signature checks, SSRF-aware URL validation across redirects, Argon2id session authentication, HttpOnly/Secure/SameSite cookies, CSRF, login rate limiting, timeouts, terminal cooperative cancellation, request IDs and sensitive-log redaction. Production object ingestion uses staged content-addressed keys and an optional ClamAV gate. `scripts/verify_local_restore.py` creates an isolated SQLite snapshot and checks integrity, foreign keys, schema, safe object paths, byte sizes and SHA-256 without changing business rows in the input database.
 

@@ -7,7 +7,7 @@ from app.services.embeddings import BaseEmbeddingProvider, MockEmbeddingProvider
 from app.services.query_intelligence import analyze_query
 from app.services.query_rewriter import BaseQueryRewriter, NoopQueryRewriter
 from app.services.reranker import BaseReranker, KeywordReranker
-from app.services.safe_logging import redact_sensitive_text
+from app.services.safe_logging import public_error_message
 from app.services.text_utils import retrieval_tokens, tokenize
 from app.services.vectorstore import BaseVectorStore, MemoryVectorStore
 
@@ -130,7 +130,10 @@ class HybridRetriever:
             fallbacks.append(
                 {
                     "stage": "query_rewrite",
-                    "reason": redact_sensitive_text(exc),
+                    "reason": public_error_message(
+                        exc,
+                        "查询改写暂时不可用，已使用原始问题。",
+                    ),
                     "action": "use_original_query",
                 }
             )
@@ -164,7 +167,10 @@ class HybridRetriever:
                 fallbacks.append(
                     {
                         "stage": "vector_search",
-                        "reason": redact_sensitive_text(exc),
+                        "reason": public_error_message(
+                            exc,
+                            "向量检索暂时不可用，已回退到 BM25 关键词检索。",
+                        ),
                         "action": "fallback_to_keyword_bm25",
                     }
                 )
@@ -231,7 +237,10 @@ class HybridRetriever:
                 fallbacks.append(
                     {
                         "stage": "rerank",
-                        "reason": redact_sensitive_text(exc),
+                        "reason": public_error_message(
+                            exc,
+                            "Rerank 暂时不可用，已使用基础相关性排序。",
+                        ),
                         "action": "use_base_score_order",
                     }
                 )

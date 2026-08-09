@@ -38,6 +38,7 @@ def test_login_uses_http_only_cookie_and_csrf_for_mutations():
 
     failed = client.post("/api/auth/login", json={"password": "wrong"})
     assert failed.status_code == 401
+    assert failed.json()["detail"] == "管理员密码不正确。"
 
     response = client.post("/api/auth/login", json={"password": "correct horse battery staple"})
     assert response.status_code == 200
@@ -45,7 +46,9 @@ def test_login_uses_http_only_cookie_and_csrf_for_mutations():
     csrf = response.json()["session"]["csrf_token"]
 
     assert client.get("/api/auth/session").json()["session"]["authenticated"] is True
-    assert client.post("/api/private").status_code == 403
+    missing_csrf = client.post("/api/private")
+    assert missing_csrf.status_code == 403
+    assert missing_csrf.json()["detail"] == "缺少有效的 CSRF token，请刷新页面后重试。"
     assert client.post("/api/private", headers={"X-CSRF-Token": csrf}).json() == {"ok": True}
 
 
@@ -86,3 +89,4 @@ def test_login_attempts_have_a_stricter_rate_limit():
 
     assert blocked.status_code == 429
     assert blocked.headers["retry-after"]
+    assert blocked.json()["detail"] == "登录尝试过于频繁，请稍后重试。"
