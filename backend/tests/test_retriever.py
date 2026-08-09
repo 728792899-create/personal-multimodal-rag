@@ -1,6 +1,9 @@
 from pathlib import Path
 from contextlib import contextmanager
 
+import pytest
+from pydantic import ValidationError
+
 from app.services.document_processor import DocumentProcessor
 from app.services.embeddings import BaseEmbeddingProvider
 from app.services.embeddings import MockEmbeddingProvider
@@ -34,6 +37,11 @@ def test_hybrid_retriever_search_and_delete(tmp_path: Path):
     assert trace["bm25_candidates"] >= 1
     assert trace["vector_candidates"] >= 1
     assert trace["pipeline"]["mmr"]["selected"] == trace["mmr_selected"]
+    assert trace["pipeline"]["retrieval_health"]["status"] == "skipped"
+    assert (
+        trace["pipeline"]["retrieval_health"]["exclude_reason"]
+        == "fewer_than_three_candidates"
+    )
     assert trace["plan"]["routing_mode"] == "manual"
     assert trace["plan"]["applied"] is False
     assert {"index_version", "degraded", "fallbacks"} <= set(trace["plan"])
@@ -45,6 +53,90 @@ def test_hybrid_retriever_search_and_delete(tmp_path: Path):
     results_after_delete, trace_after_delete = retriever.search("BM25", top_k=3)
     assert results_after_delete == []
     assert trace_after_delete["total_chunks"] == 0
+
+
+def test_retriever_emits_bounded_leaf_retrieval_health_trace():
+    processor = DocumentProcessor()
+    retriever = HybridRetriever(index_version="test-index")
+    for index in range(3):
+        document = processor.parse_text_source(
+            f"Common retrieval evidence with distinct source {index}.",
+            f"source-{index}.md",
+        )
+        retriever.add_document(document, processor.split(document))
+
+    results, trace = retriever.search(
+        "common retrieval evidence",
+        top_k=3,
+        query_rewrite=False,
+        rerank_enabled=False,
+    )
+
+    health = trace["pipeline"]["retrieval_health"]
+    assert len(results) == 3
+    assert health["version"] == "retrieval-health-v1"
+    assert health["eligible"] is True
+    assert health["status"] in {"healthy", "insufficient_history", "warning"}
+    assert health["cross_query"]["current_top_ids"] == [
+        item["chunk"].chunk_id for item in results
+    ]
+    assert health["history"]["capacity"] == 128
+
+
+def test_single_document_scope_does_not_raise_document_diversity_warning():
+    processor = DocumentProcessor()
+    document = processor.parse_text_source("single scoped source", "single.md")
+    chunks = [
+        Chunk(
+            chunk_id=f"{document.document_id}:{index}",
+            document_id=document.document_id,
+            chunk_index=index,
+            text=f"scoped retrieval evidence section {index}",
+            file_name=document.file_name,
+        )
+        for index in range(3)
+    ]
+    retriever = HybridRetriever()
+    retriever.add_document(document, chunks)
+
+    results, trace = retriever.search(
+        "scoped retrieval evidence",
+        top_k=3,
+        document_ids=[document.document_id],
+        query_rewrite=False,
+        rerank_enabled=False,
+    )
+
+    assert len(results) == 3
+    alert_codes = {
+        alert["code"]
+        for alert in trace["pipeline"]["retrieval_health"]["alerts"]
+    }
+    assert "low_document_diversity" not in alert_codes
+
+
+def test_retrieval_health_scope_separates_manual_retrieval_configurations():
+    class RecordingMonitor:
+        def __init__(self):
+            self.scope_keys = []
+
+        def diagnose(self, *_args, scope_key, **_kwargs):
+            self.scope_keys.append(scope_key)
+            return {
+                "version": "retrieval-health-v1",
+                "status": "insufficient_history",
+                "eligible": True,
+                "alerts": [],
+            }
+
+    monitor = RecordingMonitor()
+    retriever = HybridRetriever(retrieval_health_monitor=monitor)
+
+    retriever.search("configuration", search_mode="keyword", rerank_enabled=False)
+    retriever.search("configuration", search_mode="semantic", rerank_enabled=False)
+
+    assert len(monitor.scope_keys) == 2
+    assert monitor.scope_keys[0] != monitor.scope_keys[1]
 
 
 def test_retriever_supports_modes_and_document_filter(tmp_path: Path):
@@ -153,6 +245,13 @@ def test_retrieval_options_keep_legacy_manual_default():
 
     assert legacy.routing_mode == "manual"
     assert automatic.routing_mode == "auto"
+
+
+def test_retrieval_scope_filters_are_size_bounded():
+    with pytest.raises(ValidationError):
+        SearchRequest(query="RAG", document_ids=[str(index) for index in range(201)])
+    with pytest.raises(ValidationError):
+        SearchRequest(query="RAG", knowledge_base_ids=["x" * 161])
 
 
 def test_auto_exact_can_degrade_to_bm25_but_semantic_is_blocked(tmp_path: Path):

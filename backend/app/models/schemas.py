@@ -1,6 +1,10 @@
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, StringConstraints, model_validator
+
+
+ScopedIdentifier = Annotated[str, StringConstraints(max_length=160)]
+MAX_RETRIEVAL_SCOPE_IDS = 200
 
 
 class DocumentMeta(BaseModel):
@@ -46,8 +50,12 @@ class RetrievalOptions(BaseModel):
     search_mode: Literal["hybrid", "keyword", "semantic"] = "hybrid"
     search_profile: Literal["balanced", "precision", "recall"] = "balanced"
     strategy: Literal["hybrid", "hybrid_graph", "auto"] = "hybrid"
-    document_ids: list[str] = Field(default_factory=list)
-    knowledge_base_ids: list[str] = Field(default_factory=list)
+    document_ids: list[ScopedIdentifier] = Field(
+        default_factory=list, max_length=MAX_RETRIEVAL_SCOPE_IDS
+    )
+    knowledge_base_ids: list[ScopedIdentifier] = Field(
+        default_factory=list, max_length=MAX_RETRIEVAL_SCOPE_IDS
+    )
     bm25_weight: Optional[float] = Field(None, ge=0, le=1)
     vector_weight: Optional[float] = Field(None, ge=0, le=1)
     mmr_lambda: Optional[float] = Field(None, ge=0, le=1)
@@ -103,12 +111,16 @@ class IngestionUrlRequest(UrlImportRequest):
 
 class ConversationCreate(BaseModel):
     title: str = Field("新会话", max_length=160)
-    knowledge_base_ids: list[str] = Field(default_factory=lambda: ["default"])
+    knowledge_base_ids: list[ScopedIdentifier] = Field(
+        default_factory=lambda: ["default"], max_length=MAX_RETRIEVAL_SCOPE_IDS
+    )
 
 
 class ConversationUpdate(BaseModel):
     title: Optional[str] = Field(None, max_length=160)
-    knowledge_base_ids: Optional[list[str]] = None
+    knowledge_base_ids: Optional[list[ScopedIdentifier]] = Field(
+        None, max_length=MAX_RETRIEVAL_SCOPE_IDS
+    )
 
 
 class ConversationMessageRequest(RetrievalOptions):

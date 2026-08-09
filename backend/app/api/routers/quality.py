@@ -265,4 +265,7 @@ def system_metrics():
         chunk_count=retriever.vector_store.count_chunks(),
         index_jobs=registry.list_index_jobs(limit=200),
         conversation_metrics=registry.conversation_metrics(limit=200),
+        conversation_retrieval_traces=registry.conversation_retrieval_traces(
+            limit=200
+        ),
     )

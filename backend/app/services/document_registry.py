@@ -1204,6 +1204,33 @@ class DocumentRegistry:
             "avg_first_token_ms": round(sum(first_token_values) / len(first_token_values), 2) if first_token_values else 0,
         }
 
+    def conversation_retrieval_traces(self, limit: int = 200) -> list[dict]:
+        """Return only persisted assistant retrieval traces for health rollups."""
+
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT metadata FROM conversation_messages
+                WHERE role = 'assistant' ORDER BY created_at DESC LIMIT ?
+                """,
+                (max(1, min(limit, 1000)),),
+            ).fetchall()
+        traces: list[dict] = []
+        for row in rows:
+            try:
+                metadata = json.loads(row["metadata"])
+            except (TypeError, json.JSONDecodeError):
+                continue
+            response = metadata.get("response") if isinstance(metadata, dict) else None
+            trace = (
+                response.get("retrieval_trace")
+                if isinstance(response, dict)
+                else None
+            )
+            if isinstance(trace, dict):
+                traces.append(trace)
+        return traces
+
     def real_usage_summary(self) -> dict:
         with self._connection() as connection:
             rows = connection.execute(

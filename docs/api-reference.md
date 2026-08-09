@@ -264,6 +264,18 @@ curl --fail-with-body \
       "index_version": "retrieval-v2-20260809",
       "degraded": false,
       "fallbacks": []
+    },
+    "pipeline": {
+      "retrieval_health": {
+        "version": "retrieval-health-v1",
+        "status": "insufficient_history",
+        "eligible": true,
+        "exclude_reason": "",
+        "sparse_dense_top10": {},
+        "candidate_diversity": {},
+        "cross_query": {},
+        "alerts": []
+      }
     }
   },
   "generation_trace": {},
@@ -278,7 +290,7 @@ curl --fail-with-body \
 
 拒答仍返回成功的业务响应，并在 `answer`、`trust`、`retrieval_trace` 和 `gap_report` 中说明证据不足；调用方不应把它当网络错误重试。
 
-查询规划失败会按原问执行 balanced hybrid；重排失败保留 RRF 顺序；OpenAI 嵌入失败时只有高置信 `exact` 可以继续 BM25，其他路由明确拒答；DeepSeek 生成失败返回已检索证据、故障状态和重试入口，不生成模板答案。trace 只包含结构化决策因素，不包含模型思维过程。
+查询规划失败会按原问执行 balanced hybrid；重排失败保留 RRF 顺序；OpenAI 嵌入失败时只有高置信 `exact` 可以继续 BM25，其他路由明确拒答；DeepSeek 生成失败返回已检索证据、故障状态和重试入口，不生成模板答案。带版本/型号的问题在叶级证据未精确覆盖时会在生成前拒答。单次请求的文档和知识库过滤列表各最多 200 项，每个 ID 最长 160 字符。`retrieval_health` 是有界、进程内的检索退化预警，不会自动改排序或放行答案。trace 只包含结构化决策因素，不包含模型思维过程。
 
 ## 持久会话与 SSE
 

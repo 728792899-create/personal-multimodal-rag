@@ -12,6 +12,21 @@ _UUID_SEGMENT = re.compile(
     re.IGNORECASE,
 )
 _BUCKETS = (0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, math.inf)
+_RETRIEVAL_HEALTH_STATUSES = {
+    "healthy",
+    "warning",
+    "insufficient_history",
+    "skipped",
+}
+_RETRIEVAL_ROUTES = {"exact", "semantic", "composite", "multihop", "summary"}
+_RETRIEVAL_HEALTH_ALERTS = {
+    "low_sparse_dense_overlap",
+    "low_channel_final_coverage",
+    "high_candidate_duplicate_rate",
+    "low_document_diversity",
+    "high_cross_query_top_k_jaccard",
+    "universal_chunk",
+}
 
 
 def safe_path_class(path: str) -> str:
@@ -104,6 +119,64 @@ class ProductionMetrics:
         ):
             if isinstance(performance.get(key), (int, float)):
                 self.observe(metric, float(performance[key]) / 1000.0, provider=(provider or "unknown"))
+        self._record_retrieval_health(trace)
+
+    def _record_retrieval_health(self, trace: dict) -> None:
+        health = (trace.get("pipeline") or {}).get("retrieval_health") or {}
+        if not health:
+            return
+        raw_status = str(health.get("status") or "skipped")
+        status = (
+            raw_status if raw_status in _RETRIEVAL_HEALTH_STATUSES else "skipped"
+        )
+        raw_route = str((trace.get("plan") or {}).get("route") or "unknown")
+        route = raw_route if raw_route in _RETRIEVAL_ROUTES else "unknown"
+        self.increment(
+            "rag_retrieval_health_samples_total", status=status, route=route
+        )
+        if health.get("eligible") is not True:
+            return
+        for alert in health.get("alerts") or []:
+            raw_code = str(alert.get("code") or "other")
+            code = raw_code if raw_code in _RETRIEVAL_HEALTH_ALERTS else "other"
+            self.increment(
+                "rag_retrieval_health_warnings_total", code=code, route=route
+            )
+
+        overlap = health.get("sparse_dense_top10") or {}
+        self._observe_finite_ratio(
+            "rag_retrieval_sparse_dense_jaccard_ratio",
+            overlap.get("jaccard"),
+            route=route,
+        )
+        cross_query = health.get("cross_query") or {}
+        self._observe_finite_ratio(
+            "rag_retrieval_cross_query_topk_jaccard_ratio",
+            cross_query.get("mean_jaccard"),
+            route=route,
+        )
+        diversity = health.get("candidate_diversity") or {}
+        self._observe_finite_ratio(
+            "rag_retrieval_candidate_duplicate_ratio",
+            diversity.get("duplicate_rate"),
+            route=route,
+        )
+        by_kind = (health.get("channel_final_evidence") or {}).get("by_kind") or {}
+        for channel in ("bm25", "dense", "graph"):
+            self._observe_finite_ratio(
+                "rag_retrieval_channel_final_coverage_ratio",
+                (by_kind.get(channel) or {}).get("final_evidence_coverage"),
+                route=route,
+                channel=channel,
+            )
+
+    def _observe_finite_ratio(self, name: str, value, **labels: str) -> None:
+        if (
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and math.isfinite(float(value))
+        ):
+            self.observe(name, min(1.0, max(0.0, float(value))), **labels)
 
     def record_provider_error(self, *, provider: str, operation: str) -> None:
         self.increment(

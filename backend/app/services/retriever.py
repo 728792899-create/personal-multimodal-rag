@@ -10,6 +10,10 @@ from app.services.embeddings import BaseEmbeddingProvider, MockEmbeddingProvider
 from app.services.query_intelligence import analyze_query
 from app.services.query_rewriter import BaseQueryRewriter, NoopQueryRewriter
 from app.services.reranker import BaseReranker, KeywordReranker
+from app.services.retrieval_health import (
+    RetrievalHealthMonitor,
+    RetrievalHealthThresholds,
+)
 from app.services.retrieval_planner import RetrievalPlan, RetrievalPlanner
 from app.services.safe_logging import public_error_message
 from app.services.sparse_index import SparseBM25Index, VectorStoreSparseIndex
@@ -79,6 +83,7 @@ class HybridRetriever:
         retrieval_planner: Optional[RetrievalPlanner] = None,
         sparse_index: Any | None = None,
         index_version: str = "",
+        retrieval_health_monitor: RetrievalHealthMonitor | None = None,
     ):
         self.embedding_provider = embedding_provider or MockEmbeddingProvider()
         self.vector_store = vector_store or MemoryVectorStore()
@@ -91,6 +96,9 @@ class HybridRetriever:
         self.embedding_model = embedding_model
         self.vector_store_name = vector_store_name or self.vector_store.__class__.__name__
         self.index_version = index_version
+        self.retrieval_health_monitor = (
+            retrieval_health_monitor or RetrievalHealthMonitor()
+        )
         self.mmr_lambda = mmr_lambda
         self.bm25_weight = bm25_weight
         self.vector_weight = vector_weight
@@ -968,6 +976,61 @@ class HybridRetriever:
                 "eligible": bool(graph_payload.get("eligible")),
                 "max_hops": graph_payload.get("max_hops", graph_max_hops),
             }
+        health_exclude_reason = ""
+        if blocked is not None:
+            health_exclude_reason = "retrieval_blocked"
+        elif degraded:
+            health_exclude_reason = "degraded_request"
+        elif plan.route == "summary":
+            health_exclude_reason = "summary_route"
+        elif len(ranked) < 3:
+            health_exclude_reason = "fewer_than_three_candidates"
+        health_thresholds = RetrievalHealthThresholds()
+        if plan.route == "exact" or len(document_filter) == 1:
+            # Exact lookup is intentionally sparse-heavy and can correctly
+            # concentrate on a single document.  Keep collapse monitoring but
+            # do not misclassify those route characteristics as degradation.
+            health_thresholds = RetrievalHealthThresholds(
+                min_sparse_dense_overlap=0,
+                min_channel_final_coverage=0,
+                min_unique_documents=1,
+            )
+        try:
+            retrieval_health = self.retrieval_health_monitor.diagnose(
+                channel_rankings,
+                ranked,
+                query_tokens=retrieval_tokens(query),
+                scope_key=(
+                    self._resolved_index_version(),
+                    routing_mode,
+                    plan.route,
+                    tuple(sorted(document_filter)),
+                    tuple(sorted(knowledge_base_filter)),
+                    tuple(sorted(modality_filter)),
+                    search_mode,
+                    search_profile,
+                    active_strategy,
+                    round(float(active_bm25_weight), 6),
+                    round(float(active_vector_weight), 6),
+                    round(float(active_mmr_lambda), 6),
+                    bool(query_rewrite),
+                    bool(rerank_enabled),
+                    int(output_k),
+                ),
+                eligible=not health_exclude_reason,
+                exclude_reason=health_exclude_reason,
+                thresholds=health_thresholds,
+            )
+        except Exception:
+            # Observability must never become a new availability dependency.
+            retrieval_health = {
+                "version": "retrieval-health-v1",
+                "status": "skipped",
+                "eligible": False,
+                "exclude_reason": "diagnostic_error",
+                "alerts": [],
+            }
+        trace["pipeline"]["retrieval_health"] = retrieval_health
         return ranked, trace
 
     def delete_document(self, document_id: str) -> bool:

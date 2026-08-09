@@ -28,6 +28,64 @@ def test_prometheus_metrics_use_bounded_paths_and_never_export_questions():
     assert "token=" not in rendered
 
 
+def test_retrieval_health_metrics_use_only_bounded_labels():
+    metrics = ProductionMetrics()
+    private_chunk_id = "private-leaf-chunk-42"
+    private_question = "what is the private launch code"
+    metrics.record_answer(
+        {
+            "citations": [{"id": private_chunk_id}],
+            "citation_audit": {"coverage": 1.0},
+            "retrieval_trace": {
+                "query_tokens": private_question.split(),
+                "plan": {"route": "semantic"},
+                "pipeline": {
+                    "decision": {"status": "answered"},
+                    "retrieval_health": {
+                        "status": "warning",
+                        "eligible": True,
+                        "alerts": [
+                            {"code": "universal_chunk"},
+                            {"code": private_chunk_id},
+                        ],
+                        "sparse_dense_top10": {"jaccard": 0.25},
+                        "cross_query": {
+                            "mean_jaccard": 0.9,
+                            "current_top_ids": [private_chunk_id],
+                        },
+                        "candidate_diversity": {"duplicate_rate": 0.0},
+                        "channel_final_evidence": {
+                            "by_kind": {
+                                "bm25": {"final_evidence_coverage": 1.0},
+                                "dense": {"final_evidence_coverage": 0.5},
+                            }
+                        },
+                    },
+                },
+            },
+        },
+        provider="deepseek",
+    )
+
+    rendered = metrics.render()
+
+    assert (
+        'rag_retrieval_health_samples_total{route="semantic",status="warning"} 1'
+        in rendered
+    )
+    assert (
+        'rag_retrieval_health_warnings_total{code="universal_chunk",route="semantic"} 1'
+        in rendered
+    )
+    assert (
+        'rag_retrieval_health_warnings_total{code="other",route="semantic"} 1'
+        in rendered
+    )
+    assert "rag_retrieval_cross_query_topk_jaccard_ratio" in rendered
+    assert private_chunk_id not in rendered
+    assert private_question not in rendered
+
+
 def test_metrics_endpoint_is_prometheus_text_and_public():
     response = TestClient(app).get("/metrics")
 
