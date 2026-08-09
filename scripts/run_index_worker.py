@@ -8,10 +8,18 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
-from app.core.store import ingestion_worker, outbox_dispatcher
+from app.config import settings
+from app.services.runtime_readiness import validate_runtime_settings
 
 
 def main() -> int:
+    # The worker does not run FastAPI's lifespan hook, so it must enforce the
+    # same fail-closed production/provider contract before importing the
+    # composition root. This prevents an invalid production profile from even
+    # constructing a local or third-party model client.
+    validate_runtime_settings(settings)
+    from app.core.store import ingestion_worker, outbox_dispatcher
+
     stopped = threading.Event()
     heartbeat_path = Path(
         os.getenv("WORKER_HEARTBEAT_PATH", "/tmp/worker-heartbeat")

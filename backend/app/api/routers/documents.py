@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 
 from app.api.common import (
@@ -98,17 +98,27 @@ def get_document_source(document_id: str):
 
 
 @router.get("/assets/{asset_id}")
-def get_asset(asset_id: str):
+def get_asset(asset_id: str, request: Request):
     asset = registry.get_asset(asset_id, include_private=True)
     if not asset:
         raise HTTPException(status_code=404, detail="资源不存在或已被删除。")
     if asset["kind"] == "query":
+        identity = request.scope.get("state", {}).get("identity")
+        user_id = identity.user_id if identity is not None else "owner"
+        workspace_id = identity.workspace_id if identity is not None else "default"
+        asset = query_asset_service.get_for_owner(
+            asset_id, user_id=user_id, workspace_id=workspace_id
+        )
+        if asset is None:
+            raise HTTPException(status_code=404, detail="资源不存在或已被删除。")
         try:
             expired = datetime.fromisoformat(asset["expires_at"]) <= datetime.utcnow()
         except ValueError:
             expired = True
         if expired:
-            query_asset_service.delete(asset_id)
+            query_asset_service.delete(
+                asset_id, user_id=user_id, workspace_id=workspace_id
+            )
             raise HTTPException(status_code=410, detail="查询图片已过期，请重新上传。")
     return _asset_file_response(asset, attachment=asset["kind"] == "source")
 

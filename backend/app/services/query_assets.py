@@ -49,7 +49,15 @@ class QueryAssetService:
         self.max_pixels = max(1, max_pixels)
         self.ocr_adapter = ocr_adapter or ImageOCRAdapter()
 
-    def create(self, payload: bytes, filename: str, knowledge_base_id: str) -> dict:
+    def create(
+        self,
+        payload: bytes,
+        filename: str,
+        knowledge_base_id: str,
+        *,
+        user_id: str = "owner",
+        workspace_id: str = "default",
+    ) -> dict:
         self.cleanup_expired()
         if not payload:
             raise QueryAssetError("查询图片为空。")
@@ -79,6 +87,8 @@ class QueryAssetService:
                 sha256=stored.sha256,
                 size_bytes=stored.size_bytes,
                 metadata={
+                    "owner_user_id": user_id,
+                    "owner_workspace_id": workspace_id,
                     "format": image_format.lower(),
                     "width": width,
                     "height": height,
@@ -98,9 +108,20 @@ class QueryAssetService:
             raise QueryAssetError("查询图片处理失败，请稍后重试。", status_code=503) from exc
         return self.public_payload(asset)
 
-    def delete(self, asset_id: str) -> bool:
+    def delete(
+        self,
+        asset_id: str,
+        *,
+        user_id: str | None = None,
+        workspace_id: str | None = None,
+        system: bool = False,
+    ) -> bool:
         asset = self.registry.get_asset(asset_id, include_private=True)
         if not asset or asset.get("kind") != "query":
+            return False
+        if not system and user_id is not None and not self._owned_by(
+            asset, user_id=user_id, workspace_id=workspace_id or "default"
+        ):
             return False
         deleted = self.registry.delete_asset(asset_id)
         if deleted and self.registry.asset_reference_count(asset["object_key"]) == 0:
@@ -115,11 +136,19 @@ class QueryAssetService:
                 expiry = datetime.fromisoformat(str(asset.get("expires_at") or ""))
             except ValueError:
                 expiry = now
-            if expiry <= now and self.delete(asset["id"]):
+            if expiry <= now and self.delete(asset["id"], system=True):
                 expired += 1
         return expired
 
-    def enrich_query(self, question: str, attachments: list, knowledge_base_ids: list[str]) -> tuple[str, list[dict]]:
+    def enrich_query(
+        self,
+        question: str,
+        attachments: list,
+        knowledge_base_ids: list[str],
+        *,
+        user_id: str = "owner",
+        workspace_id: str = "default",
+    ) -> tuple[str, list[dict]]:
         if not attachments:
             return question, []
         if len(attachments) > self.max_count:
@@ -137,6 +166,11 @@ class QueryAssetService:
             asset = self.registry.get_asset(asset_id, include_private=True)
             if not asset or asset.get("kind") != "query":
                 raise QueryAssetError("查询图片不存在或已被删除。", status_code=404)
+            if not self._owned_by(
+                asset, user_id=user_id, workspace_id=workspace_id
+            ):
+                # Do not reveal whether another member owns this opaque id.
+                raise QueryAssetError("查询图片不存在或已被删除。", status_code=404)
             if asset["knowledge_base_id"] not in allowed_bases:
                 raise QueryAssetError("查询图片不属于当前选择的知识库。", status_code=403)
             try:
@@ -144,7 +178,11 @@ class QueryAssetService:
             except ValueError as exc:
                 raise QueryAssetError("查询图片的过期信息无效，请重新上传。", status_code=410) from exc
             if expires_at <= datetime.utcnow():
-                self.delete(asset_id)
+                self.delete(
+                    asset_id,
+                    user_id=user_id,
+                    workspace_id=workspace_id,
+                )
                 raise QueryAssetError("查询图片已过期，请重新上传。", status_code=410)
             path = self.object_store.path_for(asset["object_key"])
             if not path.is_file():
@@ -182,6 +220,30 @@ class QueryAssetService:
                 "provider": getattr(self.enricher, "provider", "template"),
             })
         return "\n\n".join(query_parts)[:12_000], summaries
+
+    def get_for_owner(
+        self,
+        asset_id: str,
+        *,
+        user_id: str,
+        workspace_id: str,
+    ) -> dict | None:
+        asset = self.registry.get_asset(asset_id, include_private=True)
+        if not asset or asset.get("kind") != "query":
+            return None
+        return (
+            asset
+            if self._owned_by(asset, user_id=user_id, workspace_id=workspace_id)
+            else None
+        )
+
+    @staticmethod
+    def _owned_by(asset: dict, *, user_id: str, workspace_id: str) -> bool:
+        metadata = asset.get("metadata") if isinstance(asset.get("metadata"), dict) else {}
+        return (
+            str(metadata.get("owner_user_id") or "owner") == user_id
+            and str(metadata.get("owner_workspace_id") or "default") == workspace_id
+        )
 
     def public_payload(self, asset: dict) -> dict:
         metadata = asset.get("metadata") or {}

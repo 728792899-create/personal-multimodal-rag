@@ -119,7 +119,7 @@ def main() -> int:
     manifest = {
         "schema_version": 1,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "release": "0.4.0-rc.1",
+        "release": "1.0.0-rc.1",
         "source_of_truth": ["postgres.dump", "minio-objects.tar"],
         "redis_policy": "not backed up; Redis Streams are reconstructed from PostgreSQL outbox",
         "readiness": {

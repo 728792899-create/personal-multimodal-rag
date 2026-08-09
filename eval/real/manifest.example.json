@@ -1,26 +1,80 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
+  "candidate_version": "1.0.0-rc.1",
   "updated_at": "",
   "corpus": {
-    "licensed_materials": 0,
-    "non_fixture_documents": 0,
-    "annotated_questions": 0,
+    "licensed_materials": null,
+    "non_fixture_documents": null,
+    "annotated_questions": null,
+    "locked_regression_questions": null,
+    "second_reviewed_questions": null,
+    "label_agreement_kappa": null,
+    "evidence_agreement_f1": null,
     "licenses": []
   },
   "usage": {
-    "real_questions": 0
+    "representative_queries": null
   },
   "operations": {
-    "soak_days": 0,
-    "restore_drill_passed": false,
-    "no_data_loss_defect": false
+    "soak_days": null,
+    "availability": null,
+    "provider_failure_contract_passed": null,
+    "rbac_authorization_pass_rate": null,
+    "restore_drill_passed": null,
+    "full_stack_rollback_passed": null,
+    "rollback_rto_minutes": null,
+    "source_rpo_lost_records": null,
+    "five_xx_rollback_trigger_verified": null,
+    "permission_bypass_incidents": null,
+    "index_pollution_incidents": null,
+    "data_loss_incidents": null,
+    "fabricated_citation_incidents": null,
+    "secret_leak_incidents": null,
+    "unresolved_sev1": null
   },
   "quality": {
-    "recall_at_5": 0,
-    "mrr": 0,
-    "citation_accuracy": 0,
-    "citation_coverage": 0,
-    "refusal_accuracy": 0,
-    "answer_acceptance": 0
+    "recall_at_5": null,
+    "mrr_at_10": null,
+    "multihop_chain_at_10": null,
+    "table_recall_at_10": null,
+    "image_recall_at_10": null,
+    "formula_recall_at_10": null,
+    "citation_accuracy": null,
+    "factual_coverage": null,
+    "fabricated_or_invalid_citations": null,
+    "refusal_f1": null,
+    "answerable_false_refusal_rate": null,
+    "blind_test_cases": null,
+    "blind_acceptance_rate": null
+  },
+  "ann": {
+    "hnsw_recall_at_50": null,
+    "primary_strata_recall_at_50": null
+  },
+  "comparison": {
+    "difficult_core_best_improvement": null,
+    "overall_worst_regression": null
+  },
+  "reranking": {
+    "enabled": null,
+    "trigger_subset_mrr_improvement": null,
+    "trigger_rate": null
+  },
+  "performance": {
+    "benchmark_chunks": null,
+    "benchmark_concurrency": null,
+    "hnsw_p95_ms": null,
+    "simple_retrieval_p95_ms": null,
+    "complex_retrieval_p95_ms": null,
+    "simple_ttft_p95_ms": null,
+    "complex_ttft_p95_ms": null,
+    "automatic_routing_cost_ratio": null
+  },
+  "audit": {
+    "corpus_manifest_present": false,
+    "indexed_hashes_match": false,
+    "soak_chain_valid": false,
+    "soak_samples": null,
+    "source_artifacts": {}
   }
 }

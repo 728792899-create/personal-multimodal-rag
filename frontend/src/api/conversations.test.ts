@@ -56,6 +56,54 @@ describe('streamConversationMessage', () => {
     })
   })
 
+  it('forwards structured failure evidence and its retry entry before rejecting', async () => {
+    const failedResponse = {
+      answer: '',
+      citations: [{ id: 'chunk-preserved' }],
+      retrieval_trace: {},
+      generation_trace: { status: 'failed', retryable: true },
+      confidence: 0.8,
+      retryable: true,
+      retry: {
+        action: 'resubmit_same_request',
+        method: 'POST',
+        endpoint: '/api/conversations/c/messages:stream',
+      },
+    }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(streamResponse([
+      {
+        type: 'error',
+        sequence: 1,
+        request_id: 'r',
+        conversation_id: 'c',
+        message_id: 'm',
+        code: 'ANSWER_PROVIDER_FAILED',
+        message: '回答服务暂时不可用，已保留检索证据，请稍后重试。',
+        retryable: true,
+        retry: failedResponse.retry,
+        response: failedResponse,
+      },
+      { type: 'done', sequence: 2, request_id: 'r', conversation_id: 'c', message_id: 'm', status: 'failed' },
+    ])))
+    const received: Array<Record<string, unknown>> = []
+
+    await expect(streamConversationMessage(
+      'c',
+      'question',
+      {},
+      (event) => received.push(event as unknown as Record<string, unknown>),
+    )).rejects.toMatchObject({ code: 'ANSWER_PROVIDER_FAILED', requestId: 'r' })
+
+    expect(received[0]).toMatchObject({
+      retryable: true,
+      retry: { endpoint: '/api/conversations/c/messages:stream' },
+      response: {
+        citations: [{ id: 'chunk-preserved' }],
+        generation_trace: { status: 'failed', retryable: true },
+      },
+    })
+  })
+
   it('classifies a gateway timeout as an answer-service timeout', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('', { status: 504 })))
 

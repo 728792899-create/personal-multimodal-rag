@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
 
 from app.core.store import registry
@@ -37,14 +37,25 @@ def export_history(history_id: str):
 
 
 @router.get("/conversations/{conversation_id}.md")
-def export_conversation(conversation_id: str):
-    conversation = registry.get_conversation(conversation_id)
+def export_conversation(conversation_id: str, request: Request):
+    identity = request.scope.get("state", {}).get("identity")
+    user_id = identity.user_id if identity is not None else "owner"
+    workspace_id = identity.workspace_id if identity is not None else "default"
+    conversation = registry.get_conversation(
+        conversation_id,
+        user_id=user_id,
+        workspace_id=workspace_id,
+    )
     if not conversation:
         raise HTTPException(status_code=404, detail="会话不存在或已被删除。")
     return _markdown_response(
         export_conversation_markdown(
             conversation,
-            registry.list_conversation_messages(conversation_id),
+            registry.list_conversation_messages(
+                conversation_id,
+                user_id=user_id,
+                workspace_id=workspace_id,
+            ),
         ),
         f"conversation-{conversation_id}",
     )

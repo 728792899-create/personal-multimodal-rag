@@ -36,11 +36,16 @@ def _client() -> tuple[TestClient, AuthService]:
 def test_login_uses_http_only_cookie_and_csrf_for_mutations():
     client, _ = _client()
 
-    failed = client.post("/api/auth/login", json={"password": "wrong"})
+    failed = client.post(
+        "/api/auth/login", json={"username": "admin", "password": "wrong"}
+    )
     assert failed.status_code == 401
-    assert failed.json()["detail"] == "管理员密码不正确。"
+    assert failed.json()["detail"] == "用户名或密码不正确。"
 
-    response = client.post("/api/auth/login", json={"password": "correct horse battery staple"})
+    response = client.post(
+        "/api/auth/login",
+        json={"username": "admin", "password": "correct horse battery staple"},
+    )
     assert response.status_code == 200
     assert "HttpOnly" in response.headers["set-cookie"]
     csrf = response.json()["session"]["csrf_token"]
@@ -54,7 +59,10 @@ def test_login_uses_http_only_cookie_and_csrf_for_mutations():
 
 def test_logout_revokes_server_side_session():
     client, _ = _client()
-    login = client.post("/api/auth/login", json={"password": "correct horse battery staple"})
+    login = client.post(
+        "/api/auth/login",
+        json={"username": "admin", "password": "correct horse battery staple"},
+    )
     csrf = login.json()["session"]["csrf_token"]
 
     logout = client.post("/api/auth/logout", headers={"X-CSRF-Token": csrf})
@@ -84,8 +92,12 @@ def test_login_attempts_have_a_stricter_rate_limit():
     client, _ = _client()
 
     for _ in range(8):
-        assert client.post("/api/auth/login", json={"password": "wrong"}).status_code == 401
-    blocked = client.post("/api/auth/login", json={"password": "wrong"})
+        assert client.post(
+            "/api/auth/login", json={"username": "admin", "password": "wrong"}
+        ).status_code == 401
+    blocked = client.post(
+        "/api/auth/login", json={"username": "admin", "password": "wrong"}
+    )
 
     assert blocked.status_code == 429
     assert blocked.headers["retry-after"]

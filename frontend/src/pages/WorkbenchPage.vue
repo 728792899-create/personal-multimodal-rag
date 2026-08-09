@@ -1,32 +1,42 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
 
 import AnswerExperience from '../components/AnswerExperience.vue'
 import AppHeader from '../components/AppHeader.vue'
 import InspectorPanel from '../components/InspectorPanel.vue'
 import KnowledgePanel from '../components/KnowledgePanel.vue'
 import ModelConnectionPanel from '../components/ModelConnectionPanel.vue'
+import MemberManagementPanel from '../components/MemberManagementPanel.vue'
 import QueryWorkspace from '../components/QueryWorkspace.vue'
-import type { ProviderStatus } from '../api'
+import type { AuthSession, ProviderStatus } from '../api'
 import { useWorkbench } from '../composables/useWorkbench'
 import { workbenchKey } from '../composables/workbenchContext'
 
 const props = withDefaults(defineProps<{
   canManageProviders?: boolean
+  canManageMembers?: boolean
+  currentUser?: AuthSession | null
   showLogout?: boolean
   signingOut?: boolean
 }>(), {
   canManageProviders: false,
+  canManageMembers: false,
+  currentUser: null,
   showLogout: false,
   signingOut: false,
 })
 const emit = defineEmits<{
   signOut: []
+  sessionChanged: []
 }>()
-const workbench = useWorkbench()
+const effectiveRole = computed(() => (
+  props.currentUser?.required ? props.currentUser.role : 'admin'
+))
+const workbench = useWorkbench(effectiveRole)
 const libraryOpen = ref(false)
 const inspectorOpen = ref(false)
 const modelConnectionOpen = ref(false)
+const memberManagementOpen = ref(false)
 let lastDrawerTrigger: HTMLElement | null = null
 provide(workbenchKey, workbench)
 
@@ -39,6 +49,7 @@ function openLibrary() {
   libraryOpen.value = true
   inspectorOpen.value = false
   modelConnectionOpen.value = false
+  memberManagementOpen.value = false
   requestAnimationFrame(() => {
     document.querySelector<HTMLElement>('.library-drawer .drawer-close')?.focus()
   })
@@ -49,6 +60,7 @@ function openInspector() {
   inspectorOpen.value = true
   libraryOpen.value = false
   modelConnectionOpen.value = false
+  memberManagementOpen.value = false
   requestAnimationFrame(() => {
     document.querySelector<HTMLElement>('.inspector-drawer .drawer-close')?.focus()
   })
@@ -59,15 +71,27 @@ function openModelConnection() {
   modelConnectionOpen.value = true
   libraryOpen.value = false
   inspectorOpen.value = false
+  memberManagementOpen.value = false
   requestAnimationFrame(() => {
     document.querySelector<HTMLElement>('.model-connection-drawer .drawer-close')?.focus()
   })
+}
+
+function openMemberManagement() {
+  if (!props.canManageMembers) return
+  lastDrawerTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  memberManagementOpen.value = true
+  libraryOpen.value = false
+  inspectorOpen.value = false
+  modelConnectionOpen.value = false
+  requestAnimationFrame(() => document.querySelector<HTMLElement>('.member-management-drawer .drawer-close')?.focus())
 }
 
 function switchLibraryToInspector() {
   inspectorOpen.value = true
   libraryOpen.value = false
   modelConnectionOpen.value = false
+  memberManagementOpen.value = false
   requestAnimationFrame(() => {
     document.querySelector<HTMLElement>('.inspector-drawer .drawer-close')?.focus()
   })
@@ -78,6 +102,7 @@ function closeDrawers(returnFocus = true) {
   libraryOpen.value = false
   inspectorOpen.value = false
   modelConnectionOpen.value = false
+  memberManagementOpen.value = false
   if (returnFocus) {
     requestAnimationFrame(() => trigger?.focus())
   }
@@ -85,18 +110,20 @@ function closeDrawers(returnFocus = true) {
 }
 
 function onGlobalKeydown(event: KeyboardEvent) {
-  if (event.key === 'Escape' && (libraryOpen.value || inspectorOpen.value || modelConnectionOpen.value)) {
+  if (event.key === 'Escape' && (libraryOpen.value || inspectorOpen.value || modelConnectionOpen.value || memberManagementOpen.value)) {
     event.preventDefault()
     closeDrawers()
     return
   }
-  if (event.key === 'Tab' && (libraryOpen.value || inspectorOpen.value || modelConnectionOpen.value)) {
+  if (event.key === 'Tab' && (libraryOpen.value || inspectorOpen.value || modelConnectionOpen.value || memberManagementOpen.value)) {
     const drawer = document.querySelector<HTMLElement>(
       libraryOpen.value
         ? '.library-drawer.open'
         : inspectorOpen.value
           ? '.inspector-drawer.open'
-          : '.model-connection-drawer.open',
+          : modelConnectionOpen.value
+            ? '.model-connection-drawer.open'
+            : '.member-management-drawer.open',
     )
     const focusable = drawer
       ? Array.from(drawer.querySelectorAll<HTMLElement>(
@@ -130,8 +157,8 @@ function closeInspectorAndFocusQuestion() {
   requestAnimationFrame(focusQuestion)
 }
 
-watch([libraryOpen, inspectorOpen, modelConnectionOpen], ([library, inspector, modelConnection]) => {
-  document.body.classList.toggle('workbench-drawer-open', library || inspector || modelConnection)
+watch([libraryOpen, inspectorOpen, modelConnectionOpen, memberManagementOpen], ([library, inspector, modelConnection, memberManagement]) => {
+  document.body.classList.toggle('workbench-drawer-open', library || inspector || modelConnection || memberManagement)
 })
 
 onMounted(() => {
@@ -154,9 +181,12 @@ onBeforeUnmount(() => {
       :library-open="libraryOpen"
       :inspector-open="inspectorOpen"
       :model-connection-open="modelConnectionOpen"
+      :member-management-open="memberManagementOpen"
+      :can-manage-members="props.canManageMembers"
       @open-library="openLibrary"
       @open-inspector="openInspector"
       @open-model-connection="openModelConnection"
+      @open-member-management="openMemberManagement"
       @sign-out="emit('signOut')"
     />
     <main id="main-workspace" class="qa-workspace" tabindex="-1">
@@ -167,7 +197,7 @@ onBeforeUnmount(() => {
     </main>
 
     <button
-      v-if="libraryOpen || inspectorOpen || modelConnectionOpen"
+      v-if="libraryOpen || inspectorOpen || modelConnectionOpen || memberManagementOpen"
       type="button"
       class="drawer-backdrop"
       aria-label="关闭侧边面板"
@@ -190,6 +220,27 @@ onBeforeUnmount(() => {
         <button type="button" class="drawer-close" aria-label="关闭资料库" @click="closeDrawers()">×</button>
       </header>
       <KnowledgePanel @open-inspector="switchLibraryToInspector" />
+    </section>
+
+    <section
+      v-if="props.canManageMembers"
+      id="member-management-drawer"
+      :class="['workspace-drawer', 'member-management-drawer', { open: memberManagementOpen }]"
+      :aria-hidden="!memberManagementOpen"
+      :inert="!memberManagementOpen"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="member-management-drawer-title"
+    >
+      <header class="drawer-heading">
+        <div><span>工作区权限</span><h2 id="member-management-drawer-title">成员管理</h2></div>
+        <button type="button" class="drawer-close" aria-label="关闭成员管理" @click="closeDrawers()">×</button>
+      </header>
+      <MemberManagementPanel
+        :open="memberManagementOpen"
+        :current-user-id="props.currentUser?.user_id || ''"
+        @current-user-changed="emit('sessionChanged')"
+      />
     </section>
 
     <section
@@ -244,6 +295,7 @@ onBeforeUnmount(() => {
         aria-controls="model-connection-drawer"
         @click="openModelConnection"
       >模型</button>
+      <button v-if="props.canManageMembers" type="button" @click="openMemberManagement">成员</button>
     </nav>
   </div>
 </template>

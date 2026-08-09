@@ -26,11 +26,12 @@
 
 ### RAG/评测
 
-1. [检索与可信回答](retrieval-explained.md)
-2. [测试与评测](testing-and-evaluation.md)
-3. [固定黄金集评测结果](evaluation-results.md)
-4. [验证基线](validation-baseline.md)
-5. [已知边界](known-limitations.md)
+1. [v1.0 质量型升级与影子索引手册](rag-v1-upgrade.md)
+2. [检索与可信回答](retrieval-explained.md)
+3. [测试与评测](testing-and-evaluation.md)
+4. [固定黄金集评测结果](evaluation-results.md)
+5. [验证基线](validation-baseline.md)
+6. [已知边界](known-limitations.md)
 
 ### 后端/集成
 
@@ -47,13 +48,14 @@
 
 ### 部署/运维
 
-1. [本地生产候选版 0.4](production-local.md)
-2. [生产现场验收](production-validation.md)
-3. [1.0 发布证据与阻断项](release-evidence-1.0.md)
-4. [运维手册](operations-runbook.md)
-5. [生产适配方案](production-adapters.md)
-6. [故障排查](troubleshooting.md)
-7. [发布检查清单](release-checklist.md)
+1. [v1.0 质量型升级与影子索引手册](rag-v1-upgrade.md)
+2. [1.0 发布证据与阻断项](release-evidence-1.0.md)
+3. [本地生产候选版 0.4](production-local.md)
+4. [生产现场验收](production-validation.md)
+5. [运维手册](operations-runbook.md)
+6. [生产适配方案](production-adapters.md)
+7. [故障排查](troubleshooting.md)
+8. [发布检查清单](release-checklist.md)
 
 ### 维护者
 

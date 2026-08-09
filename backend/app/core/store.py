@@ -15,13 +15,33 @@ from app.services.answer_generator import (
     TemplateAnswerGenerator,
     UnavailableAnswerGenerator,
 )
-from app.services.query_rewriter import NoopQueryRewriter, ResponsesQueryRewriter
+from app.services.query_rewriter import (
+    DeepSeekQueryRewriter,
+    NoopQueryRewriter,
+    ResponsesQueryRewriter,
+)
 from app.services.rag_engine import RagEngine
-from app.services.reranker import CrossEncoderReranker, KeywordReranker, NoopReranker
+from app.services.reranker import (
+    CrossEncoderReranker,
+    DeepSeekReranker,
+    KeywordReranker,
+    NoopReranker,
+)
+from app.services.retrieval_planner import RetrievalPlanner
 from app.services.retriever import HybridRetriever
 from app.services.responses_client import ResponsesClient
 from app.services.index_hydration import hydrate_retriever
-from app.services.vectorstore import ChromaVectorStore, MemoryVectorStore, PgVectorStore
+from app.services.vectorstore import (
+    ChromaVectorStore,
+    MemoryVectorStore,
+    PgVectorStore,
+    VersionedPgVectorStore,
+)
+from app.services.index_versions import IndexVersionRegistry
+from app.services.shadow_index import (
+    ShadowIndexRebuilder,
+    shadow_index_job_handler,
+)
 from app.services.ingestion_jobs import IngestionWorker
 from app.services.object_store import (
     ClamAVScanner,
@@ -97,15 +117,52 @@ def create_vector_store():
             embedding_model=settings.embedding_model,
         )
     if store == "pgvector":
-        return PgVectorStore(
-            dsn=settings.pgvector_dsn,
-            table_name=settings.pgvector_table,
+        return VersionedPgVectorStore(
+            settings.pgvector_dsn,
+            index_registry,
+            fallback_table=settings.pgvector_table,
             dimension=settings.resolved_embedding_dimension(),
         )
     raise ValueError(f"Unsupported VECTOR_STORE: {settings.vector_store}")
 
 
-def create_reranker():
+def create_shadow_vector_store(index, *, create_hnsw: bool = False):
+    if settings.vector_store.lower() != "pgvector":
+        raise ValueError("影子索引只在 PostgreSQL + pgvector 运行模式下可用。")
+    store = PgVectorStore(
+        settings.pgvector_dsn,
+        table_name=index.table_name,
+        dimension=index.embedding_dimension,
+        create_hnsw=create_hnsw,
+    )
+    store.index_version = index.index_id
+    return store
+
+
+def create_retrieval_aux_client():
+    provider = settings.retrieval_aux_provider.lower()
+    if provider in {"none", "off", "noop"}:
+        return None
+    if provider in {
+        "deepseek",
+        "openai-compatible-chat",
+        "openai_compatible_chat",
+    }:
+        return OpenAICompatibleChatClient(
+            base_url=settings.retrieval_aux_base_url,
+            model=settings.retrieval_aux_model,
+            api_key=settings.retrieval_aux_api_key,
+            timeout_seconds=settings.retrieval_aux_timeout_seconds,
+            thinking_mode="disabled",
+            max_tokens=settings.retrieval_aux_max_tokens,
+            temperature=0,
+        )
+    raise ValueError(
+        f"Unsupported RETRIEVAL_AUX_PROVIDER: {settings.retrieval_aux_provider}"
+    )
+
+
+def create_reranker(aux_client=None):
     reranker = settings.reranker.lower()
     if reranker in {"keyword", "local"}:
         return KeywordReranker()
@@ -116,6 +173,12 @@ def create_reranker():
             if settings.provider_fallback_allowed:
                 return KeywordReranker()
             raise
+    if reranker == "deepseek":
+        if aux_client is None:
+            if settings.provider_fallback_allowed:
+                return NoopReranker()
+            raise ValueError("DeepSeek reranking requires RETRIEVAL_AUX_PROVIDER")
+        return DeepSeekReranker(aux_client, max_candidates=16)
     if reranker in {"none", "off"}:
         return NoopReranker()
     raise ValueError(f"Unsupported RERANKER: {settings.reranker}")
@@ -170,7 +233,7 @@ def create_answer_generator():
     raise ValueError(f"Unsupported ANSWER_PROVIDER: {settings.answer_provider}")
 
 
-def create_query_rewriter():
+def create_query_rewriter(aux_client=None):
     provider = settings.query_rewrite_provider.lower()
     if provider in {"none", "off", "noop"}:
         return NoopQueryRewriter()
@@ -187,6 +250,25 @@ def create_query_rewriter():
             )
         except Exception:
             return NoopQueryRewriter()
+    if provider in {"deepseek", "openai-compatible-chat", "openai_compatible_chat"}:
+        try:
+            client = aux_client or OpenAICompatibleChatClient(
+                base_url=settings.query_rewrite_base_url,
+                model=settings.query_rewrite_model,
+                api_key=settings.query_rewrite_api_key,
+                timeout_seconds=settings.retrieval_aux_timeout_seconds,
+                thinking_mode="disabled",
+                max_tokens=settings.retrieval_aux_max_tokens,
+                temperature=0,
+            )
+            return DeepSeekQueryRewriter(
+                client,
+                rewrite_count=settings.query_rewrite_count,
+            )
+        except Exception:
+            if settings.provider_fallback_allowed:
+                return NoopQueryRewriter()
+            raise
     raise ValueError(f"Unsupported QUERY_REWRITE_PROVIDER: {settings.query_rewrite_provider}")
 
 
@@ -268,6 +350,11 @@ registry = DocumentRegistry(
     settings.metadata_dsn
     if settings.metadata_backend.lower() == "postgres"
     else settings.document_registry_path
+)
+index_registry = IndexVersionRegistry(
+    settings.pgvector_dsn
+    or settings.metadata_dsn
+    or settings.document_registry_path
 )
 object_store = create_object_store()
 auth_service = (
@@ -362,20 +449,27 @@ query_asset_service = QueryAssetService(
     ttl_hours=settings.query_asset_ttl_hours,
     max_pixels=settings.query_asset_max_pixels,
 )
+embedding_provider = create_embedding_provider()
+vector_store = create_vector_store()
+retrieval_aux_client = create_retrieval_aux_client()
 retriever = HybridRetriever(
-    embedding_provider=create_embedding_provider(),
-    vector_store=create_vector_store(),
-    reranker=create_reranker(),
+    embedding_provider=embedding_provider,
+    vector_store=vector_store,
+    reranker=create_reranker(retrieval_aux_client),
     initial_retrieval_k=settings.initial_retrieval_k,
     embedding_provider_name=settings.embedding_provider.lower(),
     embedding_model=settings.embedding_model,
     vector_store_name=settings.vector_store.lower(),
-    query_rewriter=create_query_rewriter(),
+    query_rewriter=create_query_rewriter(retrieval_aux_client),
+    retrieval_planner=RetrievalPlanner(retrieval_aux_client),
     graph_store=graph_store,
     mmr_lambda=settings.mmr_lambda,
     bm25_weight=settings.bm25_weight,
     vector_weight=settings.vector_weight,
     embedding_batch_size=settings.embedding_batch_size,
+    index_version=(
+        "" if isinstance(vector_store, VersionedPgVectorStore) else settings.index_version
+    ),
 )
 hydrate_retriever(
     retriever,
@@ -400,6 +494,18 @@ runtime_answer_provider = RuntimeAnswerProviderManager(
     timeout_seconds=settings.answer_timeout_seconds,
     max_tokens=settings.answer_max_tokens,
 )
+shadow_index_handler = None
+if settings.vector_store.lower() == "pgvector":
+    shadow_index_handler = shadow_index_job_handler(
+        ShadowIndexRebuilder(
+            index_registry=index_registry,
+            vector_dsn=settings.pgvector_dsn,
+            embedding_provider=create_embedding_provider(),
+            processor=processor,
+            embedding_batch_size=settings.embedding_batch_size,
+        ),
+        registry,
+    )
 ingestion_worker = IngestionWorker(
     registry,
     processor,
@@ -411,6 +517,7 @@ ingestion_worker = IngestionWorker(
     graph_store=graph_store,
     job_signal_queue=job_signal_queue,
     fetcher=url_fetcher,
+    shadow_index_handler=shadow_index_handler,
 )
 source_sync_service = SourceSyncService(
     registry,

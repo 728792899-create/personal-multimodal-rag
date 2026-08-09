@@ -6,17 +6,38 @@ FastAPI 默认提供交互式 OpenAPI 页面：
 - OpenAPI JSON：`http://127.0.0.1:8010/openapi.json`
 - 通过前端 Nginx 访问业务 API：`http://127.0.0.1:5173/api/*`
 
-当前 API 服务于单用户本地生产候选版，字段会随候选版迭代。外部集成应固定版本或在升级前比较 OpenAPI 结构定义。
+当前 API 对应 `1.0.0-rc.1`：服务于单工作区、5–10 人内部团队，字段仍可能随候选版迭代。外部集成应固定版本或在升级前比较 OpenAPI 结构定义。RC 仍处于发布阻断状态，不代表生产验收已经完成。
 
 ## 认证、工作区、请求 ID 与限流
 
-`demo` 默认关闭认证；`local-production` 可启用会话；`production` 强制 Argon2id 管理员密码、HttpOnly/Secure/SameSite Cookie 与 CSRF。兼容 Bearer 令牌仍可用于受控脚本，但不是生产浏览器认证方式。
+`demo` 默认关闭认证；`local-production` 可启用会话；`production` 强制本地成员账号、Argon2id、HttpOnly/Secure/SameSite Cookie 与 CSRF。没有公开注册；生产不接受共享 Bearer token 作为成员认证替代。
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| POST | `/api/auth/login` | 校验管理员密码并创建 HttpOnly 会话；独立限流 |
+| POST | `/api/auth/login` | `{username, password}`；校验成员并创建 HttpOnly 会话；独立限流 |
 | POST | `/api/auth/logout` | 撤销当前会话；要求 CSRF |
-| GET | `/api/auth/session` | 返回认证状态、服务端解析的工作区和 CSRF 令牌 |
+| GET | `/api/auth/session` | 返回认证状态、成员身份、服务端工作区、角色、强制改密状态和 CSRF 令牌 |
+| POST | `/api/auth/password` | `{current_password, new_password}`；新密码至少 12 位，成功后撤销会话并要求重新登录 |
+| GET / POST | `/api/auth/members` | 管理员列出/创建成员；创建时提供至少 12 位临时密码 |
+| GET / PATCH / DELETE | `/api/auth/members/{user_id}` | 管理员查看、改名/改角色/禁用成员；DELETE 为禁用 |
+| POST | `/api/auth/members/{user_id}/reset-password` | 管理员设置临时密码并撤销该成员全部会话 |
+
+会话关键字段如下；首次登录临时密码的成员只能先完成改密流程：
+
+```json
+{
+  "user_id": "user-id",
+  "username": "alice",
+  "display_name": "Alice",
+  "role": "viewer",
+  "workspace_id": "default",
+  "must_change_password": true,
+  "csrf_token": "...",
+  "expires_at": "..."
+}
+```
+
+`admin` 可管理成员、删除知识库、重建/切换索引和读取全局审计；`editor` 可查询、上传、同步和编辑资料；`viewer` 可查询、查看引用、管理自己的会话并提交自己的反馈。禁用、改角色、重置密码或用户改密会撤销相关会话；最后一个管理员不能被删除、禁用或降级。
 
 工作区永远从服务端会话解析。浏览器请求体、查询参数或请求头中自报的工作区都不构成授权依据。
 
@@ -32,8 +53,8 @@ FastAPI 默认提供交互式 OpenAPI 页面：
 | GET | `/ready` | 结构定义、队列深度和脱敏模型提供方状态；未配置外部模型提供方时为 `degraded` |
 | GET | `/api/system/readiness-report` | 运行时、元数据/对象/向量/队列/模型提供方的逐项就绪报告 |
 | GET | `/api/providers/status` | 只读能力、配置完整性与运行模式；不返回密钥/带凭据 URL |
-| POST | `/api/providers/deepseek/runtime` | 管理员会话临时验证并连接 DeepSeek；要求 CSRF，不持久化密钥 |
-| DELETE | `/api/providers/deepseek/runtime` | 清除当前进程临时连接并恢复服务启动配置；要求 CSRF |
+| POST | `/api/providers/deepseek/runtime` | 仅本地/开发：管理员临时验证并连接 DeepSeek；生产返回 `403` |
+| DELETE | `/api/providers/deepseek/runtime` | 仅本地/开发：清除临时连接；生产返回 `403` |
 | GET | `/metrics` | Prometheus 文本格式；不包含正文、问题、Cookie、密钥或 URL 查询参数 |
 | GET | `/docs` | Swagger UI |
 
@@ -42,6 +63,37 @@ curl --fail http://127.0.0.1:8010/ready
 ```
 
 `production` 任一必需依赖不可用时 `/ready` 返回 `503`，不会静默切回模板回答。
+
+## 版本化索引管理
+
+所有索引控制面接口只允许 `admin`。生产浏览器请求需要会话 Cookie 和 CSRF；接口不会接受客户端自报的角色。
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/indexes` | 列出候选/稳定/活动/回滚/失败索引与活动指针 |
+| GET | `/api/indexes/active` | 返回当前请求应固定使用的活动索引和 generation |
+| POST | `/api/indexes/candidates` | 创建 1536 维候选及 `rag_chunks_v2_*` 表 |
+| POST | `/api/indexes/{index_id}/rebuild` | 通过现有 durable job 幂等重建并自动验证；返回 `202` |
+| PUT | `/api/indexes/{index_id}/validation` | 受控验证器回写 checklist/metrics，不是人工跳过验证的入口 |
+| POST | `/api/indexes/{index_id}/promote` | 所有必需 validation 通过后将候选标记为 stable |
+| POST | `/api/indexes/{index_id}/activate` | 单事务切换 `active_index_id`，并记录上一稳定版本 |
+| POST | `/api/indexes/rollback` | 单事务切回 `previous_index_id` |
+
+创建候选示例：
+
+```json
+{
+  "index_id": "retrieval-v2-20260809",
+  "parser_version": "builtin-elements-v1",
+  "chunker_version": "structure-v2",
+  "source_index_id": "retrieval-v2-stable",
+  "embedding_provider": "openai",
+  "embedding_model": "text-embedding-3-large",
+  "embedding_dimension": 1536
+}
+```
+
+重建请求体是 `{"benchmark_samples": 100}`。`promote` 前必须通过文档/分块/内容哈希、模型/维度/解析/分块版本、向量合法性、主键、引用、HNSW Recall 和费用偏差检查。完整冻结、补增量、激活与回滚步骤见 [v1.0 升级手册](rag-v1-upgrade.md#6-影子索引运行手册)。
 
 ## 文档 API
 
@@ -170,6 +222,7 @@ curl --fail-with-body \
 | --- | --- | ---: | --- |
 | `top_k` | 1–12 | 5 | 返回给回答阶段的证据数 |
 | `candidate_k` | 1–80 或 null | 模型提供方默认 | 初始候选池 |
+| `routing_mode` | auto / manual | manual | 新界面发送 `auto`；旧客户端省略时保持原手动行为 |
 | `search_mode` | hybrid / keyword / semantic | hybrid | 召回分支 |
 | `search_profile` | balanced / precision / recall | balanced | 目标导向预设 |
 | `strategy` | hybrid / hybrid_graph / auto | hybrid | 图谱显式启用或按多跳/多实体门控 |
@@ -188,6 +241,8 @@ curl --fail-with-body \
 
 `hybrid_graph` 不把图边直接当答案：图只返回元素 ID，再映射到现有分块参与 RRF。`auto` 只有在至少两个实体种子或明确多跳意图、且存在可验证路径时启用；图谱后仍运行 MMR、重排、拒答与引用审计。
 
+`routing_mode=auto` 固定为 `exact`、`semantic`、`composite`、`multihop`、`summary` 五路之一。自动规划最多产生 3 个派生查询、每分支 40 个候选、融合池 40、DeepSeek 重排 Top-16；普通回答最多 8 块，复合/多跳最多 10 块。自动规划不得扩大请求中的 `document_ids`、`knowledge_base_ids` 或 `modality_filters`。
+
 `attachments` 为可选图片引用，`detail` 可为 `low/high/original/auto`。离线配置用 OCR/元数据扩展检索；视觉增强模型提供方按细节级别发送图片并返回结构化描述。
 
 ### 问答响应结构
@@ -198,7 +253,19 @@ curl --fail-with-body \
 {
   "answer": "...",
   "citations": [],
-  "retrieval_trace": {},
+  "retrieval_trace": {
+    "plan": {
+      "route": "semantic",
+      "confidence": 0.82,
+      "decision_factors": ["semantic_default"],
+      "subqueries": [],
+      "modifiers": {},
+      "source": "structured",
+      "index_version": "retrieval-v2-20260809",
+      "degraded": false,
+      "fallbacks": []
+    }
+  },
   "generation_trace": {},
   "confidence": 0.0,
   "trust": {},
@@ -210,6 +277,8 @@ curl --fail-with-body \
 ```
 
 拒答仍返回成功的业务响应，并在 `answer`、`trust`、`retrieval_trace` 和 `gap_report` 中说明证据不足；调用方不应把它当网络错误重试。
+
+查询规划失败会按原问执行 balanced hybrid；重排失败保留 RRF 顺序；OpenAI 嵌入失败时只有高置信 `exact` 可以继续 BM25，其他路由明确拒答；DeepSeek 生成失败返回已检索证据、故障状态和重试入口，不生成模板答案。trace 只包含结构化决策因素，不包含模型思维过程。
 
 ## 持久会话与 SSE
 
@@ -278,6 +347,7 @@ curl --fail-with-body \
 | ---: | --- | --- |
 | 400 | 无效文件、URL、字段或解析失败 | 修正输入；不要盲目重试 |
 | 401 | Bearer 令牌缺失或错误 | 重新认证；不记录令牌 |
+| 403 | 角色无权、CSRF 无效或生产环境尝试运行时配置密钥 | 不重试越权操作；由管理员或部署配置处理 |
 | 404 | 文档、分块或卡片不存在 | 刷新当前资源列表 |
 | 413 | 文件超过 `MAX_UPLOAD_BYTES` | 压缩或调整显式上限 |
 | 422 | Pydantic 结构定义校验失败 | 按字段错误修正请求负载 |

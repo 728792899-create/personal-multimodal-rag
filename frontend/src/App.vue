@@ -3,6 +3,7 @@ import { computed, onMounted } from 'vue'
 
 import WorkbenchPage from './pages/WorkbenchPage.vue'
 import LoginPage from './pages/LoginPage.vue'
+import ChangePasswordPage from './pages/ChangePasswordPage.vue'
 import { useAuthSession } from './composables/useAuthSession'
 
 const auth = useAuthSession()
@@ -11,9 +12,12 @@ const {
   loading,
   submitting,
   error,
+  notice,
   requiresLogin,
+  requiresPasswordChange,
   refresh,
   signIn,
+  updatePassword,
   signOut,
 } = auth
 const sessionCheckFailed = computed(() => !loading.value && !session.value && Boolean(error.value))
@@ -34,7 +38,16 @@ onMounted(refresh)
     v-else-if="requiresLogin"
     :submitting="submitting"
     :error="error"
+    :notice="notice"
     @submit="signIn"
+  />
+  <ChangePasswordPage
+    v-else-if="requiresPasswordChange"
+    :username="session?.username || ''"
+    :submitting="submitting"
+    :error="error"
+    @submit="updatePassword"
+    @sign-out="signOut"
   />
   <WorkbenchPage
     v-else
@@ -43,8 +56,11 @@ onMounted(refresh)
       && session?.authenticated
       && ['owner', 'admin'].includes(session?.role || '')
     )"
+    :can-manage-members="session?.role === 'admin'"
+    :current-user="session || null"
     :show-logout="Boolean(session?.required)"
     :signing-out="submitting"
+    @session-changed="refresh"
     @sign-out="signOut"
   />
 </template>

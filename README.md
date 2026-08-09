@@ -14,19 +14,21 @@
 
 **从 PDF、网页、图片与笔记，到可解释、可拒答、可量化回归的证据链。**
 
-[快速启动](#5-分钟离线启动) · [端到端案例](docs/case-study.md) · [产品巡游](docs/product-tour.md) · [现场验收](docs/production-validation.md) · [文档中心](docs/README.md) · [评测结果](docs/evaluation-results.md) · [安全模型](docs/security-model.md)
+[快速启动](#5-分钟离线启动) · [v1.0 升级手册](docs/rag-v1-upgrade.md) · [端到端案例](docs/case-study.md) · [产品巡游](docs/product-tour.md) · [现场验收](docs/production-validation.md) · [文档中心](docs/README.md) · [评测结果](docs/evaluation-results.md) · [安全模型](docs/security-model.md)
 
-> **最新进度（2026-07-29）**：首页已提供受权限保护的 DeepSeek 官方连接入口，持久会话、流式回答最终状态与错误恢复完成加固；当前 PR 的前后端、Docker Compose、检索/多模态/图谱评测、CodeQL、依赖审计、Trivy 与 SBOM 共 30 项 GitHub Actions 检查全部通过。
+> **当前版本：`1.0.0-rc.1`（2026-08-09，发布阻断）**。PR #15 已合入并作为升级前基线；当前 RC 已加入三角色成员账号、Retrieval v2 自动路由、OpenAI 1536 维影子索引和 DeepSeek 选择性规划/重排的实现与契约。它仍然不是 `v1.0.0`：200 条真实人工标注、100 条冻结后盲测、目标规模 HNSW 实测、全量云端重建、灰度和 14 天 soak 均未随仓库提供，详见[发布证据](docs/release-evidence-1.0.md)。
 
-面向单用户真实日常使用的自托管多模态证据平台。它不只展示“上传并问答”，还把 BM25、向量召回、融合去重、MMR、重排、拒答决策和引用覆盖率组织成可理解、可回归的证据链。
+面向个人或单工作区 5–10 人内部团队的自托管多模态证据平台。它不只展示“上传并问答”，还把 BM25、向量召回、融合去重、MMR、重排、拒答决策和引用覆盖率组织成可理解、可回归的证据链。
 
 默认使用确定性哈希嵌入、内存向量库和模板回答：**无需真实 API 密钥、不会调用付费 API**。PDF、DOCX、Markdown、文本、图片 OCR、URL 导入、持久会话、引用上下文、质量审计、反馈评测和专家参数均保留。
+
+**1.0.0-rc.1 质量型升级** 的生产目标不再使用任何本地生成、嵌入或重排模型：OpenAI `text-embedding-3-large` 输出 1536 维向量，PostgreSQL + pgvector 保存版本化向量与 BM25 postings，DeepSeek 负责回答、低置信查询规划和选择性 Top-16 重排。新界面默认自动路由，旧客户端未传 `routing_mode` 时继续保持手动检索语义；详细架构、预算、降级、RBAC 和影子切换步骤见 [v1.0 升级手册](docs/rag-v1-upgrade.md)。
 
 **0.3 多模态智能** 将文档拆成可审查的文本、标题、图片、表格、公式和代码元素；原件与内嵌资源进入内容寻址对象存储，分块保留元素来源。上下文感知增强和轻量图谱只导航到本地证据，再与 BM25、向量检索通过 RRF 融合，不能绕过拒答或引用门。工作台已支持 24 小时临时图片提问、精确元素定位、图谱 SVG/表格检索追踪和多模态质量面板。索引任务的协作取消会可靠收敛到终态，SQLite 与对象存储可执行非破坏性隔离恢复演练。默认内置解析与模板增强仍然零下载；MinerU、Docling、PaddleOCR 和视觉模型提供方均为可选。设计取舍见 [RAG-Anything 固定提交对比审查](docs/comparative-review-rag-anything.md)。
 
 **0.4.0-rc.1 本地生产候选版** 开始把“演示能力”和“受支持运行路径”明确分开：保留零密钥演示，同时增加失败即关闭的本地生产与生产配置、Argon2id 会话认证、CSRF、登录限流、PostgreSQL 元数据适配器、pgvector、S3/MinIO、ClamAV、Redis Streams、事务发件箱、死信队列和带校验和的 SQLite→PostgreSQL 迁移。候选版不使用“已可生产使用”的宣称；完成真实资料基准、恢复演练与 14 天持续运行门槛后才会发布 1.0。
 
-2026-07-23 开始的私有生产验收已索引 **21 组有许可证来源 / 200 份非固定样例文档 / 5,159 个 768 维向量**，并真实通过 PostgreSQL + pgvector + MinIO 破坏性恢复及 API、工作进程、Redis、PostgreSQL、MinIO 五类故障注入。MinerU 高级解析真实任务通过；Ollama 嵌入通过，但 `qwen3:8b` 三类生成接口在本机 180 秒超时；DeepSeek 官方 `GET /models` 连接验证通过，真实回答生成仍不计作已完成验收。持续观测如实保留宿主机与容器运行间隔，并在超限后自然重置；截至 `2026-07-29 01:47:03+08:00`（`2026-07-28T17:47:03Z`）的已记录快照确认 SHA-256 链有效且状态一致，共 1,170 个样本、27 个失败样本，最长连续窗口为 81,984 秒，当前连续窗口从 `2026-07-28T16:26:46Z` 开始、已记录 4,817 秒，不能回填。Production Compose 9/9 服务健康，Redis Streams `pending=0`、`lag=0`，保留 2 条历史 DLQ 记录；宿主卷使用率 85%、可用 67 GiB，需要继续关注。人工标注仍为 0/200、本人真实问题仍为 0/100，Sentry 因无 DSN 未验收。因此版本仍是候选版，完整证据与复现命令见[现场验收手册](docs/production-validation.md)。
+**以下是 0.4 的历史验收，不是 v1 Retrieval v2 证据：**2026-07-23 开始的私有生产验收已索引 **21 组有许可证来源 / 200 份非固定样例文档 / 5,159 个 768 维向量**，并真实通过 PostgreSQL + pgvector + MinIO 破坏性恢复及 API、工作进程、Redis、PostgreSQL、MinIO 五类故障注入。MinerU 高级解析真实任务通过；Ollama 嵌入通过，但 `qwen3:8b` 三类生成接口在本机 180 秒超时；DeepSeek 官方 `GET /models` 连接验证通过，真实回答生成仍不计作已完成验收。持续观测如实保留宿主机与容器运行间隔，并在超限后自然重置；截至 `2026-07-29 01:47:03+08:00`（`2026-07-28T17:47:03Z`）的已记录快照确认 SHA-256 链有效且状态一致，共 1,170 个样本、27 个失败样本，最长连续窗口为 81,984 秒，当前连续窗口从 `2026-07-28T16:26:46Z` 开始、已记录 4,817 秒，不能回填。Production Compose 9/9 服务健康，Redis Streams `pending=0`、`lag=0`，保留 2 条历史 DLQ 记录；宿主卷使用率 85%、可用 67 GiB，需要继续关注。人工标注仍为 0/200、本人真实问题仍为 0/100，Sentry 因无 DSN 未验收。因此版本仍是候选版，完整证据与复现命令见[现场验收手册](docs/production-validation.md)。
 
 同一版本还补齐日常使用闭环：可以订阅服务端白名单内的本地目录、URL 列表和 RSS/Atom，以内容哈希、ETag、Last-Modified 和稳定外部 ID 做增量同步；空结果或部分失败不会触发批量删除，条目连续两次完整同步仍消失才进入人工确认。回答、会话和知识卡片均可导出带引用的 Markdown 文档。实现与安全边界见[持续数据源与增量同步](docs/source-sync.md)。
 
@@ -64,7 +66,7 @@
 | 可信度 | 无答案门、引用、相邻上下文、引用审计 | ✓ | NLI/LLM 判断器待规划 |
 | 质量 | 反馈、评测草稿、黄金集、Recall@K、MRR、引用/拒答 | ✓ | 真实流量抽样待规划 |
 | 交付 | Nginx、FastAPI、三种 Compose 配置、健康/就绪检查、GitHub Actions | ✓ | SBOM、Trivy、CodeQL、容器签名 |
-| 安全 | 上传边界、SSRF、防泄漏日志、Argon2id 会话、CSRF | ✓ | OIDC/RBAC 顺延至 1.1 |
+| 安全 | 上传边界、SSRF、防泄漏日志、Argon2id 会话、CSRF、本地成员 RBAC | ✓ | OIDC/SSO 顺延至 1.1 |
 
 ## 5 分钟离线启动
 
@@ -128,21 +130,21 @@ docker compose down
 | 模式 | 数据/检索 | 模型提供方 | 认证与失败策略 | 启动方式 |
 | --- | --- | --- | --- | --- |
 | `demo`（演示） | SQLite + 本地对象 + 内存向量 | 模拟 + 模板 | 默认关闭认证；零密钥 | `docker compose up --build --wait -d` |
-| `local-production`（本地生产） | SQLite + 本地对象 + Chroma | Ollama `qwen3:8b` + `nomic-embed-text` | 禁止模板回退；可启用会话认证 | `docker compose -f docker-compose.yml -f compose.local-production.yml up --build --wait -d` |
-| `production`（生产） | PostgreSQL/pgvector + S3/MinIO + Redis Streams | Ollama 或 OpenAI 兼容接口 | Argon2id 会话 + CSRF；依赖异常时就绪检查返回 503 | `docker compose -f compose.production.yml up --build --wait -d` |
+| `local-production`（本地持久候选） | SQLite + 本地对象 + Chroma | OpenAI 1536 维嵌入 + DeepSeek 回答/辅助 | 禁止模板回退；可启用会话认证 | `docker compose -f docker-compose.yml -f compose.local-production.yml up --build --wait -d` |
+| `production`（v1 RC 生产目标） | PostgreSQL/pgvector + 版本化 BM25 + S3/MinIO + Redis Streams | OpenAI 1536 维嵌入 + DeepSeek 回答/辅助 | 成员 RBAC + CSRF；密钥仅文件注入；依赖异常时就绪检查返回 503 | `docker compose -f compose.production.yml up --build --wait -d` |
 
 生产配置需要先生成 `secrets/` 中的本地密钥文件；不会把密码或密钥写入镜像、Compose 环境变量或浏览器。完整前置检查、迁移和回滚见 [本地生产候选版运行手册](docs/production-local.md)。
 
 ### DeepSeek 官方连接
 
-登录证据工作台后，可以从首页顶部的“模型连接”打开 DeepSeek 连接面板。面板固定使用官方地址 `https://api.deepseek.com` 与 `deepseek-v4-flash`，只允许管理员会话提交；验证通过前不会替换正在工作的回答模型。
+在本地/开发环境登录证据工作台后，可以从首页顶部的“模型连接”打开 DeepSeek 连接面板。面板固定使用官方地址 `https://api.deepseek.com` 与 `deepseek-v4-flash`，只允许管理员会话提交；验证通过前不会替换正在工作的回答模型。`production` 界面只显示模型和健康状态，运行时连接/清除接口固定拒绝修改，密钥必须由 Docker secrets 或 `*_API_KEY_FILE` 注入。
 
 - 验证使用官方 `GET /models` 能力检查，不生成回答。
 - 浏览器把 API 密钥交给当前服务端，服务端再将其作为 Bearer 凭据发送到 DeepSeek 官方接口；连接前必须确认这一数据流。
 - 连接生效后的回答会把用户问题和检索命中的证据片段发送给 DeepSeek。不要连接到含有禁止外发资料的知识库。
 - API 密钥不会写入浏览器存储、SQLite/PostgreSQL 或接口响应，只保留在当前后端进程内存；日志与可观测事件执行密钥字段脱敏。
 - 清除临时连接或后端重启后会恢复服务启动时的回答模型配置。
-- 需要跨重启保留时，仍应使用 `ANSWER_API_KEY_FILE` 和密钥文件，而不是依赖浏览器表单。
+- 需要跨重启保留时，仍应使用 `ANSWER_API_KEY_FILE` 和密钥文件，而不是依赖浏览器表单；生产环境这是唯一受支持路径。
 
 生产栈可叠加仓库中的 DeepSeek 配置：
 
@@ -154,7 +156,7 @@ docker compose \
   up --build --wait -d
 ```
 
-把真实密钥写入被 Git 忽略、权限为 `0600` 的 `secrets/answer_api_key`；不要粘贴到 Compose、`.env`、命令历史或提交记录。详细边界见[配置指南](docs/configuration.md)。
+把真实密钥写入被 Git 忽略、权限为 `0600` 的 `secrets/deepseek_api_key`；OpenAI 嵌入密钥写入 `secrets/openai_api_key`。不要粘贴到 Compose、`.env`、命令历史或提交记录。详细边界见[配置指南](docs/configuration.md)。
 
 本轮 Browser 连接、清除、错误恢复、刷新恢复与窄屏证据见 [DeepSeek 首页连接验收](docs/audits/deepseek-connection-2026-07-28/README.md)。
 

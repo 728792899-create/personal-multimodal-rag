@@ -1,6 +1,6 @@
 {
   "name": "personal-multimodal-rag",
-  "version": "0.4.0-rc.1",
+  "version": "1.0.0-rc.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -16,6 +16,7 @@
     "eval:retrieval": "EMBEDDING_PROVIDER=mock VECTOR_STORE=memory ANSWER_PROVIDER=template QUERY_REWRITE_PROVIDER=none OPENAI_API_KEY= ANSWER_API_KEY= QUERY_REWRITE_API_KEY= python3 scripts/run_retrieval_eval.py",
     "eval:multimodal": "EMBEDDING_PROVIDER=mock VECTOR_STORE=memory ANSWER_PROVIDER=template ENRICHMENT_PROVIDER=template QUERY_REWRITE_PROVIDER=none OPENAI_API_KEY= ANSWER_API_KEY= QUERY_REWRITE_API_KEY= python3 scripts/run_eval_group.py multimodal",
     "eval:graph": "EMBEDDING_PROVIDER=mock VECTOR_STORE=memory ANSWER_PROVIDER=template ENRICHMENT_PROVIDER=template QUERY_REWRITE_PROVIDER=none OPENAI_API_KEY= ANSWER_API_KEY= QUERY_REWRITE_API_KEY= python3 scripts/run_eval_group.py graph",
+    "eval:v1-contract": "python3 scripts/validate_v1_dataset.py --contract-only",
     "test:parser-contract": "DOCUMENT_REGISTRY_PATH=:memory: ENRICHMENT_PROVIDER=template python3 -m pytest -q backend/tests/test_multimodal_elements.py",
     "test:asset-security": "python3 scripts/generate_multimodal_eval_fixtures.py --check && DOCUMENT_REGISTRY_PATH=:memory: ENRICHMENT_PROVIDER=template python3 -m pytest -q backend/tests/test_query_assets.py backend/tests/test_upload_security.py",
     "test:restore-drill": "DOCUMENT_REGISTRY_PATH=:memory: python3 -m pytest -q backend/tests/test_restore_drill.py",

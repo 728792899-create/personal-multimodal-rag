@@ -37,6 +37,7 @@ class OpenAICompatibleChatClient:
         timeout_seconds: float = 45,
         thinking_mode: str = "",
         max_tokens: int = 0,
+        temperature: float | None = None,
         http_client: httpx.Client | None = None,
     ):
         if not base_url:
@@ -50,6 +51,11 @@ class OpenAICompatibleChatClient:
         self.timeout_seconds = timeout_seconds
         self.thinking_mode = normalized_thinking
         self.max_tokens = max(0, int(max_tokens))
+        self.temperature = (
+            None
+            if temperature is None
+            else max(0.0, min(float(temperature), 2.0))
+        )
         self.http_client = http_client
 
     def _headers(self) -> dict[str, str]:
@@ -68,6 +74,8 @@ class OpenAICompatibleChatClient:
             payload["thinking"] = {"type": self.thinking_mode}
         if self.max_tokens > 0:
             payload["max_tokens"] = self.max_tokens
+        if self.temperature is not None:
+            payload["temperature"] = self.temperature
         return payload
 
     def create_text(self, prompt: str) -> str:
@@ -84,6 +92,31 @@ class OpenAICompatibleChatClient:
         if not isinstance(content, str) or not content.strip():
             raise ValueError("Chat provider returned no text output")
         return content.strip()
+
+    def create_json(self, prompt: str) -> dict:
+        payload = self._payload(prompt, stream=False)
+        payload["response_format"] = {"type": "json_object"}
+        request = {
+            "url": f"{self.base_url}/chat/completions",
+            "headers": self._headers(),
+            "json": payload,
+            "timeout": self.timeout_seconds,
+        }
+        response = (
+            self.http_client.post(**request)
+            if self.http_client is not None
+            else httpx.post(**request)
+        )
+        response.raise_for_status()
+        content = (
+            response.json()
+            .get("choices", [{}])[0]
+            .get("message", {})
+            .get("content", "")
+        )
+        if not isinstance(content, str) or not content.strip():
+            raise ValueError("Chat provider returned no structured output")
+        return _parse_json_object(content, "Chat provider")
 
     def stream_text(self, prompt: str):
         request = {

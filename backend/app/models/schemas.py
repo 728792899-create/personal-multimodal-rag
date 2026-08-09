@@ -41,6 +41,8 @@ class ChunkOut(BaseModel):
 class RetrievalOptions(BaseModel):
     top_k: int = Field(5, ge=1, le=12)
     candidate_k: Optional[int] = Field(None, ge=1, le=80)
+    # Omitted by legacy clients, so manual must remain the compatibility default.
+    routing_mode: Literal["auto", "manual"] = "manual"
     search_mode: Literal["hybrid", "keyword", "semantic"] = "hybrid"
     search_profile: Literal["balanced", "precision", "recall"] = "balanced"
     strategy: Literal["hybrid", "hybrid_graph", "auto"] = "hybrid"
@@ -222,7 +224,7 @@ class KnowledgeCardRequest(BaseModel):
 class WorkspaceContext(BaseModel):
     workspace_id: str
     user_id: str
-    role: Literal["owner", "member"] = "owner"
+    role: Literal["admin", "editor", "viewer", "owner"] = "admin"
 
 
 class StorageStatus(BaseModel):

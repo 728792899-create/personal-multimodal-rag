@@ -133,7 +133,7 @@ class ProductionMetrics:
         lines = [
             "# HELP rag_build_info Static release identity.",
             "# TYPE rag_build_info gauge",
-            'rag_build_info{version="0.4.0-rc.1"} 1',
+            'rag_build_info{version="1.0.0-rc.1"} 1',
             "# HELP rag_provider_cost_usd_total Provider-reported cost; zero when the provider does not return cost metadata.",
             "# TYPE rag_provider_cost_usd_total counter",
             "rag_provider_cost_usd_total 0",

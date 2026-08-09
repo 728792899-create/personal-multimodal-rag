@@ -717,4 +717,47 @@ describe('WorkbenchPage workflows', () => {
 
     expect(localStorage.getItem('知证.active-conversation.v1')).toBe('conv-1')
   })
+
+  it.each([
+    ['viewer', false],
+    ['editor', true],
+  ] as const)('%s 初始化只请求授权资源并隐藏管理员控件', async (role, canEdit) => {
+    const wrapper = mount(WorkbenchPage, {
+      props: {
+        currentUser: {
+          required: true,
+          authenticated: true,
+          user_id: `${role}-1`,
+          username: role,
+          display_name: role,
+          workspace_id: 'default',
+          role,
+          must_change_password: false,
+          csrf_token: 'csrf',
+          expires_at: '2099-01-01T00:00:00Z',
+        },
+      },
+    })
+    await flushPromises()
+
+    const requestedPaths = calls.map((call) => call.path)
+    expect(requestedPaths.some((path) => path.startsWith('/api/history'))).toBe(false)
+    expect(requestedPaths.some((path) => path.startsWith('/api/operations'))).toBe(false)
+    expect(requestedPaths).not.toContain('/api/metrics')
+    expect(requestedPaths).not.toContain('/api/system/usage-evidence')
+    expect(requestedPaths.some((path) => path.startsWith('/api/index-jobs'))).toBe(false)
+    expect(requestedPaths.some((path) => path.startsWith('/api/eval/drafts'))).toBe(canEdit)
+    expect(wrapper.text()).not.toContain('工作台初始化失败')
+
+    await wrapper.get('[data-testid="open-library"]').trigger('click')
+    expect(wrapper.find('[data-testid="file-input"]').exists()).toBe(canEdit)
+    expect(wrapper.find('.inline-create').exists()).toBe(canEdit)
+    expect(wrapper.find('.task-section').exists()).toBe(false)
+    expect(wrapper.find('.history-section summary').text()).toContain('知识卡片')
+    expect(wrapper.text()).not.toContain('问答历史')
+
+    await wrapper.get('[data-testid="open-inspector"]').trigger('click')
+    expect(wrapper.find('#tab-quality').exists()).toBe(false)
+    expect(wrapper.find('#tab-eval').exists()).toBe(canEdit)
+  })
 })

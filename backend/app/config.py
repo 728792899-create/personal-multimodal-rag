@@ -33,6 +33,26 @@ def _env_or_file(name: str, default: str = "") -> str:
         raise ValueError(f"Unable to read {name}_FILE") from exc
 
 
+def _model_api_key(name: str, default: str = "") -> str:
+    """Read model credentials while enforcing file-backed production secrets."""
+
+    environment = os.getenv("APP_ENVIRONMENT", "local").strip().lower()
+    direct_value = os.getenv(name)
+    secret_path = os.getenv(f"{name}_FILE", "").strip()
+    if environment in {"production", "prod"}:
+        if direct_value and not secret_path:
+            raise ValueError(
+                f"{name} must be supplied through {name}_FILE in production"
+            )
+        if not secret_path:
+            return default
+        try:
+            return Path(secret_path).read_text(encoding="utf-8").strip()
+        except OSError as exc:
+            raise ValueError(f"Unable to read {name}_FILE") from exc
+    return _env_or_file(name, default)
+
+
 @dataclass
 class Settings:
     runtime_mode: str = os.getenv("RAG_RUNTIME_MODE", "demo")
@@ -41,7 +61,7 @@ class Settings:
     embedding_model: str = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
     embedding_dimension: int = int(os.getenv("EMBEDDING_DIMENSION", "0") or "0")
     embedding_batch_size: int = int(os.getenv("EMBEDDING_BATCH_SIZE", "32"))
-    openai_api_key: str = _env_or_file("OPENAI_API_KEY")
+    openai_api_key: str = _model_api_key("OPENAI_API_KEY")
     openai_base_url: str = os.getenv("OPENAI_BASE_URL", "")
 
     vector_store: str = os.getenv("VECTOR_STORE", "memory")
@@ -52,6 +72,25 @@ class Settings:
 
     reranker: str = os.getenv("RERANKER", "keyword")
     reranker_model: str = os.getenv("RERANKER_MODEL", "BAAI/bge-reranker-base")
+    retrieval_aux_provider: str = os.getenv("RETRIEVAL_AUX_PROVIDER", "none")
+    retrieval_aux_model: str = os.getenv(
+        "RETRIEVAL_AUX_MODEL",
+        os.getenv("ANSWER_MODEL", os.getenv("OPENAI_MODEL", "deepseek-v4-flash")),
+    )
+    retrieval_aux_base_url: str = os.getenv(
+        "RETRIEVAL_AUX_BASE_URL",
+        os.getenv("ANSWER_BASE_URL", ""),
+    )
+    retrieval_aux_api_key: str = _model_api_key(
+        "RETRIEVAL_AUX_API_KEY",
+        _model_api_key("ANSWER_API_KEY", _model_api_key("OPENAI_API_KEY")),
+    )
+    retrieval_aux_timeout_seconds: float = float(
+        os.getenv("RETRIEVAL_AUX_TIMEOUT_SECONDS", "3")
+    )
+    retrieval_aux_max_tokens: int = int(
+        os.getenv("RETRIEVAL_AUX_MAX_TOKENS", "2048")
+    )
     initial_retrieval_k: int = int(os.getenv("INITIAL_RETRIEVAL_K", "24"))
     bm25_weight: float = float(os.getenv("BM25_WEIGHT", "0.62"))
     vector_weight: float = float(os.getenv("VECTOR_WEIGHT", "0.38"))
@@ -64,7 +103,7 @@ class Settings:
     enrichment_provider: str = os.getenv("ENRICHMENT_PROVIDER", "template")
     enrichment_model: str = os.getenv("ENRICHMENT_MODEL", os.getenv("OPENAI_MODEL", "gpt-5.6"))
     enrichment_base_url: str = os.getenv("ENRICHMENT_BASE_URL", os.getenv("OPENAI_BASE_URL", ""))
-    enrichment_api_key: str = _env_or_file("ENRICHMENT_API_KEY", _env_or_file("OPENAI_API_KEY"))
+    enrichment_api_key: str = _model_api_key("ENRICHMENT_API_KEY", _model_api_key("OPENAI_API_KEY"))
     enrichment_prompt_version: str = os.getenv("ENRICHMENT_PROMPT_VERSION", "multimodal-v1")
     enrichment_image_detail: str = os.getenv("ENRICHMENT_IMAGE_DETAIL", "auto")
     enrichment_context_chars: int = int(os.getenv("ENRICHMENT_CONTEXT_CHARS", "8000"))
@@ -72,7 +111,7 @@ class Settings:
     answer_provider: str = os.getenv("ANSWER_PROVIDER", "template")
     answer_model: str = os.getenv("ANSWER_MODEL", os.getenv("OPENAI_MODEL", "gpt-5.6"))
     answer_base_url: str = os.getenv("ANSWER_BASE_URL", os.getenv("OPENAI_BASE_URL", ""))
-    answer_api_key: str = _env_or_file("ANSWER_API_KEY", _env_or_file("OPENAI_API_KEY"))
+    answer_api_key: str = _model_api_key("ANSWER_API_KEY", _model_api_key("OPENAI_API_KEY"))
     answer_timeout_seconds: float = float(os.getenv("ANSWER_TIMEOUT_SECONDS", "45"))
     answer_thinking_mode: str = os.getenv("ANSWER_THINKING_MODE", "")
     answer_max_tokens: int = int(os.getenv("ANSWER_MAX_TOKENS", "0"))
@@ -83,7 +122,7 @@ class Settings:
     query_rewrite_provider: str = os.getenv("QUERY_REWRITE_PROVIDER", "none")
     query_rewrite_model: str = os.getenv("QUERY_REWRITE_MODEL", os.getenv("ANSWER_MODEL", answer_model))
     query_rewrite_base_url: str = os.getenv("QUERY_REWRITE_BASE_URL", answer_base_url)
-    query_rewrite_api_key: str = _env_or_file("QUERY_REWRITE_API_KEY", answer_api_key)
+    query_rewrite_api_key: str = _model_api_key("QUERY_REWRITE_API_KEY", answer_api_key)
     query_rewrite_count: int = int(os.getenv("QUERY_REWRITE_COUNT", "2"))
 
     document_registry_path: str = os.getenv("DOCUMENT_REGISTRY_PATH", "./data/registry.sqlite3")

@@ -68,7 +68,7 @@ class DocumentRegistry:
     SQLite URI plus a keeper connection to preserve test compatibility.
     """
 
-    CURRENT_SCHEMA_VERSION = 7
+    CURRENT_SCHEMA_VERSION = 9
 
     def __init__(self, db_path: str):
         self.db_path = db_path
@@ -169,6 +169,356 @@ class DocumentRegistry:
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
+
+    def bootstrap_admin(
+        self,
+        *,
+        password_hash: str,
+        username: str = "admin",
+        workspace_id: str = DEFAULT_WORKSPACE_ID,
+    ) -> dict:
+        """Migrate the legacy ADMIN_PASSWORD_HASH into the local admin account once.
+
+        The configured hash is intentionally ignored after a database-backed
+        password exists so restarting the service cannot undo an in-product
+        password change.
+        """
+
+        now = _utcnow()
+        normalized = username.strip().casefold()
+        with self._connection() as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM users
+                WHERE workspace_id = ? AND (username = ? OR user_id = 'owner')
+                ORDER BY CASE WHEN username = ? THEN 0 ELSE 1 END
+                LIMIT 1
+                """,
+                (workspace_id, normalized, normalized),
+            ).fetchone()
+            if row is None:
+                user_id = "owner"
+                connection.execute(
+                    """
+                    INSERT INTO users
+                      (user_id, workspace_id, role, username, password_hash,
+                       display_name, is_active, must_change_password,
+                       disabled_at, created_at, updated_at)
+                    VALUES (?, ?, 'admin', ?, ?, 'Administrator', 1, 0, '', ?, ?)
+                    """,
+                    (user_id, workspace_id, normalized, password_hash, now, now),
+                )
+                needs_migration = True
+            else:
+                user_id = str(row["user_id"])
+                needs_migration = not str(row["password_hash"] or "")
+                if needs_migration:
+                    connection.execute(
+                        """
+                        UPDATE users
+                        SET username = ?, password_hash = ?, role = 'admin',
+                            is_active = 1, must_change_password = 0,
+                            disabled_at = '', updated_at = ?
+                        WHERE user_id = ?
+                        """,
+                        (normalized, password_hash, now, user_id),
+                    )
+            if needs_migration:
+                connection.execute(
+                    """
+                    INSERT INTO memberships (workspace_id, user_id, role, created_at, updated_at)
+                    VALUES (?, ?, 'admin', ?, ?)
+                    ON CONFLICT(workspace_id, user_id) DO UPDATE SET
+                      role = excluded.role,
+                      updated_at = excluded.updated_at
+                    """,
+                    (workspace_id, user_id, now, now),
+                )
+        member = self.get_member(user_id, workspace_id=workspace_id)
+        if member is None:
+            raise RuntimeError("管理员账号初始化失败。")
+        return member
+
+    def create_member(
+        self,
+        *,
+        username: str,
+        password_hash: str,
+        display_name: str,
+        role: str,
+        must_change_password: bool = True,
+        workspace_id: str = DEFAULT_WORKSPACE_ID,
+        user_id: str | None = None,
+    ) -> dict:
+        now = _utcnow()
+        normalized = username.strip().casefold()
+        resolved_user_id = user_id or str(uuid.uuid4())
+        try:
+            with self._connection() as connection:
+                connection.execute(
+                    """
+                    INSERT INTO users
+                      (user_id, workspace_id, role, username, password_hash,
+                       display_name, is_active, must_change_password,
+                       disabled_at, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, 1, ?, '', ?, ?)
+                    """,
+                    (
+                        resolved_user_id,
+                        workspace_id,
+                        role,
+                        normalized,
+                        password_hash,
+                        display_name.strip() or normalized,
+                        1 if must_change_password else 0,
+                        now,
+                        now,
+                    ),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO memberships
+                      (workspace_id, user_id, role, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (workspace_id, resolved_user_id, role, now, now),
+                )
+        except Exception as exc:
+            if "unique" in str(exc).lower() or "duplicate" in str(exc).lower():
+                raise ValueError("用户名已存在。") from exc
+            raise
+        member = self.get_member(resolved_user_id, workspace_id=workspace_id)
+        if member is None:
+            raise RuntimeError("成员创建失败。")
+        return member
+
+    def get_user_by_username(
+        self,
+        username: str,
+        *,
+        workspace_id: str = DEFAULT_WORKSPACE_ID,
+        include_password: bool = False,
+    ) -> dict | None:
+        normalized = username.strip().casefold()
+        with self._connection() as connection:
+            row = connection.execute(
+                """
+                SELECT u.*, m.role AS membership_role
+                FROM users u
+                JOIN memberships m
+                  ON m.user_id = u.user_id AND m.workspace_id = u.workspace_id
+                WHERE u.workspace_id = ? AND u.username = ?
+                LIMIT 1
+                """,
+                (workspace_id, normalized),
+            ).fetchone()
+        return self._member_from_row(row, include_password=include_password)
+
+    def get_member(
+        self,
+        user_id: str,
+        *,
+        workspace_id: str = DEFAULT_WORKSPACE_ID,
+        include_password: bool = False,
+    ) -> dict | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                """
+                SELECT u.*, m.role AS membership_role
+                FROM users u
+                JOIN memberships m
+                  ON m.user_id = u.user_id AND m.workspace_id = u.workspace_id
+                WHERE u.workspace_id = ? AND u.user_id = ?
+                LIMIT 1
+                """,
+                (workspace_id, user_id),
+            ).fetchone()
+        return self._member_from_row(row, include_password=include_password)
+
+    def list_members(self, workspace_id: str = DEFAULT_WORKSPACE_ID) -> list[dict]:
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT u.*, m.role AS membership_role
+                FROM users u
+                JOIN memberships m
+                  ON m.user_id = u.user_id AND m.workspace_id = u.workspace_id
+                WHERE u.workspace_id = ?
+                ORDER BY u.is_active DESC, u.username ASC
+                """,
+                (workspace_id,),
+            ).fetchall()
+        return [self._member_from_row(row) for row in rows]
+
+    def update_member(
+        self,
+        user_id: str,
+        *,
+        workspace_id: str = DEFAULT_WORKSPACE_ID,
+        role: str | None = None,
+        display_name: str | None = None,
+        is_active: bool | None = None,
+        password_hash: str | None = None,
+        must_change_password: bool | None = None,
+    ) -> dict | None:
+        now = _utcnow()
+        revoke_sessions = role is not None or is_active is not None or password_hash is not None
+        with self._connection() as connection:
+            # Serialize membership mutations across processes before checking
+            # the last-admin invariant. The in-process lock alone is not
+            # sufficient once multiple API replicas share PostgreSQL.
+            connection.execute("BEGIN IMMEDIATE")
+            if self.dialect == "postgres":
+                connection.execute(
+                    "SELECT pg_advisory_xact_lock(hashtext(?))",
+                    (f"membership-admin:{workspace_id}",),
+                )
+            row = connection.execute(
+                """
+                SELECT u.*, m.role AS membership_role
+                FROM users u
+                JOIN memberships m
+                  ON m.user_id = u.user_id AND m.workspace_id = u.workspace_id
+                WHERE u.workspace_id = ? AND u.user_id = ?
+                """,
+                (workspace_id, user_id),
+            ).fetchone()
+            if row is None:
+                return None
+            current_role = str(row["membership_role"])
+            current_active = bool(row["is_active"])
+            next_role = role if role is not None else current_role
+            next_active = is_active if is_active is not None else current_active
+            if current_role == "admin" and current_active and (
+                next_role != "admin" or not next_active
+            ):
+                active_admins = connection.execute(
+                    """
+                    SELECT COUNT(*) AS count
+                    FROM users u
+                    JOIN memberships m
+                      ON m.user_id = u.user_id AND m.workspace_id = u.workspace_id
+                    WHERE u.workspace_id = ? AND u.is_active = 1 AND m.role = 'admin'
+                    """,
+                    (workspace_id,),
+                ).fetchone()
+                if int(active_admins["count"] or 0) <= 1:
+                    raise ValueError("不能禁用或降级最后一个管理员。")
+
+            assignments = ["updated_at = ?"]
+            values: list[object] = [now]
+            if role is not None:
+                assignments.append("role = ?")
+                values.append(role)
+            if display_name is not None:
+                assignments.append("display_name = ?")
+                values.append(display_name.strip() or str(row["username"]))
+            if is_active is not None:
+                assignments.extend(["is_active = ?", "disabled_at = ?"])
+                values.extend([1 if is_active else 0, "" if is_active else now])
+            if password_hash is not None:
+                assignments.append("password_hash = ?")
+                values.append(password_hash)
+            if must_change_password is not None:
+                assignments.append("must_change_password = ?")
+                values.append(1 if must_change_password else 0)
+            values.append(user_id)
+            connection.execute(
+                f"UPDATE users SET {', '.join(assignments)} WHERE user_id = ?",
+                tuple(values),
+            )
+            if role is not None:
+                connection.execute(
+                    """
+                    UPDATE memberships SET role = ?, updated_at = ?
+                    WHERE workspace_id = ? AND user_id = ?
+                    """,
+                    (role, now, workspace_id, user_id),
+                )
+            if revoke_sessions:
+                connection.execute(
+                    """
+                    UPDATE sessions SET revoked_at = ?
+                    WHERE workspace_id = ? AND user_id = ? AND revoked_at = ''
+                    """,
+                    (now, workspace_id, user_id),
+                )
+        return self.get_member(user_id, workspace_id=workspace_id)
+
+    def revoke_user_sessions(
+        self,
+        user_id: str,
+        *,
+        workspace_id: str = DEFAULT_WORKSPACE_ID,
+    ) -> int:
+        with self._connection() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE sessions SET revoked_at = ?
+                WHERE workspace_id = ? AND user_id = ? AND revoked_at = ''
+                """,
+                (_utcnow(), workspace_id, user_id),
+            )
+        return cursor.rowcount
+
+    def resolve_session_identity(self, token_hash: str, *, touch: bool = True) -> dict | None:
+        now = _utcnow()
+        with self._connection() as connection:
+            row = connection.execute(
+                """
+                SELECT s.*, u.username, u.display_name, u.is_active,
+                       u.must_change_password, m.role AS membership_role
+                FROM sessions s
+                JOIN users u
+                  ON u.user_id = s.user_id AND u.workspace_id = s.workspace_id
+                JOIN memberships m
+                  ON m.user_id = s.user_id AND m.workspace_id = s.workspace_id
+                WHERE s.token_hash = ? AND s.revoked_at = '' AND s.expires_at > ?
+                  AND u.is_active = 1
+                LIMIT 1
+                """,
+                (token_hash, now),
+            ).fetchone()
+            if row and touch:
+                connection.execute(
+                    "UPDATE sessions SET last_seen_at = ? WHERE token_hash = ?",
+                    (now, token_hash),
+                )
+        if row is None:
+            return None
+        return {
+            "token_hash": row["token_hash"],
+            "csrf_token": row["csrf_token"],
+            "user_id": row["user_id"],
+            "username": row["username"],
+            "display_name": row["display_name"],
+            "workspace_id": row["workspace_id"],
+            "role": row["membership_role"],
+            "must_change_password": bool(row["must_change_password"]),
+            "expires_at": row["expires_at"],
+            "created_at": row["created_at"],
+            "last_seen_at": now if touch else row["last_seen_at"],
+        }
+
+    @staticmethod
+    def _member_from_row(row, *, include_password: bool = False) -> dict | None:
+        if row is None:
+            return None
+        member = {
+            "user_id": row["user_id"],
+            "username": row["username"],
+            "display_name": row["display_name"],
+            "workspace_id": row["workspace_id"],
+            "role": row["membership_role"],
+            "is_active": bool(row["is_active"]),
+            "must_change_password": bool(row["must_change_password"]),
+            "disabled_at": row["disabled_at"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+        if include_password:
+            member["password_hash"] = row["password_hash"]
+        return member
 
     def create_session(
         self,
@@ -595,6 +945,9 @@ class DocumentRegistry:
         self,
         title: str = "新会话",
         knowledge_base_ids: list[str] | None = None,
+        *,
+        user_id: str = "owner",
+        workspace_id: str = DEFAULT_WORKSPACE_ID,
     ) -> dict:
         conversation_id = str(uuid.uuid4())
         created_at = _utcnow()
@@ -605,39 +958,83 @@ class DocumentRegistry:
             connection.execute(
                 """
                 INSERT INTO conversations
-                  (conversation_id, title, knowledge_base_ids, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?)
+                  (conversation_id, workspace_id, user_id, title,
+                   knowledge_base_ids, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (conversation_id, title.strip()[:160] or "新会话", json.dumps(selected), created_at, created_at),
+                (
+                    conversation_id,
+                    workspace_id,
+                    user_id,
+                    title.strip()[:160] or "新会话",
+                    json.dumps(selected),
+                    created_at,
+                    created_at,
+                ),
             )
-        return self.get_conversation(conversation_id) or {}
+        return self.get_conversation(
+            conversation_id,
+            user_id=user_id,
+            workspace_id=workspace_id,
+        ) or {}
 
-    def get_conversation(self, conversation_id: str) -> dict | None:
+    def get_conversation(
+        self,
+        conversation_id: str,
+        *,
+        user_id: str | None = None,
+        workspace_id: str | None = None,
+    ) -> dict | None:
+        conditions = ["c.conversation_id = ?"]
+        params: list[object] = [conversation_id]
+        if user_id is not None:
+            conditions.append("c.user_id = ?")
+            params.append(user_id)
+        if workspace_id is not None:
+            conditions.append("c.workspace_id = ?")
+            params.append(workspace_id)
         with self._connection() as connection:
             row = connection.execute(
-                """
+                f"""
                 SELECT c.*, COUNT(m.message_id) AS message_count
                 FROM conversations c
                 LEFT JOIN conversation_messages m ON m.conversation_id = c.conversation_id
-                WHERE c.conversation_id = ?
+                WHERE {' AND '.join(conditions)}
                 GROUP BY c.conversation_id
                 """,
-                (conversation_id,),
+                tuple(params),
             ).fetchone()
         return self._conversation_payload(row) if row else None
 
-    def list_conversations(self, limit: int = 50) -> list[dict]:
+    def list_conversations(
+        self,
+        limit: int = 50,
+        *,
+        user_id: str | None = None,
+        workspace_id: str | None = None,
+    ) -> list[dict]:
+        conditions: list[str] = []
+        params: list[object] = []
+        if user_id is not None:
+            conditions.append("c.user_id = ?")
+            params.append(user_id)
+        if workspace_id is not None:
+            conditions.append("c.workspace_id = ?")
+            params.append(workspace_id)
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        params.append(max(1, min(limit, 200)))
         with self._connection() as connection:
             rows = connection.execute(
-                """
+                f"""
                 SELECT c.*, COUNT(m.message_id) AS message_count
                 FROM conversations c
                 LEFT JOIN conversation_messages m ON m.conversation_id = c.conversation_id
+                {where}
                 GROUP BY c.conversation_id
                 ORDER BY c.updated_at DESC
                 LIMIT ?
                 """,
-                (max(1, min(limit, 200)),),
+                tuple(params),
             ).fetchall()
         return [self._conversation_payload(row) for row in rows]
 
@@ -647,8 +1044,14 @@ class DocumentRegistry:
         *,
         title: str | None = None,
         knowledge_base_ids: list[str] | None = None,
+        user_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> dict | None:
-        current = self.get_conversation(conversation_id)
+        current = self.get_conversation(
+            conversation_id,
+            user_id=user_id,
+            workspace_id=workspace_id,
+        )
         if not current:
             return None
         next_title = current["title"] if title is None else (title.strip()[:160] or "新会话")
@@ -658,18 +1061,54 @@ class DocumentRegistry:
         with self._connection() as connection:
             for knowledge_base_id in next_ids:
                 self._assert_knowledge_base(connection, knowledge_base_id)
-            connection.execute(
-                """
+            conditions = ["conversation_id = ?"]
+            params: list[object] = [
+                next_title,
+                json.dumps(next_ids),
+                _utcnow(),
+                conversation_id,
+            ]
+            if user_id is not None:
+                conditions.append("user_id = ?")
+                params.append(user_id)
+            if workspace_id is not None:
+                conditions.append("workspace_id = ?")
+                params.append(workspace_id)
+            cursor = connection.execute(
+                f"""
                 UPDATE conversations SET title = ?, knowledge_base_ids = ?, updated_at = ?
-                WHERE conversation_id = ?
+                WHERE {' AND '.join(conditions)}
                 """,
-                (next_title, json.dumps(next_ids), _utcnow(), conversation_id),
+                tuple(params),
             )
-        return self.get_conversation(conversation_id)
+        if not cursor.rowcount:
+            return None
+        return self.get_conversation(
+            conversation_id,
+            user_id=user_id,
+            workspace_id=workspace_id,
+        )
 
-    def delete_conversation(self, conversation_id: str) -> bool:
+    def delete_conversation(
+        self,
+        conversation_id: str,
+        *,
+        user_id: str | None = None,
+        workspace_id: str | None = None,
+    ) -> bool:
+        conditions = ["conversation_id = ?"]
+        params: list[object] = [conversation_id]
+        if user_id is not None:
+            conditions.append("user_id = ?")
+            params.append(user_id)
+        if workspace_id is not None:
+            conditions.append("workspace_id = ?")
+            params.append(workspace_id)
         with self._connection() as connection:
-            cursor = connection.execute("DELETE FROM conversations WHERE conversation_id = ?", (conversation_id,))
+            cursor = connection.execute(
+                f"DELETE FROM conversations WHERE {' AND '.join(conditions)}",
+                tuple(params),
+            )
         return cursor.rowcount > 0
 
     def save_conversation_message(
@@ -708,7 +1147,20 @@ class DocumentRegistry:
             row = connection.execute("SELECT * FROM conversation_messages WHERE message_id = ?", (message_id,)).fetchone()
         return self._message_payload(row) if row else None
 
-    def list_conversation_messages(self, conversation_id: str, limit: int = 200) -> list[dict]:
+    def list_conversation_messages(
+        self,
+        conversation_id: str,
+        limit: int = 200,
+        *,
+        user_id: str | None = None,
+        workspace_id: str | None = None,
+    ) -> list[dict]:
+        if (user_id is not None or workspace_id is not None) and not self.get_conversation(
+            conversation_id,
+            user_id=user_id,
+            workspace_id=workspace_id,
+        ):
+            return []
         with self._connection() as connection:
             rows = connection.execute(
                 """
@@ -1540,7 +1992,15 @@ class DocumentRegistry:
 
     # Existing quality/history APIs --------------------------------------------
 
-    def save_history(self, question: str, response: dict, knowledge_base_id: str = DEFAULT_KNOWLEDGE_BASE_ID) -> dict:
+    def save_history(
+        self,
+        question: str,
+        response: dict,
+        knowledge_base_id: str = DEFAULT_KNOWLEDGE_BASE_ID,
+        *,
+        user_id: str = "owner",
+        workspace_id: str = DEFAULT_WORKSPACE_ID,
+    ) -> dict:
         history_id = str(uuid.uuid4())
         created_at = _utcnow()
         payload = {
@@ -1552,45 +2012,140 @@ class DocumentRegistry:
             "generation_trace": response.get("generation_trace", {}),
             "confidence": response.get("confidence"),
             "knowledge_base_id": knowledge_base_id,
+            "user_id": user_id,
+            "workspace_id": workspace_id,
             "created_at": created_at,
         }
         with self._connection() as connection:
             connection.execute(
                 """
-                INSERT INTO history (history_id, knowledge_base_id, question, answer, payload, created_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO history
+                  (history_id, workspace_id, user_id, knowledge_base_id,
+                   question, answer, payload, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (history_id, knowledge_base_id, question, payload["answer"], json.dumps(payload, ensure_ascii=False), created_at),
+                (
+                    history_id,
+                    workspace_id,
+                    user_id,
+                    knowledge_base_id,
+                    question,
+                    payload["answer"],
+                    json.dumps(payload, ensure_ascii=False),
+                    created_at,
+                ),
             )
         return payload
 
-    def get_history(self, history_id: str) -> dict | None:
-        return self._json_row("SELECT payload FROM history WHERE history_id = ?", (history_id,))
+    def get_history(
+        self,
+        history_id: str,
+        *,
+        user_id: str | None = None,
+        workspace_id: str | None = None,
+    ) -> dict | None:
+        if user_id is None:
+            return self._json_row(
+                "SELECT payload FROM history WHERE history_id = ?", (history_id,)
+            )
+        return self._json_row(
+            """
+            SELECT payload FROM history
+            WHERE history_id = ? AND user_id = ? AND workspace_id = ?
+            """,
+            (history_id, user_id, workspace_id or DEFAULT_WORKSPACE_ID),
+        )
 
-    def list_history(self, limit: int = 30) -> list[dict]:
-        return self._json_rows("SELECT payload FROM history ORDER BY created_at DESC LIMIT ?", (limit,))
+    def list_history(
+        self,
+        limit: int = 30,
+        *,
+        user_id: str | None = None,
+        workspace_id: str | None = None,
+    ) -> list[dict]:
+        if user_id is None:
+            return self._json_rows(
+                "SELECT payload FROM history ORDER BY created_at DESC LIMIT ?", (limit,)
+            )
+        return self._json_rows(
+            """
+            SELECT payload FROM history
+            WHERE user_id = ? AND workspace_id = ?
+            ORDER BY created_at DESC LIMIT ?
+            """,
+            (user_id, workspace_id or DEFAULT_WORKSPACE_ID, limit),
+        )
 
     def clear_history(self) -> None:
         with self._connection() as connection:
             connection.execute("DELETE FROM history")
 
-    def save_feedback(self, payload: dict) -> dict:
-        stored = {"id": str(uuid.uuid4()), "created_at": _utcnow(), **payload}
+    def save_feedback(
+        self,
+        payload: dict,
+        *,
+        user_id: str = "owner",
+        workspace_id: str = DEFAULT_WORKSPACE_ID,
+    ) -> dict:
+        stored = {
+            "id": str(uuid.uuid4()),
+            "created_at": _utcnow(),
+            "user_id": user_id,
+            "workspace_id": workspace_id,
+            **payload,
+        }
         with self._connection() as connection:
             connection.execute(
                 """
-                INSERT INTO feedback (feedback_id, history_id, rating, failure_type, payload, created_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO feedback
+                  (feedback_id, workspace_id, user_id, history_id, rating,
+                   failure_type, payload, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (stored["id"], stored.get("history_id") or "", stored.get("rating") or "", stored.get("failure_type") or "", json.dumps(stored, ensure_ascii=False), stored["created_at"]),
+                (
+                    stored["id"],
+                    workspace_id,
+                    user_id,
+                    stored.get("history_id") or "",
+                    stored.get("rating") or "",
+                    stored.get("failure_type") or "",
+                    json.dumps(stored, ensure_ascii=False),
+                    stored["created_at"],
+                ),
             )
         return stored
 
-    def list_feedback(self, limit: int = 50) -> list[dict]:
-        return self._json_rows("SELECT payload FROM feedback ORDER BY created_at DESC LIMIT ?", (limit,))
+    def list_feedback(
+        self,
+        limit: int = 50,
+        *,
+        user_id: str | None = None,
+        workspace_id: str | None = None,
+    ) -> list[dict]:
+        if user_id is None:
+            return self._json_rows(
+                "SELECT payload FROM feedback ORDER BY created_at DESC LIMIT ?", (limit,)
+            )
+        return self._json_rows(
+            """
+            SELECT payload FROM feedback
+            WHERE user_id = ? AND workspace_id = ?
+            ORDER BY created_at DESC LIMIT ?
+            """,
+            (user_id, workspace_id or DEFAULT_WORKSPACE_ID, limit),
+        )
 
-    def feedback_stats(self) -> dict:
-        feedback = self._json_rows("SELECT payload FROM feedback ORDER BY created_at DESC")
+    def feedback_stats(
+        self,
+        *,
+        user_id: str | None = None,
+        workspace_id: str | None = None,
+    ) -> dict:
+        feedback = self.list_feedback(
+            limit=10_000,
+            user_id=user_id,
+            workspace_id=workspace_id,
+        )
         failure_types: dict[str, int] = {}
         for item in feedback:
             failure_type = item.get("failure_type") or "unclassified"
@@ -1750,8 +2305,14 @@ class DocumentRegistry:
                   user_id TEXT PRIMARY KEY,
                   workspace_id TEXT NOT NULL,
                   role TEXT NOT NULL,
+                  username TEXT NOT NULL DEFAULT '',
+                  password_hash TEXT NOT NULL DEFAULT '',
                   display_name TEXT NOT NULL,
+                  is_active INTEGER NOT NULL DEFAULT 1,
+                  must_change_password INTEGER NOT NULL DEFAULT 1,
+                  disabled_at TEXT NOT NULL DEFAULT '',
                   created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL DEFAULT '',
                   FOREIGN KEY (workspace_id) REFERENCES workspaces(workspace_id)
                 );
                 CREATE TABLE IF NOT EXISTS memberships (
@@ -1759,6 +2320,7 @@ class DocumentRegistry:
                   user_id TEXT NOT NULL,
                   role TEXT NOT NULL,
                   created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL DEFAULT '',
                   PRIMARY KEY (workspace_id, user_id),
                   FOREIGN KEY (workspace_id) REFERENCES workspaces(workspace_id) ON DELETE CASCADE,
                   FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
@@ -1794,6 +2356,8 @@ class DocumentRegistry:
                 );
                 CREATE TABLE IF NOT EXISTS history (
                   history_id TEXT PRIMARY KEY,
+                  workspace_id TEXT NOT NULL DEFAULT 'default',
+                  user_id TEXT NOT NULL DEFAULT 'owner',
                   knowledge_base_id TEXT NOT NULL DEFAULT 'default',
                   question TEXT NOT NULL,
                   answer TEXT NOT NULL,
@@ -1801,7 +2365,10 @@ class DocumentRegistry:
                   created_at TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS feedback (
-                  feedback_id TEXT PRIMARY KEY, history_id TEXT, rating TEXT NOT NULL,
+                  feedback_id TEXT PRIMARY KEY,
+                  workspace_id TEXT NOT NULL DEFAULT 'default',
+                  user_id TEXT NOT NULL DEFAULT 'owner',
+                  history_id TEXT, rating TEXT NOT NULL,
                   failure_type TEXT, payload TEXT NOT NULL, created_at TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS operation_logs (
@@ -1816,10 +2383,14 @@ class DocumentRegistry:
                 );
                 CREATE TABLE IF NOT EXISTS conversations (
                   conversation_id TEXT PRIMARY KEY,
+                  workspace_id TEXT NOT NULL DEFAULT 'default',
+                  user_id TEXT NOT NULL DEFAULT 'owner',
                   title TEXT NOT NULL,
                   knowledge_base_ids TEXT NOT NULL,
                   created_at TEXT NOT NULL,
-                  updated_at TEXT NOT NULL
+                  updated_at TEXT NOT NULL,
+                  FOREIGN KEY (workspace_id) REFERENCES workspaces(workspace_id) ON DELETE CASCADE,
+                  FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
                 );
                 CREATE TABLE IF NOT EXISTS conversation_messages (
                   message_id TEXT PRIMARY KEY,
@@ -2025,18 +2596,37 @@ class DocumentRegistry:
                 """
             )
             self._add_column_if_missing(connection, "knowledge_bases", "workspace_id", "TEXT NOT NULL DEFAULT 'default'")
+            self._add_column_if_missing(connection, "users", "username", "TEXT NOT NULL DEFAULT ''")
+            self._add_column_if_missing(connection, "users", "password_hash", "TEXT NOT NULL DEFAULT ''")
+            self._add_column_if_missing(connection, "users", "is_active", "INTEGER NOT NULL DEFAULT 1")
+            self._add_column_if_missing(connection, "users", "must_change_password", "INTEGER NOT NULL DEFAULT 1")
+            self._add_column_if_missing(connection, "users", "disabled_at", "TEXT NOT NULL DEFAULT ''")
+            self._add_column_if_missing(connection, "users", "updated_at", "TEXT NOT NULL DEFAULT ''")
+            self._add_column_if_missing(connection, "memberships", "updated_at", "TEXT NOT NULL DEFAULT ''")
+            self._add_column_if_missing(connection, "conversations", "workspace_id", "TEXT NOT NULL DEFAULT 'default'")
+            self._add_column_if_missing(connection, "conversations", "user_id", "TEXT NOT NULL DEFAULT 'owner'")
             self._add_column_if_missing(connection, "documents", "workspace_id", "TEXT NOT NULL DEFAULT 'default'")
             self._add_column_if_missing(connection, "index_jobs", "workspace_id", "TEXT NOT NULL DEFAULT 'default'")
             self._add_column_if_missing(connection, "documents", "knowledge_base_id", "TEXT NOT NULL DEFAULT 'default'")
             self._add_column_if_missing(connection, "documents", "content_hash", "TEXT NOT NULL DEFAULT ''")
             self._add_column_if_missing(connection, "documents", "index_version", "TEXT NOT NULL DEFAULT 'hybrid-v1'")
             self._add_column_if_missing(connection, "history", "knowledge_base_id", "TEXT NOT NULL DEFAULT 'default'")
+            self._add_column_if_missing(connection, "history", "workspace_id", "TEXT NOT NULL DEFAULT 'default'")
+            self._add_column_if_missing(connection, "history", "user_id", "TEXT NOT NULL DEFAULT 'owner'")
+            self._add_column_if_missing(connection, "feedback", "workspace_id", "TEXT NOT NULL DEFAULT 'default'")
+            self._add_column_if_missing(connection, "feedback", "user_id", "TEXT NOT NULL DEFAULT 'owner'")
             connection.executescript(
                 """
                 CREATE INDEX IF NOT EXISTS idx_documents_kb ON documents(knowledge_base_id);
                 CREATE INDEX IF NOT EXISTS idx_documents_hash ON documents(content_hash, knowledge_base_id);
                 CREATE INDEX IF NOT EXISTS idx_jobs_status ON index_jobs(status, next_attempt_at);
                 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON conversation_messages(conversation_id, created_at);
+                CREATE INDEX IF NOT EXISTS idx_conversations_owner
+                  ON conversations(workspace_id, user_id, updated_at);
+                CREATE INDEX IF NOT EXISTS idx_history_owner
+                  ON history(workspace_id, user_id, created_at);
+                CREATE INDEX IF NOT EXISTS idx_feedback_owner
+                  ON feedback(workspace_id, user_id, created_at);
                 CREATE INDEX IF NOT EXISTS idx_assets_document ON assets(document_id, kind);
                 CREATE INDEX IF NOT EXISTS idx_assets_expiry ON assets(expires_at);
                 CREATE INDEX IF NOT EXISTS idx_elements_document ON document_elements(document_id, element_order);
@@ -2048,6 +2638,10 @@ class DocumentRegistry:
                 CREATE INDEX IF NOT EXISTS idx_graph_edges_document ON graph_edges(document_id, relation);
                 CREATE INDEX IF NOT EXISTS idx_entity_mentions_element ON entity_mentions(document_id, element_id);
                 CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at, revoked_at);
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_unique
+                  ON users(username) WHERE username != '';
+                CREATE INDEX IF NOT EXISTS idx_memberships_role
+                  ON memberships(workspace_id, role);
                 CREATE INDEX IF NOT EXISTS idx_outbox_pending ON outbox_events(status, available_at);
                 CREATE INDEX IF NOT EXISTS idx_dead_letter_jobs_job ON dead_letter_jobs(job_id, created_at);
                 CREATE INDEX IF NOT EXISTS idx_sources_kb ON sources(knowledge_base_id, enabled);
@@ -2069,20 +2663,22 @@ class DocumentRegistry:
             connection.execute(
                 """
                 INSERT INTO users
-                  (user_id, workspace_id, role, display_name, created_at)
-                VALUES ('owner', ?, 'owner', 'Owner', ?)
+                  (user_id, workspace_id, role, username, password_hash,
+                   display_name, is_active, must_change_password,
+                   disabled_at, created_at, updated_at)
+                VALUES ('owner', ?, 'admin', '', '', 'Owner', 1, 1, '', ?, ?)
                 ON CONFLICT(user_id) DO NOTHING
                 """,
-                (DEFAULT_WORKSPACE_ID, now),
+                (DEFAULT_WORKSPACE_ID, now, now),
             )
             connection.execute(
                 """
                 INSERT INTO memberships
-                  (workspace_id, user_id, role, created_at)
-                VALUES (?, 'owner', 'owner', ?)
+                  (workspace_id, user_id, role, created_at, updated_at)
+                VALUES (?, 'owner', 'admin', ?, ?)
                 ON CONFLICT(workspace_id, user_id) DO NOTHING
                 """,
-                (DEFAULT_WORKSPACE_ID, now),
+                (DEFAULT_WORKSPACE_ID, now, now),
             )
             connection.execute(
                 """
@@ -2214,6 +2810,8 @@ class DocumentRegistry:
     def _conversation_payload(self, row: sqlite3.Row) -> dict:
         return {
             "id": row["conversation_id"],
+            "workspace_id": row["workspace_id"],
+            "user_id": row["user_id"],
             "title": row["title"],
             "knowledge_base_ids": json.loads(row["knowledge_base_ids"]),
             "message_count": int(row["message_count"]),

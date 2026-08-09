@@ -23,6 +23,7 @@ def retrieval_options(payload: RetrievalOptions) -> dict:
     return {
         "top_k": payload.top_k,
         "candidate_k": payload.candidate_k,
+        "routing_mode": payload.routing_mode,
         "search_mode": payload.search_mode,
         "search_profile": payload.search_profile,
         "strategy": payload.strategy,
@@ -53,9 +54,19 @@ def friendly_index_error(exc: Exception) -> str:
 
 
 def chunks_for_document(document_id: str) -> list[Chunk]:
+    list_chunks = getattr(retriever.vector_store, "list_chunks", None)
+    if callable(list_chunks):
+        try:
+            return list(list_chunks(document_ids=[document_id]))
+        except TypeError:
+            return [
+                chunk
+                for chunk in list_chunks()
+                if chunk.document_id == document_id
+            ]
     return [
         chunk
-        for chunk in retriever.vector_store.chunks.values()
+        for chunk in getattr(retriever.vector_store, "chunks", {}).values()
         if chunk.document_id == document_id
     ]
 

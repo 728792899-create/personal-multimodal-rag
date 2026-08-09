@@ -13,11 +13,12 @@ describe('LoginPage', () => {
       props: { submitting: false, error: '' },
     })
 
+    await wrapper.get('input[name="username"]').setValue('analyst')
     await wrapper.get('input[type="password"]').setValue('correct horse battery staple')
     await wrapper.get('form').trigger('submit')
     await flushPromises()
 
-    expect(wrapper.emitted('submit')?.[0]).toEqual(['correct horse battery staple'])
+    expect(wrapper.emitted('submit')?.[0]).toEqual(['analyst', 'correct horse battery staple'])
     expect(setItem).not.toHaveBeenCalled()
   })
 

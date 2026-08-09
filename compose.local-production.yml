@@ -7,29 +7,44 @@ services:
       RAG_RUNTIME_MODE: local-production
       APP_ENVIRONMENT: local-production
       PROVIDER_FALLBACK_ALLOWED: "0"
-      EMBEDDING_PROVIDER: ollama
-      EMBEDDING_MODEL: nomic-embed-text
-      EMBEDDING_DIMENSION: "768"
+      EMBEDDING_PROVIDER: openai
+      EMBEDDING_MODEL: text-embedding-3-large
+      EMBEDDING_DIMENSION: "1536"
+      OPENAI_API_KEY_FILE: /run/secrets/openai_api_key
       VECTOR_STORE: chroma
       CHROMA_PATH: /app/data/chroma
-      RERANKER: cross-encoder
-      RERANKER_MODEL: BAAI/bge-reranker-base
-      HF_HOME: /app/data/models
+      RERANKER: deepseek
+      RETRIEVAL_AUX_PROVIDER: deepseek
+      RETRIEVAL_AUX_BASE_URL: https://api.deepseek.com
+      RETRIEVAL_AUX_MODEL: deepseek-v4-flash
+      RETRIEVAL_AUX_API_KEY_FILE: /run/secrets/deepseek_api_key
+      RETRIEVAL_AUX_TIMEOUT_SECONDS: "3"
+      RETRIEVAL_AUX_MAX_TOKENS: "2048"
       SOURCE_ROOTS: /sources
-      ANSWER_PROVIDER: ollama
+      ANSWER_PROVIDER: openai_compatible_chat
+      ANSWER_BASE_URL: https://api.deepseek.com
+      ANSWER_MODEL: deepseek-v4-flash
+      ANSWER_API_KEY_FILE: /run/secrets/deepseek_api_key
+      ANSWER_THINKING_MODE: disabled
       ENRICHMENT_PROVIDER: template
-      QUERY_REWRITE_PROVIDER: none
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
-      OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-qwen3:8b}
-      OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}
-      OLLAMA_NUM_CTX: ${OLLAMA_NUM_CTX:-4096}
-      OLLAMA_NUM_PREDICT: ${OLLAMA_NUM_PREDICT:-256}
+      QUERY_REWRITE_PROVIDER: deepseek
+      CHUNKER_VERSION: structure-v2
+      INDEX_VERSION: retrieval-v2-local
       AUTH_MODE: ${AUTH_MODE:-disabled}
     volumes:
       - local_production_data:/app/data
       - ${SOURCE_DIRECTORY:-./data/sources}:/sources:ro
     extra_hosts:
       - host.docker.internal:host-gateway
+    secrets:
+      - openai_api_key
+      - deepseek_api_key
 
 volumes:
   local_production_data:
+
+secrets:
+  openai_api_key:
+    file: ${OPENAI_API_KEY_FILE:-./secrets/openai_api_key}
+  deepseek_api_key:
+    file: ${DEEPSEEK_API_KEY_FILE:-./secrets/deepseek_api_key}

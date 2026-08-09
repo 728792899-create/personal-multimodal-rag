@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import time
 
 from app.services.answer_generator import BaseAnswerGenerator, TemplateAnswerGenerator
@@ -12,8 +13,29 @@ from app.services.safe_logging import public_error_message, redact_private_metad
 LOW_INFORMATION_MATCHES = {
     "api", "app", "store", "系统", "流程", "方式", "功能", "参数", "配置", "应该", "需要",
     "问题", "资料", "文档", "项目", "目的", "规则", "内容", "相关", "什么", "怎么", "如何",
-    "多少", "是否", "提供", "哪些", "当前", "自动",
+    "多少", "是否", "提供", "哪些", "当前", "自动", "恢复",
 }
+LOW_INFORMATION_BOUNDARY_CHARS = set("的了是在中和与或对为这那")
+EVIDENCE_GAP_MARKERS = (
+    "没有提供",
+    "未提供",
+    "并未提供",
+    "没有覆盖",
+    "未覆盖",
+    "资料不足",
+)
+AVAILABILITY_QUESTION_MARKERS = (
+    "是否",
+    "有没有",
+    "有无",
+    "现有资料",
+    "当前资料",
+    "知识库是否",
+    "是否覆盖",
+    "是否提供",
+    "覆盖哪些",
+    "已经覆盖",
+)
 
 
 class RagEngine:
@@ -43,6 +65,42 @@ class RagEngine:
 
         return self.answer_generator
 
+    @staticmethod
+    def _generation_failure(exc: Exception) -> tuple[str, str]:
+        error_name = type(exc).__name__.lower()
+        if isinstance(exc, TimeoutError) or "timeout" in error_name:
+            return (
+                "ANSWER_PROVIDER_TIMEOUT",
+                public_error_message(
+                    exc,
+                    "回答服务在规定时间内未完成生成，已保留检索证据，请稍后重试。",
+                ),
+            )
+        return (
+            "ANSWER_PROVIDER_FAILED",
+            public_error_message(
+                exc,
+                "回答服务暂时不可用，已保留检索证据，请稍后重试。",
+            ),
+        )
+
+    def _template_fallback_allowed(
+        self,
+        answer_generator: BaseAnswerGenerator,
+    ) -> bool:
+        """Never turn a DeepSeek outage into a synthetic template answer."""
+
+        provider = str(getattr(answer_generator, "name", "") or "").lower()
+        client = getattr(answer_generator, "client", None)
+        model = str(getattr(client, "model", "") or "").lower()
+        base_url = str(getattr(client, "base_url", "") or "").lower()
+        is_deepseek = (
+            provider.startswith("deepseek")
+            or model.startswith("deepseek")
+            or "deepseek.com" in base_url
+        )
+        return self.allow_generation_fallback and not is_deepseek
+
     def ask(
         self,
         question: str,
@@ -66,7 +124,9 @@ class RagEngine:
         trace["performance"]["retrieval_ms"] = round((retrieval_ended - started) * 1000, 2)
         confidence = self._confidence(ranked)
         diagnostics = self._diagnostics(active_query, ranked, trace, threshold)
-        refuse, refuse_reason = self._should_refuse(ranked, confidence, threshold)
+        refuse, refuse_reason = self._should_refuse(
+            active_query, ranked, confidence, threshold
+        )
         trace["refuse_reason"] = refuse_reason
         trace["refusal_reason"] = refuse_reason or None
         trace.setdefault("pipeline", {})["decision"] = {
@@ -76,12 +136,20 @@ class RagEngine:
             "confidence": round(float(confidence), 4),
         }
         if refuse:
-            if refuse_reason == "weak_grounding":
+            if refuse_reason in {"weak_grounding", "explicit_evidence_gap"}:
                 diagnostics.append(
                     {
                         "level": "warning",
-                        "title": "证据与问题缺少直接词项匹配",
-                        "message": "最高分尚不足以在无关键词命中的情况下安全生成回答。",
+                        "title": (
+                            "证据明确标记了资料缺口"
+                            if refuse_reason == "explicit_evidence_gap"
+                            else "证据与问题缺少直接词项匹配"
+                        ),
+                        "message": (
+                            "当前证据只能确认相关资料缺失，不能支撑所请的具体操作或配置。"
+                            if refuse_reason == "explicit_evidence_gap"
+                            else "最高分尚不足以在无关键词命中的情况下安全生成回答。"
+                        ),
                         "action": "补充限定词、切换检索模式，或导入更直接的资料。",
                         "actions": [],
                     }
@@ -116,8 +184,79 @@ class RagEngine:
         try:
             generated = answer_generator.generate(question, citations, trace)
         except Exception as exc:
-            if not self.allow_generation_fallback:
-                raise
+            if not self._template_fallback_allowed(answer_generator):
+                generation_ended = time.perf_counter()
+                code, message = self._generation_failure(exc)
+                trace["performance"]["generation_ms"] = round(
+                    (generation_ended - generation_started) * 1000,
+                    2,
+                )
+                trace["performance"]["total_ms"] = round(
+                    (generation_ended - started) * 1000,
+                    2,
+                )
+                trace["pipeline"]["generation"] = {
+                    "status": "failed",
+                    "reason": "answer_provider_failed",
+                    "error_code": code,
+                }
+                trace["pipeline"]["citation_audit"] = {
+                    "coverage": 0,
+                    "grounding": 0,
+                    "status": "skipped",
+                    "reason": "generation_failed",
+                }
+                diagnostics.append(
+                    {
+                        "level": "error",
+                        "title": "回答生成未完成",
+                        "message": message,
+                        "action": "检索证据已保留，可原样重试本次问题。",
+                        "actions": [],
+                    }
+                )
+                audit = audit_answer(
+                    "",
+                    citations,
+                    confidence,
+                    threshold,
+                    overlap_threshold=self.citation_overlap_threshold,
+                )
+                audit["citation_audit"].update(
+                    {
+                        "checked": False,
+                        "status": "skipped",
+                        "reason": "generation_failed",
+                    }
+                )
+                return {
+                    "answer": "",
+                    "citations": citations,
+                    "retrieval_trace": trace,
+                    "generation_trace": {
+                        "answer_provider": answer_generator.name,
+                        "answer_model": getattr(
+                            getattr(answer_generator, "client", None),
+                            "model",
+                            "-",
+                        ),
+                        "grounded": False,
+                        "status": "failed",
+                        "incomplete": True,
+                        "failure_stage": "generation",
+                        "error_code": code,
+                        "message": message,
+                        "retryable": True,
+                    },
+                    "retryable": True,
+                    "retry": {
+                        "action": "resubmit_same_request",
+                        "preserve_retrieval_scope": True,
+                    },
+                    "confidence": round(float(confidence), 4),
+                    "diagnostics": diagnostics,
+                    **audit,
+                }
             generated = TemplateAnswerGenerator().generate(question, citations, trace)
             generated["generation_trace"] = {
                 **generated.get("generation_trace", {}),
@@ -177,7 +316,9 @@ class RagEngine:
         trace.setdefault("performance", {})["retrieval_ms"] = round((retrieval_ended - started) * 1000, 2)
         confidence = self._confidence(ranked)
         diagnostics = self._diagnostics(active_query, ranked, trace, threshold)
-        refuse, refuse_reason = self._should_refuse(ranked, confidence, threshold)
+        refuse, refuse_reason = self._should_refuse(
+            active_query, ranked, confidence, threshold
+        )
         trace["refuse_reason"] = refuse_reason
         trace["refusal_reason"] = refuse_reason or None
         trace.setdefault("pipeline", {})["decision"] = {
@@ -243,7 +384,7 @@ class RagEngine:
             if not "".join(fragments).strip():
                 raise ValueError("Answer provider returned no text output")
         except Exception as exc:
-            if not self.allow_generation_fallback or fragments:
+            if not self._template_fallback_allowed(answer_generator) or fragments:
                 raise
             fallback = TemplateAnswerGenerator().generate(question, citations, trace)
             fallback_answer = fallback["answer"]
@@ -392,13 +533,29 @@ class RagEngine:
             return 0.0
         return float(ranked[0].get("rerank_score", ranked[0]["score"]))
 
-    def _should_refuse(self, ranked: list[dict], confidence: float, threshold: float) -> tuple[bool, str]:
+    def _should_refuse(
+        self,
+        query: str,
+        ranked: list[dict],
+        confidence: float,
+        threshold: float,
+    ) -> tuple[bool, str]:
         if not ranked:
             return True, "no_evidence"
         if confidence < threshold:
             return True, "below_threshold"
         matched_terms = {str(term).lower() for term in ranked[0].get("matched_terms", [])}
-        substantive_terms = matched_terms - LOW_INFORMATION_MATCHES
+        substantive_terms = {
+            term
+            for term in matched_terms - LOW_INFORMATION_MATCHES
+            if not (
+                len(term) == 2
+                and (
+                    term[0] in LOW_INFORMATION_BOUNDARY_CHARS
+                    or term[-1] in LOW_INFORMATION_BOUNDARY_CHARS
+                )
+            )
+        }
         mock_embeddings = isinstance(
             getattr(self.retriever, "embedding_provider", None),
             MockEmbeddingProvider,
@@ -407,6 +564,24 @@ class RagEngine:
             return True, "weak_grounding"
         if not matched_terms and confidence < self.grounding_min_confidence:
             return True, "weak_grounding"
+        # Gate on the retrieved leaf, not its expanded parent window: a sibling
+        # may describe a gap while the cited leaf directly answers the question.
+        evidence_text = str(ranked[0]["chunk"].text or "")
+        normalized_query = " ".join(str(query).lower().split())
+        normalized_evidence = " ".join(evidence_text.lower().split())
+        availability_question = any(
+            marker in normalized_query for marker in AVAILABILITY_QUESTION_MARKERS
+        )
+        direct_identifiers = re.findall(
+            r"\b[a-z][a-z0-9_.-]*\d[a-z0-9_.-]*\b", normalized_query
+        )
+        has_direct_identifier_evidence = any(
+            identifier in normalized_evidence for identifier in direct_identifiers
+        )
+        if not availability_question and not has_direct_identifier_evidence and any(
+            marker in normalized_evidence for marker in EVIDENCE_GAP_MARKERS
+        ):
+            return True, "explicit_evidence_gap"
         return False, ""
 
     def _chunk_to_dict(self, item: dict) -> dict:
@@ -423,7 +598,8 @@ class RagEngine:
             "modality": chunk.modality,
             "parent_element_id": chunk.parent_element_id,
             "metadata": redact_private_metadata(chunk.metadata),
-            "parent_context": self._parent_context(chunk, int(item.get("parent_window", 1))),
+            "parent_context": item.get("parent_context")
+            or self._parent_context(chunk, int(item.get("parent_window", 1))),
             "score": round(float(item["score"]), 4),
             "bm25_score": round(float(item["bm25_score"]), 4),
             "vector_score": round(float(item["vector_score"]), 4),
@@ -455,18 +631,23 @@ class RagEngine:
         return f"{prefix}{cleaned[start:end]}{suffix}"
 
     def _parent_context(self, chunk, radius: int = 1) -> dict:
-        siblings = sorted(
-            [
+        radius = max(0, min(int(radius), 3))
+        vector_store = self.retriever.vector_store
+        if hasattr(vector_store, "context_chunks"):
+            context_chunks = vector_store.context_chunks(chunk.chunk_id, radius)
+        else:
+            context_chunks = [
                 item
-                for item in self.retriever.vector_store.chunks.values()
+                for item in getattr(vector_store, "chunks", {}).values()
                 if item.document_id == chunk.document_id
-            ],
+            ]
+        siblings = sorted(
+            context_chunks,
             key=lambda item: item.chunk_index,
         )
         index = next((idx for idx, item in enumerate(siblings) if item.chunk_id == chunk.chunk_id), -1)
         if index < 0:
             return {"strategy": "parent_child", "text": chunk.text, "chunk_ids": [chunk.chunk_id]}
-        radius = max(0, min(int(radius), 3))
         window = siblings[max(0, index - radius) : min(len(siblings), index + radius + 1)]
         return {
             "strategy": "parent_child",

@@ -172,6 +172,9 @@ export interface PipelineTrace {
 }
 
 export interface RetrievalTrace {
+  plan?: RetrievalPlanTrace
+  index_version?: string
+  degraded?: boolean
   query_tokens: string[]
   rewritten_queries: string[]
   total_chunks: number
@@ -216,6 +219,13 @@ export interface RetrievalTrace {
   query_attachments?: QueryAttachmentSummary[]
 }
 
+export interface RetryDescriptor {
+  action: 'resubmit_same_request' | string
+  method?: 'POST' | string
+  endpoint?: string
+  preserve_retrieval_scope?: boolean
+}
+
 export interface AskResponse {
   history_id?: string
   created_at?: string
@@ -232,7 +242,13 @@ export interface AskResponse {
     streamed?: boolean
     incomplete?: boolean
     status?: 'failed' | 'cancelled' | string
+    failure_stage?: 'generation' | string
+    error_code?: string
+    message?: string
+    retryable?: boolean
   }
+  retryable?: boolean
+  retry?: RetryDescriptor
   confidence: number | null
   diagnostics?: DiagnosticItem[]
   trust?: TrustReport
@@ -288,11 +304,14 @@ export interface CitationAudit {
 export type SearchMode = 'hybrid' | 'keyword' | 'semantic'
 export type SearchProfile = 'balanced' | 'precision' | 'recall'
 export type RetrievalStrategy = 'hybrid' | 'hybrid_graph' | 'auto'
+export type RoutingMode = 'auto' | 'manual'
+export type RetrievalRoute = 'exact' | 'semantic' | 'composite' | 'multihop' | 'summary'
 export type DocumentElementType = 'text' | 'heading' | 'image' | 'table' | 'equation' | 'code' | 'mixed'
 export type WorkMode = 'answer' | 'search'
 export type AppMode = 'user' | 'expert'
 
 export interface RetrievalOptions {
+  routing_mode?: RoutingMode
   top_k?: number
   candidate_k?: number
   search_mode?: SearchMode
@@ -310,6 +329,15 @@ export interface RetrievalOptions {
   graph_max_hops?: number
   modality_filters?: DocumentElementType[]
   parent_window?: number
+}
+
+export interface RetrievalPlanTrace {
+  route: RetrievalRoute
+  confidence: number
+  decision_factors: string[]
+  subqueries: string[]
+  modifiers: Record<string, boolean | number | string>
+  source?: 'rules' | 'deepseek' | 'manual' | 'fallback' | string
 }
 
 export interface QueryAttachmentRef {
@@ -580,8 +608,11 @@ export interface AuthSession {
   required: boolean
   authenticated: boolean
   user_id: string
+  username: string
+  display_name: string
   workspace_id: string
-  role: string
+  role: 'admin' | 'editor' | 'viewer' | 'owner' | ''
+  must_change_password: boolean
   csrf_token: string
   expires_at: string
 }
@@ -589,7 +620,20 @@ export interface AuthSession {
 export interface WorkspaceContext {
   workspace_id: string
   user_id: string
-  role: 'owner' | 'member'
+  role: 'admin' | 'editor' | 'viewer' | 'owner'
+}
+
+export interface WorkspaceMember {
+  user_id: string
+  username: string
+  display_name: string
+  workspace_id: string
+  role: 'admin' | 'editor' | 'viewer'
+  is_active: boolean
+  must_change_password: boolean
+  disabled_at: string | null
+  created_at: string
+  updated_at: string
 }
 
 export interface StorageStatus {
@@ -754,6 +798,7 @@ export interface ProviderStatus {
   status: 'ready' | 'degraded'
   environment: string
   fallback_allowed: boolean
+  runtime_configuration_allowed?: boolean
   runtime?: {
     deepseek?: DeepSeekRuntimeStatus
   }
@@ -811,5 +856,5 @@ export type ConversationStreamEvent =
   | ({ type: 'retrieval.completed'; request_id: string; conversation_id: string; message_id: string; sequence: number } & Partial<AskResponse>)
   | { type: 'answer.delta'; request_id: string; conversation_id: string; message_id: string; sequence: number; delta: string }
   | { type: 'answer.completed' | 'refusal'; request_id: string; conversation_id: string; message_id: string; sequence: number; response: AskResponse }
-  | { type: 'error'; request_id: string; conversation_id: string; message_id: string; sequence: number; code: string; message: string }
-  | { type: 'done'; request_id: string; conversation_id: string; message_id: string; sequence: number; status: string; real_usage_recorded?: boolean }
+  | { type: 'error'; request_id: string; conversation_id: string; message_id: string; sequence: number; code: string; message: string; retryable?: boolean; retry?: RetryDescriptor; response?: AskResponse }
+  | { type: 'done'; request_id: string; conversation_id: string; message_id: string; sequence: number; status: string; real_usage_recorded?: boolean; retryable?: boolean; retry?: RetryDescriptor }

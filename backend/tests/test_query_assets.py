@@ -118,6 +118,39 @@ def test_query_asset_expiry_and_knowledge_base_boundary(tmp_path: Path):
     assert query_assets.registry.get_asset(created["id"]) is None
 
 
+def test_query_assets_are_private_to_the_creating_member(tmp_path: Path):
+    query_assets = service(tmp_path)
+    created = query_assets.create(
+        image_bytes(),
+        "private.png",
+        "default",
+        user_id="alice",
+        workspace_id="default",
+    )
+
+    assert query_assets.get_for_owner(
+        created["id"], user_id="alice", workspace_id="default"
+    )
+    assert query_assets.get_for_owner(
+        created["id"], user_id="bob", workspace_id="default"
+    ) is None
+    with pytest.raises(QueryAssetError) as forbidden:
+        query_assets.enrich_query(
+            "question",
+            [{"id": created["id"]}],
+            ["default"],
+            user_id="bob",
+            workspace_id="default",
+        )
+    assert forbidden.value.status_code == 404
+    assert query_assets.delete(
+        created["id"], user_id="bob", workspace_id="default"
+    ) is False
+    assert query_assets.delete(
+        created["id"], user_id="alice", workspace_id="default"
+    ) is True
+
+
 def test_query_asset_api_and_sse_add_typed_enrichment_events(monkeypatch, tmp_path: Path):
     from app.api.routers import conversations, documents, query_assets as query_assets_router
     from app.main import app

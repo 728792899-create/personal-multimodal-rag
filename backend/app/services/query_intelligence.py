@@ -1,66 +1,104 @@
 from __future__ import annotations
 
+import re
+
 from app.services.text_utils import tokenize
 
 
-INTENT_RULES = [
-    ("implementation", "实现说明", {"实现", "方案", "架构", "技术", "亮点", "难点", "工程"}),
-    ("summary", "总结归纳", {"总结", "概括", "梳理", "归纳", "核心", "一句话"}),
-    ("comparison", "对比分析", {"对比", "比较", "区别", "差异", "优劣", "哪个"}),
-    ("gap", "资料缺口", {"缺", "没有", "不足", "风险", "优化", "补充"}),
-    ("fact", "事实定位", {"有没有", "是否", "哪里", "哪一页", "提到"}),
-]
+SUMMARY_TERMS = {"总结", "概括", "梳理", "归纳", "摘要", "全文要点", "核心内容"}
+COMPARISON_TERMS = {"对比", "比较", "区别", "差异", "优劣", "分别", "各自", "哪个更"}
+MULTIHOP_TERMS = {"什么关系", "如何影响", "为什么导致", "导致", "因此", "依赖", "关系", "链路", "经过"}
+EXACT_TERMS = {"多少", "什么时间", "哪一页", "哪页", "是否", "有没有", "谁", "哪里", "提到", "编号"}
 
 
 def analyze_query(query: str) -> dict:
-    lowered = query.lower()
-    tokens = set(tokenize(query))
-    scored = []
-    for intent_id, label, keywords in INTENT_RULES:
-        hit_terms = sorted([term for term in keywords if term in lowered or term in tokens])
-        if hit_terms:
-            scored.append((len(hit_terms), intent_id, label, hit_terms))
-    if scored:
-        scored.sort(reverse=True)
-        _, intent_id, label, hit_terms = scored[0]
-    else:
-        intent_id, label, hit_terms = "qa", "知识问答", []
+    """Return a safe, deterministic routing summary.
 
-    profile = _recommended_profile(intent_id, len(tokens))
+    Only predefined factors are returned. This object is suitable for a public
+    retrieval trace and intentionally contains no free-form model reasoning.
+    """
+
+    cleaned = " ".join(query.strip().split())
+    lowered = cleaned.lower()
+    tokens = set(tokenize(cleaned))
+
+    summary_hits = _hits(lowered, tokens, SUMMARY_TERMS)
+    comparison_hits = _hits(lowered, tokens, COMPARISON_TERMS)
+    multihop_hits = _hits(lowered, tokens, MULTIHOP_TERMS)
+    exact_hits = _hits(lowered, tokens, EXACT_TERMS)
+
+    quoted_or_identifier = bool(
+        re.search(r"[“”\"《》][^\"“”《》]{1,80}[“”\"《》]", cleaned)
+        or re.search(r"\b[A-Z]{2,}[\-_]?\d{1,}\b", cleaned)
+        or re.search(r"\b\d{4}[-/.年]\d{1,2}(?:[-/.月]\d{1,2})?", cleaned)
+        or re.search(r"第\s*\d+\s*(?:页|章|节|条)", cleaned)
+    )
+    multi_part = cleaned.count("？") + cleaned.count("?") >= 2 or bool(
+        re.search(r"(?:分别|同时|以及|并且).*(?:？|\?)", cleaned)
+    )
+    multi_entity_relation = bool(
+        multihop_hits
+        and re.search(r"\S{2,}\s*(?:与|和|到|对)\s*\S{2,}", cleaned)
+    )
+
+    if summary_hits:
+        route, confidence = "summary", 0.94
+        factors = ["explicit_summary"]
+    elif comparison_hits or multi_part:
+        route, confidence = "composite", 0.91 if comparison_hits else 0.86
+        factors = ["comparison_operator" if comparison_hits else "multi_part_question"]
+    elif multi_entity_relation or multihop_hits:
+        route, confidence = "multihop", 0.9 if multi_entity_relation else 0.86
+        factors = ["multi_entity_relation" if multi_entity_relation else "causal_chain"]
+    elif quoted_or_identifier or exact_hits:
+        route, confidence = "exact", 0.92 if quoted_or_identifier else 0.88
+        factors = ["exact_identifier" if quoted_or_identifier else "exact_fact_request"]
+    else:
+        route, confidence = "semantic", 0.65
+        factors = ["semantic_default"]
+
+    legacy_intent, label = {
+        "exact": ("fact", "事实定位"),
+        "semantic": ("qa", "语义问答"),
+        "composite": ("comparison", "对比与复合问题"),
+        "multihop": ("implementation", "多跳关系推理"),
+        "summary": ("summary", "总结归纳"),
+    }[route]
+    matched_terms = list(dict.fromkeys(summary_hits + comparison_hits + multihop_hits + exact_hits))
     return {
-        "intent": intent_id,
+        "intent": legacy_intent,
         "label": label,
-        "matched_terms": hit_terms,
+        "route": route,
+        "confidence": confidence,
+        "decision_factors": factors,
+        "matched_terms": matched_terms[:12],
         "query_terms": sorted(tokens)[:16],
-        "recommended": profile,
+        "recommended": _recommended_profile(route),
     }
 
 
-def _recommended_profile(intent_id: str, token_count: int) -> dict:
-    if intent_id in {"fact", "implementation"}:
+def _hits(lowered: str, tokens: set[str], terms: set[str]) -> list[str]:
+    return sorted(term for term in terms if term in lowered or term in tokens)
+
+
+def _recommended_profile(route: str) -> dict:
+    if route == "exact":
         return {
             "search_profile": "precision",
             "search_mode": "hybrid",
-            "candidate_k": 24,
-            "reason": "事实定位和实现说明更依赖精准证据，优先减少弱相关片段。",
+            "candidate_k": 40,
+            "reason_code": "exact_evidence",
         }
-    if intent_id in {"summary", "comparison", "gap"}:
+    if route in {"composite", "multihop", "summary"}:
         return {
             "search_profile": "recall",
             "search_mode": "hybrid",
-            "candidate_k": 48,
-            "reason": "总结、对比和缺口分析需要覆盖更多资料，优先扩大召回。",
-        }
-    if token_count <= 2:
-        return {
-            "search_profile": "precision",
-            "search_mode": "keyword",
-            "candidate_k": 16,
-            "reason": "短问题容易语义漂移，先用关键词锁定证据。",
+            "candidate_k": 40,
+            "reason_code": "coverage_required",
         }
     return {
         "search_profile": "balanced",
         "search_mode": "hybrid",
-        "candidate_k": 24,
-        "reason": "默认使用混合检索，在召回和准确性之间保持平衡。",
+        "candidate_k": 40,
+        "reason_code": "balanced_default",
     }
