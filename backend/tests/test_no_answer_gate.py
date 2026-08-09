@@ -235,6 +235,109 @@ def test_identifier_gate_handles_chinese_entities_and_never_joins_leaves():
     ) == (True, "identifier_mismatch")
 
 
+def test_identifier_gate_requires_entity_version_and_target_in_one_leaf():
+    engine = RagEngine(StaticRetriever([]))
+    split_entity_and_target = [
+        {
+            "score": 0.95,
+            "rerank_score": 0.95,
+            "matched_terms": ["aurora", "v2"],
+            "chunk": SimpleNamespace(text="Aurora v2 release notes."),
+        },
+        {
+            "score": 0.9,
+            "rerank_score": 0.9,
+            "matched_terms": ["v2", "timeout"],
+            "chunk": SimpleNamespace(
+                text="Borealis v2 timeout is 60 seconds."
+            ),
+        },
+    ]
+
+    assert engine._should_refuse(
+        "What is Aurora v2 timeout?",
+        split_entity_and_target,
+        0.95,
+        0.05,
+    ) == (True, "identifier_mismatch")
+
+
+def test_identifier_gate_allows_comparison_evidence_across_leaves():
+    engine = RagEngine(StaticRetriever([]))
+    comparison_evidence = [
+        {
+            "score": 0.95,
+            "rerank_score": 0.95,
+            "matched_terms": ["aurora", "v2", "timeout"],
+            "chunk": SimpleNamespace(text="Aurora v2 timeout is 60 seconds."),
+        },
+        {
+            "score": 0.9,
+            "rerank_score": 0.9,
+            "matched_terms": ["borealis", "v2", "timeout"],
+            "chunk": SimpleNamespace(text="Borealis v2 timeout is 45 seconds."),
+        },
+    ]
+
+    assert engine._should_refuse(
+        "Compare Aurora v2 and Borealis v2 timeout.",
+        comparison_evidence,
+        0.95,
+        0.05,
+    ) == (False, "")
+
+
+def test_identifier_gate_requires_target_evidence_for_each_comparison_side():
+    engine = RagEngine(StaticRetriever([]))
+    missing_borealis_target = [
+        {
+            "score": 0.95,
+            "rerank_score": 0.95,
+            "matched_terms": ["aurora", "v2", "timeout"],
+            "chunk": SimpleNamespace(text="Aurora v2 timeout is 60 seconds."),
+        },
+        {
+            "score": 0.9,
+            "rerank_score": 0.9,
+            "matched_terms": ["borealis", "v2"],
+            "chunk": SimpleNamespace(text="Borealis v2 release notes."),
+        },
+    ]
+    third_party_target = [
+        {
+            "score": 0.95,
+            "rerank_score": 0.95,
+            "matched_terms": ["aurora", "v2"],
+            "chunk": SimpleNamespace(text="Aurora v2 release notes."),
+        },
+        {
+            "score": 0.9,
+            "rerank_score": 0.9,
+            "matched_terms": ["borealis", "v2"],
+            "chunk": SimpleNamespace(text="Borealis v2 release notes."),
+        },
+        {
+            "score": 0.85,
+            "rerank_score": 0.85,
+            "matched_terms": ["celeste", "v2", "timeout"],
+            "chunk": SimpleNamespace(text="Celeste v2 timeout is 30 seconds."),
+        },
+    ]
+
+    assert engine._should_refuse(
+        "Compare Aurora v2 and Borealis v2 timeout.",
+        missing_borealis_target,
+        0.95,
+        0.05,
+    ) == (True, "identifier_mismatch")
+    assert engine._should_refuse(
+        "Compare Aurora v2 and Borealis v2 timeout.",
+        third_party_target,
+        0.95,
+        0.05,
+    ) == (True, "identifier_mismatch")
+
+
 def test_identifier_gate_accepts_equivalent_supported_entity_spellings():
     engine = RagEngine(StaticRetriever([]))
     ranked = [
@@ -278,6 +381,34 @@ def test_identifier_gate_normalizes_bound_and_spaced_version_spellings():
     ) == (False, "")
     assert engine._should_refuse(
         "Aurora-v2 timeout?", spaced, 0.95, 0.05
+    ) == (False, "")
+
+
+def test_identifier_gate_ignores_caption_wrapper_around_error_code():
+    engine = RagEngine(StaticRetriever([]))
+    ranked = [
+        {
+            "score": 0.95,
+            "rerank_score": 0.95,
+            "matched_terms": ["img", "11", "504", "错误"],
+            "chunk": SimpleNamespace(
+                text=(
+                    "## IMG-11 错误恢复 Caption IMG-11：504 错误卡显示 "
+                    "request ID、重试按钮和已保留的问题文本。"
+                )
+            ),
+        }
+    ]
+
+    assert _extract_identifier_contexts("Caption IMG-11：504 错误卡") >= {
+        ("img", "11"),
+        ("img 11", "504"),
+    }
+    assert _extract_identifier_contexts("Caption v2 rendering") == {
+        ("caption", "v2")
+    }
+    assert engine._should_refuse(
+        "IMG-11 的 504 错误卡保留哪些恢复信息？", ranked, 0.95, 0.05
     ) == (False, "")
 
 
@@ -464,14 +595,14 @@ def test_unrelated_gap_marker_does_not_reject_supported_target_field():
         {
             "score": 0.96,
             "rerank_score": 0.96,
-            "matched_terms": ["nova", "v2", "管理员口令"],
-            "chunk": SimpleNamespace(text="Nova v2 的管理员口令未提供"),
+            "matched_terms": ["nova", "v2", "默认超时"],
+            "chunk": SimpleNamespace(text="Nova v2 的默认超时为 60 秒"),
         },
         {
             "score": 0.94,
             "rerank_score": 0.94,
-            "matched_terms": ["nova", "v2", "默认超时"],
-            "chunk": SimpleNamespace(text="Nova v2 的默认超时为 60 秒"),
+            "matched_terms": ["nova", "v2", "管理员口令"],
+            "chunk": SimpleNamespace(text="Nova v2 的管理员口令未提供"),
         },
     ]
 
@@ -494,6 +625,195 @@ def test_unrelated_gap_marker_does_not_reject_supported_target_field():
     ]
     assert engine._should_refuse(
         "What is Nova v2 timeout?", english_ranked, 0.95, 0.05
+    ) == (False, "")
+
+
+def test_lower_rank_same_identifier_gap_requires_requested_field_match():
+    engine = RagEngine(StaticRetriever([]))
+    ranked = [
+        {
+            "score": 0.95,
+            "rerank_score": 0.95,
+            "matched_terms": ["nova", "v2"],
+            "chunk": SimpleNamespace(
+                text="Nova v2 default timeout is 60 seconds."
+            ),
+        },
+        {
+            "score": 0.8,
+            "rerank_score": 0.8,
+            "matched_terms": ["nova", "v2"],
+            "chunk": SimpleNamespace(
+                text="Nova v2 administrator password is not provided."
+            ),
+        },
+    ]
+
+    assert engine._should_refuse(
+        "Nova v2 的默认超时是多少？", ranked, 0.95, 0.05
+    ) == (False, "")
+
+
+def test_top_rank_pure_gap_fails_closed_without_lexical_overlap():
+    engine = RagEngine(StaticRetriever([]))
+    ranked = [
+        {
+            "score": 0.95,
+            "rerank_score": 0.95,
+            "matched_terms": [],
+            "chunk": SimpleNamespace(
+                text="The administrator password is not provided."
+            ),
+        }
+    ]
+
+    assert engine._should_refuse(
+        "管理员口令是什么？", ranked, 0.95, 0.05
+    ) == (True, "explicit_evidence_gap")
+
+
+def test_top_rank_wrapper_sentence_cannot_hide_cross_language_gap():
+    engine = RagEngine(StaticRetriever([]))
+    ranked = [
+        {
+            "score": 0.95,
+            "rerank_score": 0.95,
+            "matched_terms": [],
+            "chunk": SimpleNamespace(
+                text=(
+                    "Password policy.\n"
+                    "The administrator password is not provided."
+                )
+            ),
+        }
+    ]
+
+    assert engine._should_refuse(
+        "管理员口令是什么？", ranked, 0.95, 0.05
+    ) == (True, "explicit_evidence_gap")
+
+
+def test_top_rank_identifier_gap_does_not_override_positive_same_leaf():
+    engine = RagEngine(StaticRetriever([]))
+    ranked = [
+        {
+            "score": 0.95,
+            "rerank_score": 0.95,
+            "matched_terms": ["nova", "v2"],
+            "chunk": SimpleNamespace(
+                text=(
+                    "Nova v2 default timeout is 60 seconds. "
+                    "Nova v2 administrator password is not provided."
+                )
+            ),
+        }
+    ]
+
+    assert engine._should_refuse(
+        "What is Nova v2 default timeout?", ranked, 0.95, 0.05
+    ) == (False, "")
+
+
+def test_top_rank_identifier_can_link_cross_language_gap_without_field_terms():
+    engine = RagEngine(StaticRetriever([]))
+    ranked = [
+        {
+            "score": 0.95,
+            "rerank_score": 0.95,
+            "matched_terms": ["nova", "v2"],
+            "chunk": SimpleNamespace(
+                text=(
+                    "Nova v2 release notes. "
+                    "Nova v2 administrator password is not provided."
+                )
+            ),
+        }
+    ]
+
+    assert engine._should_refuse(
+        "Nova v2 的管理员口令是什么？", ranked, 0.95, 0.05
+    ) == (True, "explicit_evidence_gap")
+
+
+def test_unmatched_generic_gap_leaf_does_not_override_exact_evidence():
+    engine = RagEngine(StaticRetriever([]))
+    ranked = [
+        {
+            "score": 0.95,
+            "rerank_score": 0.95,
+            "matched_terms": ["graphalpha3", "graphtarget3"],
+            "chunk": SimpleNamespace(
+                text=(
+                    "GraphAlpha3 contains GraphBridge3. "
+                    "GraphBridge3 uses GraphTarget3."
+                )
+            ),
+        },
+        {
+            "score": 0.2,
+            "rerank_score": 0.2,
+            "matched_terms": [],
+            "chunk": SimpleNamespace(
+                text="当前资料没有提供 Kubernetes 生产监控配置。"
+            ),
+        },
+    ]
+
+    assert engine._should_refuse(
+        "GraphAlpha3 与 GraphTarget3 的关系路径是什么？", ranked, 0.95, 0.05
+    ) == (False, "")
+
+
+def test_prefix_collision_in_gap_field_does_not_override_exact_evidence():
+    engine = RagEngine(StaticRetriever([]))
+    ranked = [
+        {
+            "score": 0.95,
+            "rerank_score": 0.95,
+            "matched_terms": ["img", "02", "querystar", "靠近", "相似度"],
+            "chunk": SimpleNamespace(
+                text=(
+                    "Caption IMG-02：QueryStar 靠近 EvidenceMoon，"
+                    "余弦相似度为 0.91。"
+                )
+            ),
+        },
+        {
+            "score": 0.4,
+            "rerank_score": 0.4,
+            "matched_terms": ["对象"],
+            "chunk": SimpleNamespace(
+                text="当前演示资料没有提供对象存储或生产监控配置。"
+            ),
+        },
+    ]
+
+    assert engine._should_refuse(
+        "IMG-02 中 QueryStar 靠近哪个对象，相似度多少？",
+        ranked,
+        0.95,
+        0.05,
+    ) == (False, "")
+
+
+def test_unrelated_gap_sentence_in_same_leaf_does_not_override_target_fact():
+    engine = RagEngine(StaticRetriever([]))
+    ranked = [
+        {
+            "score": 0.95,
+            "rerank_score": 0.95,
+            "matched_terms": ["conflict", "01", "查询", "图片", "保留"],
+            "chunk": SimpleNamespace(
+                text=(
+                    "CONFLICT-01：当前 v0.3 规则优先，查询图片保留 24 小时。"
+                    "对于知识库未覆盖的外部专业操作问题，系统必须拒答。"
+                )
+            ),
+        }
+    ]
+
+    assert engine._should_refuse(
+        "CONFLICT-01 中查询图片当前保留多久？", ranked, 0.95, 0.05
     ) == (False, "")
 
 

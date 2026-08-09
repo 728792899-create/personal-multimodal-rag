@@ -245,6 +245,17 @@ GAP_CLAUSE_STOPWORDS = GAP_QUERY_STOPWORDS | GAP_ANAPHORA_TOKENS | {
     "provided",
     "unavailable",
 }
+COMPARISON_QUERY_MARKERS = (
+    " compare ",
+    " comparison ",
+    " versus ",
+    " vs ",
+    "比较",
+    "对比",
+    "区别",
+    "差异",
+)
+COMPARISON_QUERY_CONNECTORS = (" and ", "与", "和")
 
 
 def _is_legal_dns_hostname(hostname: str) -> bool:
@@ -468,6 +479,61 @@ def _extract_identifier_contexts(value: object) -> set[tuple[str, str]]:
 
 def _entity_before_identifier(text: str, identifier_start: int) -> str:
     context_start = max(0, identifier_start - 128)
+
+    # OCR/caption fixtures commonly prefix an image label as
+    # ``Caption IMG-11:``.  Treat only that finite label grammar as a wrapper;
+    # ``Caption v2`` remains a legitimate product/version context.
+    lowered_text = text.lower()
+    caption_marker = "caption img-"
+    identifier_end = identifier_start
+    while identifier_end < len(text) and (
+        lowered_text[identifier_end] in ASCII_DIGITS | frozenset(".-")
+    ):
+        identifier_end += 1
+    marker_start = identifier_start - len(caption_marker)
+    if (
+        marker_start >= context_start
+        and lowered_text[marker_start:identifier_start] == caption_marker
+        and identifier_end > identifier_start
+        and identifier_end < len(text)
+        and text[identifier_end] in ":："
+        and (
+            marker_start == 0
+            or not (
+                lowered_text[marker_start - 1].isalnum()
+                or lowered_text[marker_start - 1] == "_"
+            )
+        )
+    ):
+        return "img"
+    if identifier_start > context_start and text[identifier_start - 1] in ":：":
+        label_end = identifier_start - 1
+        marker_start = lowered_text.rfind(
+            caption_marker, context_start, label_end
+        )
+        if marker_start >= context_start:
+            label_identifier = lowered_text[
+                marker_start + len(caption_marker) : label_end
+            ]
+            if (
+                label_identifier
+                and all(
+                    character in ASCII_DIGITS | frozenset(".-")
+                    for character in label_identifier
+                )
+                and (
+                    marker_start == 0
+                    or not (
+                        lowered_text[marker_start - 1].isalnum()
+                        or lowered_text[marker_start - 1] == "_"
+                    )
+                )
+            ):
+                normalized_label = " ".join(
+                    label_identifier.replace("-", " ").split()
+                )
+                return f"img {normalized_label}"
+
     boundary = max(
         (
             text.rfind(character, context_start, identifier_start)
@@ -573,23 +639,47 @@ def _gap_clause_is_anaphoric(sentence: str) -> bool:
     return not tokens or tokens.issubset(GAP_ANAPHORA_TOKENS)
 
 
-def _evidence_gap_matches_query(query: str, leaf_texts: list[str]) -> bool:
-    """Return true only when a documented gap concerns the requested field."""
-
-    query_tokens = set(retrieval_tokens(query))
-    query_identifiers = {
-        identifier for identifier, _start, _end in _identifier_occurrences(query)
-    }
-    query_entities = {
-        entity
-        for entity, _identifier in _extract_identifier_contexts(query)
-    }
+def _query_field_tokens(
+    query: str,
+    query_identifiers: set[str],
+    query_entities: set[str],
+) -> set[str]:
     ignored_tokens = set(GAP_QUERY_STOPWORDS) | query_identifiers
     for entity in query_entities:
         ignored_tokens.update(retrieval_tokens(entity))
-    target_tokens = {
-        token for token in query_tokens if token not in ignored_tokens and len(token) > 1
+    return {
+        token
+        for token in retrieval_tokens(query)
+        if token not in ignored_tokens and len(token) > 1
     }
+
+
+def _is_comparison_query(
+    query: str,
+    identifier_contexts: set[tuple[str, str]],
+) -> bool:
+    normalized = f" {' '.join(str(query or '').lower().split())} "
+    if any(marker in normalized for marker in COMPARISON_QUERY_MARKERS):
+        return True
+    return len(identifier_contexts) > 1 and any(
+        connector in normalized for connector in COMPARISON_QUERY_CONNECTORS
+    )
+
+
+def _evidence_gap_matches_query(query: str, leaf_texts: list[str]) -> bool:
+    """Return true only when a documented gap concerns the requested field."""
+
+    query_identifiers = {
+        identifier for identifier, _start, _end in _identifier_occurrences(query)
+    }
+    query_identifier_contexts = _extract_identifier_contexts(query)
+    query_entities = {
+        entity for entity, _identifier in query_identifier_contexts
+    }
+    raw_target_tokens = _query_field_tokens(
+        query, query_identifiers, query_entities
+    )
+    target_tokens = set(raw_target_tokens)
     target_phrases = _query_target_phrases(query, query_entities)
     if target_phrases:
         target_tokens = {
@@ -613,9 +703,9 @@ def _evidence_gap_matches_query(query: str, leaf_texts: list[str]) -> bool:
         # naming that head must not be outweighed by a longer positive sentence.
         critical_targets.add(ordered_target_tokens[-1])
 
-    gap_sentences: list[str] = []
-    positive_sentences: list[str] = []
-    for leaf_text in leaf_texts:
+    gap_sentences: list[tuple[int, str]] = []
+    positive_sentences: list[tuple[int, str]] = []
+    for leaf_index, leaf_text in enumerate(leaf_texts):
         start = 0
         previous_clause = ""
         for index in range(len(leaf_text) + 1):
@@ -636,18 +726,26 @@ def _evidence_gap_matches_query(query: str, leaf_texts: list[str]) -> bool:
             if not sentence:
                 continue
             if any(marker in sentence.lower() for marker in EVIDENCE_GAP_MARKERS):
-                gap_sentences.append(
-                    f"{previous_clause} {sentence}".strip()
-                    if previous_clause and _gap_clause_is_anaphoric(sentence)
-                    else sentence
+                anaphoric = bool(
+                    previous_clause and _gap_clause_is_anaphoric(sentence)
                 )
+                if (
+                    anaphoric
+                    and positive_sentences
+                    and positive_sentences[-1] == (leaf_index, previous_clause)
+                ):
+                    positive_sentences.pop()
+                gap_sentences.append((
+                    leaf_index,
+                    f"{previous_clause} {sentence}".strip()
+                    if anaphoric
+                    else sentence,
+                ))
             else:
-                positive_sentences.append(sentence)
+                positive_sentences.append((leaf_index, sentence))
             previous_clause = sentence
     if not gap_sentences:
         return False
-    if not target_tokens:
-        return not positive_sentences
 
     def target_coverage(sentence: str) -> int:
         lowered_sentence = sentence.lower()
@@ -662,14 +760,34 @@ def _evidence_gap_matches_query(query: str, leaf_texts: list[str]) -> bool:
             )
         )
 
-    gap_coverage = max(
-        (target_coverage(sentence) for sentence in gap_sentences),
-        default=0,
-    )
     positive_coverage = max(
-        (target_coverage(sentence) for sentence in positive_sentences),
+        (target_coverage(sentence) for _leaf_index, sentence in positive_sentences),
         default=0,
     )
+    minimum_positive_matches = min(2, len(raw_target_tokens))
+
+    def positive_supports_target(sentence: str) -> bool:
+        if not minimum_positive_matches:
+            return False
+        sentence_tokens = set(retrieval_tokens(sentence))
+        return (
+            len(raw_target_tokens.intersection(sentence_tokens))
+            >= minimum_positive_matches
+        )
+
+    top_has_target_positive = any(
+        leaf_index == 0 and positive_supports_target(sentence)
+        for leaf_index, sentence in positive_sentences
+    )
+    if (
+        any(leaf_index == 0 for leaf_index, _sentence in gap_sentences)
+        and not top_has_target_positive
+    ):
+        # A title or wrapper sentence is not affirmative evidence.  When the
+        # strongest leaf contains an explicit limitation but no positive
+        # sentence supporting the requested field, remain fail-closed even for
+        # cross-language or synonym-only queries.
+        return True
     query_entity_tokens = {
         token for entity in query_entities for token in retrieval_tokens(entity)
     }
@@ -690,6 +808,42 @@ def _evidence_gap_matches_query(query: str, leaf_texts: list[str]) -> bool:
             if any(phrase in lowered_sentence for phrase in related_phrases):
                 return True
             target_index = lowered_sentence.find(target)
+            target_end = target_index + len(target)
+            if (
+                target_end < len(lowered_sentence)
+                and "\u4e00" <= lowered_sentence[target_end] <= "\u9fff"
+            ):
+                suffix_end = target_end
+                while (
+                    suffix_end < len(lowered_sentence)
+                    and "\u4e00" <= lowered_sentence[suffix_end] <= "\u9fff"
+                ):
+                    suffix_end += 1
+                suffix = lowered_sentence[target_end:suffix_end]
+                marker_positions = [
+                    suffix.find(marker)
+                    for marker in EVIDENCE_GAP_MARKERS
+                    if marker and marker in suffix
+                ]
+                marker_index = min(marker_positions, default=-1)
+                field_suffix = (
+                    suffix[:marker_index].lstrip("的该此")
+                    if marker_index >= 0
+                    else suffix
+                )
+                if marker_index < 0 or field_suffix not in {
+                    "",
+                    "值",
+                    "信息",
+                    "内容",
+                    "详情",
+                    "数据",
+                    "参数",
+                    "配置",
+                    "状态",
+                    "规则",
+                }:
+                    return False
             prefix_start = target_index
             while (
                 prefix_start > 0
@@ -722,9 +876,51 @@ def _evidence_gap_matches_query(query: str, leaf_texts: list[str]) -> bool:
         )
         return not qualifiers or qualifiers.issubset(query_modifiers)
 
+    def identifier_matches(sentence: str) -> bool:
+        sentence_identifiers = {
+            identifier
+            for identifier, _start, _end in _identifier_occurrences(sentence)
+        }
+        if not query_identifiers.intersection(sentence_identifiers):
+            return False
+        if not query_identifier_contexts:
+            return True
+        sentence_contexts = _extract_identifier_contexts(sentence)
+        return bool(query_identifier_contexts.intersection(sentence_contexts))
+
+    # A generic documented limitation in another retrieved passage must not
+    # veto an otherwise supported answer.  Lower-ranked leaves can participate
+    # only through a requested field match; a shared entity/version alone is
+    # insufficient because a different field may be missing in that leaf.
+    relevant_gap_sentences: list[tuple[int, str]] = []
+    top_identifier_gap = False
+    for leaf_index, sentence in gap_sentences:
+        field_matches = target_coverage(sentence) > 0 or any(
+            critical_target_matches(sentence, target)
+            for target in critical_targets
+        )
+        identifier_assists = bool(
+            leaf_index == 0
+            and not top_has_target_positive
+            and identifier_matches(sentence)
+        )
+        if field_matches or identifier_assists:
+            relevant_gap_sentences.append((leaf_index, sentence))
+            top_identifier_gap = top_identifier_gap or identifier_assists
+    gap_sentences = relevant_gap_sentences
+    if not gap_sentences:
+        return False
+    if top_identifier_gap:
+        return True
+
+    gap_coverage = max(
+        (target_coverage(sentence) for _leaf_index, sentence in gap_sentences),
+        default=0,
+    )
+
     if any(
         critical_target_matches(sentence, target)
-        for sentence in gap_sentences
+        for _leaf_index, sentence in gap_sentences
         for target in critical_targets
     ):
         return True
@@ -1352,6 +1548,46 @@ class RagEngine:
                 or not identifier_contexts.issubset(evidence_identifier_contexts)
             )
         )
+        if (
+            not identifier_mismatch
+            and identifier_contexts
+        ):
+            query_entities = {
+                entity for entity, _identifier in identifier_contexts
+            }
+            query_field_tokens = _query_field_tokens(
+                query_context_text,
+                direct_identifiers,
+                query_entities,
+            )
+            if query_field_tokens:
+                target_leaf_texts = [
+                    leaf_text
+                    for leaf_text in leaf_evidence_texts
+                    if query_field_tokens.intersection(
+                        retrieval_tokens(leaf_text)
+                    )
+                ]
+                if target_leaf_texts:
+                    target_leaf_contexts = [
+                        _extract_identifier_contexts(leaf_text)
+                        for leaf_text in target_leaf_texts
+                    ]
+                    if _is_comparison_query(
+                        reference_context_text, identifier_contexts
+                    ):
+                        identifier_mismatch = not all(
+                            any(
+                                context in leaf_contexts
+                                for leaf_contexts in target_leaf_contexts
+                            )
+                            for context in identifier_contexts
+                        )
+                    elif len(identifier_contexts) == 1:
+                        identifier_mismatch = not any(
+                            identifier_contexts.issubset(leaf_contexts)
+                            for leaf_contexts in target_leaf_contexts
+                        )
         if not availability_question and _evidence_gap_matches_query(
             query_context_text, leaf_evidence_texts
         ):
