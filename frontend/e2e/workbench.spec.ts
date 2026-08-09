@@ -414,6 +414,7 @@ test('image question, graph controls and accessible graph evidence stay connecte
   expect(api.askBodies[0]).toMatchObject({ attachments: [{ id: 'query-1', detail: 'high' }], strategy: 'auto' })
 
   await page.getByTestId('mode-expert').click()
+  await page.locator('select[name="routing-mode"]').selectOption('manual')
   await page.locator('select[name="retrieval-strategy"]').selectOption('hybrid_graph')
   await page.locator('input[name="graph-hops"]').fill('2')
   await openInspector(page)
@@ -469,8 +470,10 @@ test('session authentication gates the workbench and logout revokes access', asy
           required: true,
           authenticated,
           user_id: authenticated ? 'owner' : '',
+          username: authenticated ? 'admin' : '',
           workspace_id: authenticated ? 'default' : '',
-          role: authenticated ? 'owner' : '',
+          role: authenticated ? 'admin' : '',
+          must_change_password: false,
           csrf_token: authenticated ? 'csrf-test' : '',
           expires_at: authenticated ? '2099-01-01T00:00:00' : '',
         },
@@ -478,12 +481,13 @@ test('session authentication gates the workbench and logout revokes access', asy
     })
   })
   await page.route('**/api/auth/login', async (route) => {
-    authenticated = route.request().postDataJSON().password === 'correct password'
+    const credentials = route.request().postDataJSON()
+    authenticated = credentials.username === 'admin' && credentials.password === 'correct password'
     await route.fulfill({
       status: authenticated ? 200 : 401,
       contentType: 'application/json',
       body: JSON.stringify(authenticated
-        ? { session: { required: true, authenticated: true, user_id: 'owner', workspace_id: 'default', role: 'owner', csrf_token: 'csrf-test', expires_at: '2099-01-01T00:00:00' } }
+        ? { session: { required: true, authenticated: true, user_id: 'owner', username: 'admin', workspace_id: 'default', role: 'admin', must_change_password: false, csrf_token: 'csrf-test', expires_at: '2099-01-01T00:00:00' } }
         : { detail: 'Invalid administrator credentials' }),
     })
   })
@@ -499,7 +503,8 @@ test('session authentication gates the workbench and logout revokes access', asy
   await page.goto('/')
 
   await expect(page.getByRole('heading', { name: '个人多模态 RAG' })).toBeVisible()
-  await page.getByLabel('管理员密码').fill('correct password')
+  await page.getByLabel('用户名').fill('admin')
+  await page.getByLabel('密码').fill('correct password')
   await page.getByRole('button', { name: '登录工作台' }).click()
   await expect(page.getByTestId('file-input')).toBeAttached()
 

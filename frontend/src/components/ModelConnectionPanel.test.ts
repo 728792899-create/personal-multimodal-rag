@@ -8,13 +8,15 @@ import type { ProviderStatus } from '../api'
 function providerStatus(options: {
   runtimeActive?: boolean
   serverDeepSeekReady?: boolean
+  production?: boolean
 } = {}): ProviderStatus {
   const runtimeActive = options.runtimeActive ?? false
   const serverDeepSeekReady = options.serverDeepSeekReady ?? false
   return {
     status: 'ready',
-    environment: 'test',
+    environment: options.production ? 'production' : 'test',
     fallback_allowed: true,
+    runtime_configuration_allowed: !options.production,
     runtime: {
       deepseek: {
         connected: runtimeActive,
@@ -148,6 +150,33 @@ describe('模型连接面板', () => {
     expect(wrapper.find('[data-testid="clear-deepseek"]').exists()).toBe(false)
   })
 
+  it('生产环境只显示部署状态，不渲染密钥输入或运行时操作', () => {
+    const wrapper = mount(ModelConnectionPanel, {
+      props: {
+        canManageProviders: true,
+        providerStatus: providerStatus({ serverDeepSeekReady: true, production: true }),
+        open: true,
+      },
+    })
+
+    expect(wrapper.text()).toContain('生产环境仅显示模型与健康状态')
+    expect(wrapper.text()).toContain('Docker secrets')
+    expect(wrapper.find('[data-testid="deepseek-api-key"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="connect-deepseek"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="clear-deepseek"]').exists()).toBe(false)
+  })
+
+  it('状态未加载时默认关闭密钥配置', () => {
+    const wrapper = mount(ModelConnectionPanel, {
+      props: { canManageProviders: true, providerStatus: null, open: true },
+    })
+
+    expect(wrapper.text()).toContain('密钥配置暂时关闭')
+    expect(wrapper.find('[data-testid="deepseek-api-key"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="connect-deepseek"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="clear-deepseek"]').exists()).toBe(false)
+  })
+
   it('运行时连接启用时仍显示输入框，并且只在此时显示清除按钮', () => {
     const wrapper = mount(ModelConnectionPanel, {
       props: {
@@ -227,7 +256,7 @@ describe('模型连接面板', () => {
     expect(wrapper.get('[data-testid="connect-deepseek"]').attributes('disabled')).toBeUndefined()
   })
 
-  it('没有受保护管理员会话时禁用连接和清除操作', () => {
+  it('没有受保护管理员会话时隐藏连接和清除操作', () => {
     const wrapper = mount(ModelConnectionPanel, {
       props: {
         canManageProviders: false,
@@ -237,10 +266,10 @@ describe('模型连接面板', () => {
     })
 
     expect(wrapper.text()).toContain('当前会话没有模型连接管理权限')
-    expect(wrapper.get('[data-testid="deepseek-api-key"]').attributes('disabled')).toBeDefined()
-    expect(wrapper.get('[data-testid="deepseek-data-consent"]').attributes('disabled')).toBeDefined()
-    expect(wrapper.get('[data-testid="connect-deepseek"]').attributes('disabled')).toBeDefined()
-    expect(wrapper.get('[data-testid="clear-deepseek"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('[data-testid="deepseek-api-key"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="deepseek-data-consent"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="connect-deepseek"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="clear-deepseek"]').exists()).toBe(false)
   })
 
   it('关闭抽屉不会中止已经提交的连接请求', async () => {
@@ -308,8 +337,12 @@ describe('模型连接面板', () => {
     expect(wrapper.text()).toContain('临时连接已启用')
   })
 
-  it('初始状态未知时仍以成功响应显示已连接，不依赖后续状态刷新', async () => {
+  it('初始状态未知时先刷新授权策略，再允许提交连接', async () => {
     const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(providerStatus()), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }))
       .mockResolvedValueOnce(new Response(JSON.stringify({
         status: 'ready',
         connection: providerStatus({ runtimeActive: true }).runtime?.deepseek,
@@ -323,9 +356,12 @@ describe('模型连接面板', () => {
       }))
     vi.stubGlobal('fetch', fetchMock)
     const wrapper = mount(ModelConnectionPanel, {
-      props: { canManageProviders: true, providerStatus: null, open: true },
+      props: { canManageProviders: true, providerStatus: null, open: false },
     })
 
+    expect(wrapper.find('[data-testid="deepseek-api-key"]').exists()).toBe(false)
+    await wrapper.setProps({ open: true })
+    await flushPromises()
     await wrapper.get('[data-testid="deepseek-api-key"]').setValue('sk-test-secret')
     await wrapper.get('[data-testid="deepseek-data-consent"]').setValue(true)
     await wrapper.get('form').trigger('submit')
@@ -333,7 +369,7 @@ describe('模型连接面板', () => {
 
     expect(wrapper.get('[role="status"]').text()).toContain('连接已生效但状态刷新失败')
     expect(wrapper.text()).toContain('临时连接已启用')
-    expect(wrapper.emitted('statusChange')).toHaveLength(1)
+    expect(wrapper.emitted('statusChange')).toHaveLength(2)
   })
 
   it('每次从关闭状态打开面板都会主动刷新连接状态', async () => {

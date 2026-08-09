@@ -1,19 +1,973 @@
 from __future__ import annotations
 
 import time
+from urllib.parse import urlsplit
 
 from app.services.answer_generator import BaseAnswerGenerator, TemplateAnswerGenerator
 from app.services.citation_audit import audit_answer
 from app.services.embeddings import MockEmbeddingProvider
 from app.services.retriever import HybridRetriever
 from app.services.safe_logging import public_error_message, redact_private_metadata
+from app.services.text_utils import retrieval_tokens
 
 
 LOW_INFORMATION_MATCHES = {
     "api", "app", "store", "系统", "流程", "方式", "功能", "参数", "配置", "应该", "需要",
     "问题", "资料", "文档", "项目", "目的", "规则", "内容", "相关", "什么", "怎么", "如何",
-    "多少", "是否", "提供", "哪些", "当前", "自动",
+    "多少", "是否", "提供", "哪些", "当前", "自动", "恢复",
 }
+LOW_INFORMATION_BOUNDARY_CHARS = set("的了是在中和与或对为这那")
+EVIDENCE_GAP_MARKERS = (
+    "没有提供",
+    "未提供",
+    "并未提供",
+    "没有覆盖",
+    "未覆盖",
+    "资料不足",
+    "not provided",
+    "not available",
+    "does not provide",
+    "is not covered",
+)
+AVAILABILITY_QUESTION_MARKERS = (
+    "有没有",
+    "有无",
+    "现有资料",
+    "当前资料",
+    "知识库是否",
+    "是否覆盖",
+    "是否提供",
+    "覆盖哪些",
+    "已经覆盖",
+    "有提供",
+)
+GAP_QUERY_STOPWORDS = {
+    "what",
+    "which",
+    "how",
+    "does",
+    "do",
+    "is",
+    "are",
+    "the",
+    "a",
+    "an",
+    "for",
+    "of",
+    "什么",
+    "怎么",
+    "如何",
+    "多少",
+    "是否",
+    "提供",
+    "当前",
+    "资料",
+    "文档",
+    "问题",
+}
+ASCII_LOWERCASE = frozenset("abcdefghijklmnopqrstuvwxyz")
+ASCII_DIGITS = frozenset("0123456789")
+IDENTIFIER_BODY = ASCII_LOWERCASE | ASCII_DIGITS | frozenset("_.-")
+DNS_LABEL_CHARACTERS = ASCII_LOWERCASE | ASCII_DIGITS | frozenset("-")
+DEEPSEEK_DOMAIN = "deepseek.com"
+NON_ENTITY_IDENTIFIER_CONTEXT = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "do",
+    "does",
+    "describe",
+    "explain",
+    "about",
+    "against",
+    "can",
+    "could",
+    "for",
+    "from",
+    "i",
+    "introduce",
+    "me",
+    "new",
+    "in",
+    "is",
+    "of",
+    "on",
+    "or",
+    "please",
+    "the",
+    "tell",
+    "to",
+    "compare",
+    "use",
+    "using",
+    "versus",
+    "vs",
+    "what",
+    "which",
+    "with",
+    "would",
+    "you",
+}
+IDENTIFIER_CONTEXT_LINKERS = ("的版本", "的型号", "version", "版本", "型号", "ver", "的")
+IDENTIFIER_CONTEXT_WRAPPERS = set(" \t\r()[]{}<>（）【】《》'’\"/\\,，:：")
+IDENTIFIER_CONTEXT_BOUNDARIES = set("\n;；。!！?？")
+EVIDENCE_SENTENCE_BOUNDARIES = IDENTIFIER_CONTEXT_BOUNDARIES | {",", "，", "."}
+CHINESE_ENTITY_PREFIXES = (
+    "能否介绍一下",
+    "可以介绍一下",
+    "麻烦介绍一下",
+    "请介绍一下",
+    "请帮我查询",
+    "帮我查询",
+    "我想了解",
+    "我想知道",
+    "请帮我",
+    "想了解",
+    "想知道",
+    "帮我",
+    "请问",
+    "能否介绍",
+    "介绍一下",
+    "能否",
+    "关于",
+    "比较",
+    "对比",
+    "查询",
+    "解释",
+    "说明",
+    "使用",
+    "查看",
+    "了解",
+    "以及",
+    "对于",
+    "和",
+    "与",
+    "或",
+)
+CHINESE_ENTITY_SUFFIXES = ("系统", "平台", "产品")
+CHINESE_TARGET_PREFIXES = ("请问", "是否", "有没有", "它的", "该", "这个", "关于", "的")
+CHINESE_TARGET_SUFFIXES = ("是多少", "是什么", "有哪些", "如何", "怎么", "多少", "什么", "为", "吗", "么")
+NUMERIC_IDENTIFIER_LINKERS = ("version", "model", "ver", "版本", "型号")
+NON_NUMERIC_MODEL_ENTITIES = {
+    "age",
+    "amount",
+    "count",
+    "cost",
+    "date",
+    "day",
+    "days",
+    "height",
+    "hour",
+    "hours",
+    "length",
+    "limit",
+    "minute",
+    "minutes",
+    "month",
+    "months",
+    "percent",
+    "percentage",
+    "port",
+    "price",
+    "rate",
+    "retries",
+    "retry",
+    "second",
+    "seconds",
+    "size",
+    "time",
+    "timeout",
+    "total",
+    "value",
+    "week",
+    "weeks",
+    "weight",
+    "width",
+    "year",
+    "years",
+    "价格",
+    "值",
+    "日期",
+    "时间",
+    "次数",
+    "秒",
+    "端口",
+    "总数",
+    "数量",
+    "小时",
+    "长度",
+    "重量",
+    "重试",
+    "费用",
+    "超时",
+    "宽度",
+    "高度",
+}
+GAP_ANAPHORA_TOKENS = {
+    "it",
+    "that",
+    "this",
+    "detail",
+    "details",
+    "information",
+    "data",
+    "资料",
+    "信息",
+    "内容",
+    "该项",
+}
+GAP_GENERIC_QUALIFIERS = {
+    "behavior",
+    "configuration",
+    "data",
+    "detail",
+    "details",
+    "entry",
+    "field",
+    "information",
+    "item",
+    "parameter",
+    "property",
+    "setting",
+    "settings",
+    "status",
+    "value",
+}
+GAP_CLAUSE_STOPWORDS = GAP_QUERY_STOPWORDS | GAP_ANAPHORA_TOKENS | {
+    "available",
+    "covered",
+    "missing",
+    "no",
+    "not",
+    "omitted",
+    "provide",
+    "provided",
+    "unavailable",
+}
+COMPARISON_QUERY_MARKERS = (
+    " compare ",
+    " comparison ",
+    " versus ",
+    " vs ",
+    "比较",
+    "对比",
+    "区别",
+    "差异",
+)
+COMPARISON_QUERY_CONNECTORS = (" and ", "与", "和")
+
+
+def _is_legal_dns_hostname(hostname: str) -> bool:
+    """Validate the ASCII DNS form used for provider trust decisions."""
+
+    if not hostname or len(hostname) > 253:
+        return False
+    labels = hostname.split(".")
+    return all(
+        1 <= len(label) <= 63
+        and label[0] != "-"
+        and label[-1] != "-"
+        and all(character in DNS_LABEL_CHARACTERS for character in label)
+        for label in labels
+    )
+
+
+def _is_deepseek_base_url(value: object) -> bool:
+    """Recognize only DeepSeek itself or a syntactically valid subdomain."""
+
+    try:
+        hostname = (urlsplit(str(value or "").strip()).hostname or "").lower()
+    except (TypeError, ValueError):
+        return False
+    # A single trailing dot is the canonical fully-qualified DNS spelling.
+    if hostname.endswith("."):
+        hostname = hostname[:-1]
+    if not _is_legal_dns_hostname(hostname):
+        return False
+    return hostname == DEEPSEEK_DOMAIN or hostname.endswith(f".{DEEPSEEK_DOMAIN}")
+
+
+def _extract_direct_identifiers(value: object) -> list[str]:
+    """Extract version-like ASCII identifiers with a single linear scan.
+
+    Identifiers start with a letter, contain at least one digit, and may use
+    dots, underscores, or hyphens internally. Trailing separators are omitted.
+    """
+
+    text = str(value or "").lower()
+    identifiers: list[str] = []
+    start: int | None = None
+    has_digit = False
+
+    def is_word_character(character: str | None) -> bool:
+        # Match Python's Unicode-aware ``\b`` behavior closely enough for the
+        # former regex: letters/digits from any script and underscore are word
+        # characters. This prevents a suffix such as Chinese ``模型v2`` from
+        # being reinterpreted as the standalone identifier ``v2``.
+        return character is not None and (character == "_" or character.isalnum())
+
+    for index in range(len(text) + 1):
+        character = text[index] if index < len(text) else None
+        if start is None:
+            if character in ASCII_LOWERCASE:
+                previous = text[index - 1] if index else None
+                if not is_word_character(previous):
+                    start = index
+                    has_digit = False
+            continue
+
+        if character in IDENTIFIER_BODY:
+            has_digit = has_digit or character in ASCII_DIGITS
+            continue
+
+        end = index
+        while end > start and text[end - 1] in ".-":
+            end -= 1
+        has_end_boundary = end < index or not is_word_character(character)
+        if has_digit and end > start and has_end_boundary:
+            identifiers.append(text[start:end])
+        start = None
+        has_digit = False
+
+    return identifiers
+
+
+def _bound_identifier_suffix(identifier: str) -> tuple[str, int]:
+    """Normalize ``Aurora-v2``/``SHA-256`` to their bound identifier suffix."""
+
+    for index, character in enumerate(identifier):
+        if character != "-" or index == 0 or index + 1 >= len(identifier):
+            continue
+        suffix = identifier[index + 1 :]
+        numeric_suffix = suffix[0] in ASCII_DIGITS and all(
+            part and all(item in ASCII_DIGITS for item in part)
+            for part in suffix.replace("-", ".").split(".")
+        )
+        version_suffix = (
+            suffix[0] == "v"
+            and len(suffix) > 1
+            and suffix[1] in ASCII_DIGITS
+        )
+        if numeric_suffix or version_suffix:
+            return suffix, index + 1
+    return identifier, 0
+
+
+def _numeric_identifier_is_contextual(
+    text: str,
+    start: int,
+    identifier: str,
+) -> bool:
+    """Accept a number only when nearby syntax makes it a model/version.
+
+    Decimal/hyphenated versions are distinctive when paired with a nearby
+    entity. Integer models such as ``iphone 15`` require either an explicit
+    version/model linker or a non-measurement entity token, avoiding ordinary
+    values such as ``timeout 60`` becoming mandatory identifiers.
+    """
+
+    prefix = text[max(0, start - 64) : start].rstrip(
+        "".join(IDENTIFIER_CONTEXT_WRAPPERS)
+    )
+    lowered_prefix = prefix.lower().rstrip()
+    for linker in NUMERIC_IDENTIFIER_LINKERS:
+        begin = len(lowered_prefix) - len(linker)
+        if begin < 0 or lowered_prefix[begin:] != linker:
+            continue
+        if (
+            not linker.isascii()
+            or begin == 0
+            or not (
+                lowered_prefix[begin - 1].isalnum()
+                or lowered_prefix[begin - 1] == "_"
+            )
+        ):
+            return True
+    entity = _entity_before_identifier(text, start)
+    if not entity:
+        return False
+    if "." in identifier or "-" in identifier:
+        return True
+    token_start = len(prefix)
+    while token_start > 0 and (
+        prefix[token_start - 1].isalnum() or prefix[token_start - 1] in "_-"
+    ):
+        token_start -= 1
+    product_token = prefix[token_start:].lower().replace("_", " ").replace("-", " ")
+    product_token = " ".join(product_token.split())
+    return bool(
+        product_token
+        and product_token not in NON_NUMERIC_MODEL_ENTITIES
+        and len(identifier) <= 4
+    )
+
+
+def _identifier_occurrences(value: object) -> list[tuple[str, int, int]]:
+    """Find canonical letter-led and contextual numeric identifiers."""
+
+    text = str(value or "")
+    lowered = text.lower()
+    occurrences: list[tuple[str, int, int]] = []
+    index = 0
+    while index < len(lowered):
+        character = lowered[index]
+        if character in ASCII_LOWERCASE and not (
+            index > 0 and lowered[index - 1] in IDENTIFIER_BODY
+        ):
+            start = index
+            index += 1
+            has_digit = False
+            while index < len(lowered) and lowered[index] in IDENTIFIER_BODY:
+                has_digit = has_digit or lowered[index] in ASCII_DIGITS
+                index += 1
+            end = index
+            while end > start and lowered[end - 1] in ".-":
+                end -= 1
+            if has_digit and end > start:
+                identifier = lowered[start:end]
+                identifier, offset = _bound_identifier_suffix(identifier)
+                occurrences.append((identifier, start + offset, end))
+            continue
+        if character not in ASCII_DIGITS or (
+            index > 0
+            and lowered[index - 1] in (IDENTIFIER_BODY | frozenset("."))
+        ):
+            index += 1
+            continue
+        start = index
+        while index < len(lowered) and lowered[index] in ASCII_DIGITS:
+            index += 1
+        end = index
+        while (
+            index + 1 < len(lowered)
+            and lowered[index] in ".-"
+            and lowered[index + 1] in ASCII_DIGITS
+        ):
+            index += 1
+            while index < len(lowered) and lowered[index] in ASCII_DIGITS:
+                index += 1
+            end = index
+        next_character = lowered[end] if end < len(lowered) else ""
+        if next_character and (
+            next_character in IDENTIFIER_BODY or next_character == "."
+        ):
+            continue
+        identifier = lowered[start:end]
+        if _numeric_identifier_is_contextual(text, start, identifier):
+            occurrences.append((identifier, start, end))
+    return occurrences
+
+
+def _extract_identifier_contexts(value: object) -> set[tuple[str, str]]:
+    """Extract conservative ``(entity, identifier)`` references in one leaf.
+
+    The grammar is intentionally finite: a version/model identifier may bind
+    to a nearby Chinese entity or to a bounded ASCII product phrase.
+    It never crosses a sentence or newline, so separate evidence leaves cannot
+    manufacture an entity-version relationship that no leaf states.
+    """
+
+    text = str(value or "")
+    contexts: set[tuple[str, str]] = set()
+    for identifier, start, _end in _identifier_occurrences(text):
+        entity = _entity_before_identifier(text, start)
+        if entity:
+            contexts.add((entity, identifier))
+    return contexts
+
+
+def _entity_before_identifier(text: str, identifier_start: int) -> str:
+    context_start = max(0, identifier_start - 128)
+
+    # OCR/caption fixtures commonly prefix an image label as
+    # ``Caption IMG-11:``.  Treat only that finite label grammar as a wrapper;
+    # ``Caption v2`` remains a legitimate product/version context.
+    lowered_text = text.lower()
+    caption_marker = "caption img-"
+    identifier_end = identifier_start
+    while identifier_end < len(text) and (
+        lowered_text[identifier_end] in ASCII_DIGITS | frozenset(".-")
+    ):
+        identifier_end += 1
+    marker_start = identifier_start - len(caption_marker)
+    if (
+        marker_start >= context_start
+        and lowered_text[marker_start:identifier_start] == caption_marker
+        and identifier_end > identifier_start
+        and identifier_end < len(text)
+        and text[identifier_end] in ":："
+        and (
+            marker_start == 0
+            or not (
+                lowered_text[marker_start - 1].isalnum()
+                or lowered_text[marker_start - 1] == "_"
+            )
+        )
+    ):
+        return "img"
+    if identifier_start > context_start and text[identifier_start - 1] in ":：":
+        label_end = identifier_start - 1
+        marker_start = lowered_text.rfind(
+            caption_marker, context_start, label_end
+        )
+        if marker_start >= context_start:
+            label_identifier = lowered_text[
+                marker_start + len(caption_marker) : label_end
+            ]
+            if (
+                label_identifier
+                and all(
+                    character in ASCII_DIGITS | frozenset(".-")
+                    for character in label_identifier
+                )
+                and (
+                    marker_start == 0
+                    or not (
+                        lowered_text[marker_start - 1].isalnum()
+                        or lowered_text[marker_start - 1] == "_"
+                    )
+                )
+            ):
+                normalized_label = " ".join(
+                    label_identifier.replace("-", " ").split()
+                )
+                return f"img {normalized_label}"
+
+    boundary = max(
+        (
+            text.rfind(character, context_start, identifier_start)
+            for character in IDENTIFIER_CONTEXT_BOUNDARIES
+        ),
+        default=context_start - 1,
+    )
+    boundary = max(boundary, context_start - 1)
+    cursor = identifier_start
+
+    def strip_wrappers(position: int) -> int:
+        while position > boundary + 1 and text[position - 1] in IDENTIFIER_CONTEXT_WRAPPERS:
+            position -= 1
+        return position
+
+    cursor = strip_wrappers(cursor)
+    linker_removed = True
+    while linker_removed and cursor > boundary + 1:
+        linker_removed = False
+        for linker in IDENTIFIER_CONTEXT_LINKERS:
+            begin = cursor - len(linker)
+            if begin < boundary + 1 or text[begin:cursor].lower() != linker:
+                continue
+            if linker.isascii() and begin > boundary + 1:
+                previous = text[begin - 1].lower()
+                if previous.isalnum() or previous == "_":
+                    continue
+            cursor = strip_wrappers(begin)
+            linker_removed = True
+            break
+    if cursor <= boundary + 1:
+        return ""
+
+    if "\u4e00" <= text[cursor - 1] <= "\u9fff":
+        end = cursor
+        while cursor > boundary + 1 and "\u4e00" <= text[cursor - 1] <= "\u9fff":
+            cursor -= 1
+        entity = text[cursor:end]
+        changed = True
+        while changed and entity:
+            changed = False
+            for prefix in CHINESE_ENTITY_PREFIXES:
+                if entity.startswith(prefix):
+                    entity = entity[len(prefix) :]
+                    changed = True
+                    break
+        for suffix in CHINESE_ENTITY_SUFFIXES:
+            if entity.endswith(suffix) and len(entity) > len(suffix):
+                entity = entity[: -len(suffix)]
+                break
+        return entity if 2 <= len(entity) <= 20 else ""
+
+    tokens: list[str] = []
+    for _ in range(4):
+        end = cursor
+        while cursor > boundary + 1 and (
+            text[cursor - 1].isalnum() or text[cursor - 1] in "_-"
+        ):
+            cursor -= 1
+        if cursor == end:
+            break
+        raw = text[cursor:end]
+        normalized = " ".join(raw.lower().replace("_", " ").replace("-", " ").split())
+        if not normalized or normalized in NON_ENTITY_IDENTIFIER_CONTEXT:
+            break
+        tokens.insert(0, normalized)
+        previous = cursor
+        while previous > boundary + 1 and text[previous - 1] in " \t\r":
+            previous -= 1
+        if previous == cursor:
+            break
+        cursor = previous
+    return " ".join(tokens)
+
+
+def _is_availability_question(query: str) -> bool:
+    normalized = " ".join(str(query or "").lower().split())
+    if any(marker in normalized for marker in AVAILABILITY_QUESTION_MARKERS):
+        return True
+    chinese_question = normalized.endswith(("吗", "吗？", "?", "？")) and any(
+        marker in normalized for marker in ("存在", "包含", "有提供", "有覆盖")
+    )
+    english_question = normalized.startswith(
+        ("does ", "do ", "is ", "are ", "has ", "have ", "whether ")
+    ) and any(
+        marker in normalized
+        for marker in (" provide", " available", " exist", " contain", " include")
+    )
+    return chinese_question or english_question
+
+
+def _gap_clause_is_anaphoric(sentence: str) -> bool:
+    """Recognize a gap clause whose subject lives in the preceding clause."""
+
+    remainder = str(sentence or "").lower()
+    for marker in EVIDENCE_GAP_MARKERS:
+        remainder = remainder.replace(marker, " ")
+    tokens = {
+        token
+        for token in retrieval_tokens(remainder)
+        if token not in GAP_CLAUSE_STOPWORDS
+    }
+    return not tokens or tokens.issubset(GAP_ANAPHORA_TOKENS)
+
+
+def _query_field_tokens(
+    query: str,
+    query_identifiers: set[str],
+    query_entities: set[str],
+) -> set[str]:
+    ignored_tokens = set(GAP_QUERY_STOPWORDS) | query_identifiers
+    for entity in query_entities:
+        ignored_tokens.update(retrieval_tokens(entity))
+    return {
+        token
+        for token in retrieval_tokens(query)
+        if token not in ignored_tokens and len(token) > 1
+    }
+
+
+def _is_comparison_query(
+    query: str,
+    identifier_contexts: set[tuple[str, str]],
+) -> bool:
+    normalized = f" {' '.join(str(query or '').lower().split())} "
+    if any(marker in normalized for marker in COMPARISON_QUERY_MARKERS):
+        return True
+    return len(identifier_contexts) > 1 and any(
+        connector in normalized for connector in COMPARISON_QUERY_CONNECTORS
+    )
+
+
+def _evidence_gap_matches_query(query: str, leaf_texts: list[str]) -> bool:
+    """Return true only when a documented gap concerns the requested field."""
+
+    query_identifiers = {
+        identifier for identifier, _start, _end in _identifier_occurrences(query)
+    }
+    query_identifier_contexts = _extract_identifier_contexts(query)
+    query_entities = {
+        entity for entity, _identifier in query_identifier_contexts
+    }
+    raw_target_tokens = _query_field_tokens(
+        query, query_identifiers, query_entities
+    )
+    target_tokens = set(raw_target_tokens)
+    target_phrases = _query_target_phrases(query, query_entities)
+    if target_phrases:
+        target_tokens = {
+            token
+            for token in target_tokens
+            if not any(token != phrase and token in phrase for phrase in target_phrases)
+        }
+        target_tokens.update(target_phrases)
+    critical_targets = {
+        phrase[-2:]
+        for phrase in target_phrases
+        if len(phrase) >= 2
+        and any("\u4e00" <= character <= "\u9fff" for character in phrase)
+    }
+    ordered_target_tokens = [
+        token for token in retrieval_tokens(query) if token in target_tokens
+    ]
+    if not target_phrases and ordered_target_tokens:
+        # In an English noun phrase the final content word is normally the
+        # field head (``timeout`` in ``default timeout``).  A documented gap
+        # naming that head must not be outweighed by a longer positive sentence.
+        critical_targets.add(ordered_target_tokens[-1])
+
+    gap_sentences: list[tuple[int, str]] = []
+    positive_sentences: list[tuple[int, str]] = []
+    for leaf_index, leaf_text in enumerate(leaf_texts):
+        start = 0
+        previous_clause = ""
+        for index in range(len(leaf_text) + 1):
+            if index < len(leaf_text):
+                character = leaf_text[index]
+                if character not in EVIDENCE_SENTENCE_BOUNDARIES:
+                    continue
+                if (
+                    character == "."
+                    and index > 0
+                    and index + 1 < len(leaf_text)
+                    and leaf_text[index - 1].isdigit()
+                    and leaf_text[index + 1].isdigit()
+                ):
+                    continue
+            sentence = leaf_text[start:index].strip()
+            start = index + 1
+            if not sentence:
+                continue
+            if any(marker in sentence.lower() for marker in EVIDENCE_GAP_MARKERS):
+                anaphoric = bool(
+                    previous_clause and _gap_clause_is_anaphoric(sentence)
+                )
+                if (
+                    anaphoric
+                    and positive_sentences
+                    and positive_sentences[-1] == (leaf_index, previous_clause)
+                ):
+                    positive_sentences.pop()
+                gap_sentences.append((
+                    leaf_index,
+                    f"{previous_clause} {sentence}".strip()
+                    if anaphoric
+                    else sentence,
+                ))
+            else:
+                positive_sentences.append((leaf_index, sentence))
+            previous_clause = sentence
+    if not gap_sentences:
+        return False
+
+    def target_coverage(sentence: str) -> int:
+        lowered_sentence = sentence.lower()
+        sentence_tokens = set(retrieval_tokens(sentence))
+        return sum(
+            1
+            for target in target_tokens
+            if (
+                target in lowered_sentence
+                if target in target_phrases
+                else target in sentence_tokens
+            )
+        )
+
+    positive_coverage = max(
+        (target_coverage(sentence) for _leaf_index, sentence in positive_sentences),
+        default=0,
+    )
+    minimum_positive_matches = min(2, len(raw_target_tokens))
+
+    def positive_supports_target(sentence: str) -> bool:
+        if not minimum_positive_matches:
+            return False
+        sentence_tokens = set(retrieval_tokens(sentence))
+        return (
+            len(raw_target_tokens.intersection(sentence_tokens))
+            >= minimum_positive_matches
+        )
+
+    top_has_target_positive = any(
+        leaf_index == 0 and positive_supports_target(sentence)
+        for leaf_index, sentence in positive_sentences
+    )
+    if (
+        any(leaf_index == 0 for leaf_index, _sentence in gap_sentences)
+        and not top_has_target_positive
+    ):
+        # A title or wrapper sentence is not affirmative evidence.  When the
+        # strongest leaf contains an explicit limitation but no positive
+        # sentence supporting the requested field, remain fail-closed even for
+        # cross-language or synonym-only queries.
+        return True
+    query_entity_tokens = {
+        token for entity in query_entities for token in retrieval_tokens(entity)
+    }
+
+    def critical_target_matches(sentence: str, target: str) -> bool:
+        lowered_sentence = sentence.lower()
+        chinese_target = any(
+            "\u4e00" <= character <= "\u9fff" for character in target
+        )
+        if chinese_target:
+            if target not in lowered_sentence:
+                return False
+            related_phrases = {
+                phrase
+                for phrase in target_phrases
+                if phrase.endswith(target)
+            }
+            if any(phrase in lowered_sentence for phrase in related_phrases):
+                return True
+            target_index = lowered_sentence.find(target)
+            target_end = target_index + len(target)
+            if (
+                target_end < len(lowered_sentence)
+                and "\u4e00" <= lowered_sentence[target_end] <= "\u9fff"
+            ):
+                suffix_end = target_end
+                while (
+                    suffix_end < len(lowered_sentence)
+                    and "\u4e00" <= lowered_sentence[suffix_end] <= "\u9fff"
+                ):
+                    suffix_end += 1
+                suffix = lowered_sentence[target_end:suffix_end]
+                marker_positions = [
+                    suffix.find(marker)
+                    for marker in EVIDENCE_GAP_MARKERS
+                    if marker and marker in suffix
+                ]
+                marker_index = min(marker_positions, default=-1)
+                field_suffix = (
+                    suffix[:marker_index].lstrip("的该此")
+                    if marker_index >= 0
+                    else suffix
+                )
+                if marker_index < 0 or field_suffix not in {
+                    "",
+                    "值",
+                    "信息",
+                    "内容",
+                    "详情",
+                    "数据",
+                    "参数",
+                    "配置",
+                    "状态",
+                    "规则",
+                }:
+                    return False
+            prefix_start = target_index
+            while (
+                prefix_start > 0
+                and "\u4e00" <= lowered_sentence[prefix_start - 1] <= "\u9fff"
+            ):
+                prefix_start -= 1
+            qualifier = lowered_sentence[prefix_start:target_index]
+            qualifier = qualifier.lstrip("的该此")[-8:]
+            expected_qualifiers = {
+                phrase[: -len(target)]
+                for phrase in related_phrases
+                if len(phrase) > len(target)
+            }
+            return not qualifier or any(
+                qualifier.endswith(expected)
+                for expected in expected_qualifiers
+                if expected
+            )
+
+        sentence_tokens = set(retrieval_tokens(sentence))
+        if target not in sentence_tokens:
+            return False
+        query_modifiers = target_tokens - {target}
+        qualifiers = sentence_tokens - (
+            GAP_CLAUSE_STOPWORDS
+            | GAP_GENERIC_QUALIFIERS
+            | query_identifiers
+            | query_entity_tokens
+            | {target}
+        )
+        return not qualifiers or qualifiers.issubset(query_modifiers)
+
+    def identifier_matches(sentence: str) -> bool:
+        sentence_identifiers = {
+            identifier
+            for identifier, _start, _end in _identifier_occurrences(sentence)
+        }
+        if not query_identifiers.intersection(sentence_identifiers):
+            return False
+        if not query_identifier_contexts:
+            return True
+        sentence_contexts = _extract_identifier_contexts(sentence)
+        return bool(query_identifier_contexts.intersection(sentence_contexts))
+
+    # A generic documented limitation in another retrieved passage must not
+    # veto an otherwise supported answer.  Lower-ranked leaves can participate
+    # only through a requested field match; a shared entity/version alone is
+    # insufficient because a different field may be missing in that leaf.
+    relevant_gap_sentences: list[tuple[int, str]] = []
+    top_identifier_gap = False
+    for leaf_index, sentence in gap_sentences:
+        field_matches = target_coverage(sentence) > 0 or any(
+            critical_target_matches(sentence, target)
+            for target in critical_targets
+        )
+        identifier_assists = bool(
+            leaf_index == 0
+            and not top_has_target_positive
+            and identifier_matches(sentence)
+        )
+        if field_matches or identifier_assists:
+            relevant_gap_sentences.append((leaf_index, sentence))
+            top_identifier_gap = top_identifier_gap or identifier_assists
+    gap_sentences = relevant_gap_sentences
+    if not gap_sentences:
+        return False
+    if top_identifier_gap:
+        return True
+
+    gap_coverage = max(
+        (target_coverage(sentence) for _leaf_index, sentence in gap_sentences),
+        default=0,
+    )
+
+    if any(
+        critical_target_matches(sentence, target)
+        for _leaf_index, sentence in gap_sentences
+        for target in critical_targets
+    ):
+        return True
+    if gap_coverage:
+        # A more complete positive target statement wins over an incidental
+        # shared word in a different-field gap.  Equal coverage remains a
+        # conflict and therefore fails closed.
+        return positive_coverage <= gap_coverage
+    if positive_coverage:
+        return False
+    # With a documented gap but no target-bearing positive sentence, fail
+    # closed.  This also covers cross-language queries where lexical overlap is
+    # unavailable; importing explicit target evidence is safer than letting
+    # model memory fill the omission.
+    return True
+
+
+def _query_target_phrases(query: str, query_entities: set[str]) -> set[str]:
+    phrases: set[str] = set()
+    text = str(query or "")
+    index = 0
+    while index < len(text):
+        if not ("\u4e00" <= text[index] <= "\u9fff"):
+            index += 1
+            continue
+        start = index
+        while index < len(text) and "\u4e00" <= text[index] <= "\u9fff":
+            index += 1
+        phrase = text[start:index]
+        changed = True
+        while changed and phrase:
+            changed = False
+            for prefix in CHINESE_TARGET_PREFIXES:
+                if phrase.startswith(prefix):
+                    phrase = phrase[len(prefix) :]
+                    changed = True
+                    break
+        for suffix in CHINESE_TARGET_SUFFIXES:
+            if phrase.endswith(suffix):
+                phrase = phrase[: -len(suffix)]
+                break
+        phrase = phrase.strip()
+        if phrase in query_entities:
+            continue
+        if 2 <= len(phrase) <= 20:
+            phrases.add(phrase.lower())
+    return phrases
 
 
 class RagEngine:
@@ -43,6 +997,42 @@ class RagEngine:
 
         return self.answer_generator
 
+    @staticmethod
+    def _generation_failure(exc: Exception) -> tuple[str, str]:
+        error_name = type(exc).__name__.lower()
+        if isinstance(exc, TimeoutError) or "timeout" in error_name:
+            return (
+                "ANSWER_PROVIDER_TIMEOUT",
+                public_error_message(
+                    exc,
+                    "回答服务在规定时间内未完成生成，已保留检索证据，请稍后重试。",
+                ),
+            )
+        return (
+            "ANSWER_PROVIDER_FAILED",
+            public_error_message(
+                exc,
+                "回答服务暂时不可用，已保留检索证据，请稍后重试。",
+            ),
+        )
+
+    def _template_fallback_allowed(
+        self,
+        answer_generator: BaseAnswerGenerator,
+    ) -> bool:
+        """Never turn a DeepSeek outage into a synthetic template answer."""
+
+        provider = str(getattr(answer_generator, "name", "") or "").lower()
+        client = getattr(answer_generator, "client", None)
+        model = str(getattr(client, "model", "") or "").lower()
+        base_url = getattr(client, "base_url", "")
+        is_deepseek = (
+            provider.startswith("deepseek")
+            or model.startswith("deepseek")
+            or _is_deepseek_base_url(base_url)
+        )
+        return self.allow_generation_fallback and not is_deepseek
+
     def ask(
         self,
         question: str,
@@ -66,7 +1056,13 @@ class RagEngine:
         trace["performance"]["retrieval_ms"] = round((retrieval_ended - started) * 1000, 2)
         confidence = self._confidence(ranked)
         diagnostics = self._diagnostics(active_query, ranked, trace, threshold)
-        refuse, refuse_reason = self._should_refuse(ranked, confidence, threshold)
+        refuse, refuse_reason = self._should_refuse(
+            question,
+            ranked,
+            confidence,
+            threshold,
+            reference_query=active_query,
+        )
         trace["refuse_reason"] = refuse_reason
         trace["refusal_reason"] = refuse_reason or None
         trace.setdefault("pipeline", {})["decision"] = {
@@ -76,12 +1072,28 @@ class RagEngine:
             "confidence": round(float(confidence), 4),
         }
         if refuse:
-            if refuse_reason == "weak_grounding":
+            if refuse_reason in {
+                "weak_grounding",
+                "explicit_evidence_gap",
+                "identifier_mismatch",
+            }:
                 diagnostics.append(
                     {
                         "level": "warning",
-                        "title": "证据与问题缺少直接词项匹配",
-                        "message": "最高分尚不足以在无关键词命中的情况下安全生成回答。",
+                        "title": (
+                            "证据明确标记了资料缺口"
+                            if refuse_reason == "explicit_evidence_gap"
+                            else "证据中缺少问题指定的精确版本"
+                            if refuse_reason == "identifier_mismatch"
+                            else "证据与问题缺少直接词项匹配"
+                        ),
+                        "message": (
+                            "当前证据只能确认相关资料缺失，不能支撑所请的具体操作或配置。"
+                            if refuse_reason == "explicit_evidence_gap"
+                            else "召回内容只包含相近型号或其他版本，不能据此推断目标版本。"
+                            if refuse_reason == "identifier_mismatch"
+                            else "最高分尚不足以在无关键词命中的情况下安全生成回答。"
+                        ),
                         "action": "补充限定词、切换检索模式，或导入更直接的资料。",
                         "actions": [],
                     }
@@ -116,8 +1128,79 @@ class RagEngine:
         try:
             generated = answer_generator.generate(question, citations, trace)
         except Exception as exc:
-            if not self.allow_generation_fallback:
-                raise
+            if not self._template_fallback_allowed(answer_generator):
+                generation_ended = time.perf_counter()
+                code, message = self._generation_failure(exc)
+                trace["performance"]["generation_ms"] = round(
+                    (generation_ended - generation_started) * 1000,
+                    2,
+                )
+                trace["performance"]["total_ms"] = round(
+                    (generation_ended - started) * 1000,
+                    2,
+                )
+                trace["pipeline"]["generation"] = {
+                    "status": "failed",
+                    "reason": "answer_provider_failed",
+                    "error_code": code,
+                }
+                trace["pipeline"]["citation_audit"] = {
+                    "coverage": 0,
+                    "grounding": 0,
+                    "status": "skipped",
+                    "reason": "generation_failed",
+                }
+                diagnostics.append(
+                    {
+                        "level": "error",
+                        "title": "回答生成未完成",
+                        "message": message,
+                        "action": "检索证据已保留，可原样重试本次问题。",
+                        "actions": [],
+                    }
+                )
+                audit = audit_answer(
+                    "",
+                    citations,
+                    confidence,
+                    threshold,
+                    overlap_threshold=self.citation_overlap_threshold,
+                )
+                audit["citation_audit"].update(
+                    {
+                        "checked": False,
+                        "status": "skipped",
+                        "reason": "generation_failed",
+                    }
+                )
+                return {
+                    "answer": "",
+                    "citations": citations,
+                    "retrieval_trace": trace,
+                    "generation_trace": {
+                        "answer_provider": answer_generator.name,
+                        "answer_model": getattr(
+                            getattr(answer_generator, "client", None),
+                            "model",
+                            "-",
+                        ),
+                        "grounded": False,
+                        "status": "failed",
+                        "incomplete": True,
+                        "failure_stage": "generation",
+                        "error_code": code,
+                        "message": message,
+                        "retryable": True,
+                    },
+                    "retryable": True,
+                    "retry": {
+                        "action": "resubmit_same_request",
+                        "preserve_retrieval_scope": True,
+                    },
+                    "confidence": round(float(confidence), 4),
+                    "diagnostics": diagnostics,
+                    **audit,
+                }
             generated = TemplateAnswerGenerator().generate(question, citations, trace)
             generated["generation_trace"] = {
                 **generated.get("generation_trace", {}),
@@ -177,7 +1260,13 @@ class RagEngine:
         trace.setdefault("performance", {})["retrieval_ms"] = round((retrieval_ended - started) * 1000, 2)
         confidence = self._confidence(ranked)
         diagnostics = self._diagnostics(active_query, ranked, trace, threshold)
-        refuse, refuse_reason = self._should_refuse(ranked, confidence, threshold)
+        refuse, refuse_reason = self._should_refuse(
+            question,
+            ranked,
+            confidence,
+            threshold,
+            reference_query=active_query,
+        )
         trace["refuse_reason"] = refuse_reason
         trace["refusal_reason"] = refuse_reason or None
         trace.setdefault("pipeline", {})["decision"] = {
@@ -243,7 +1332,7 @@ class RagEngine:
             if not "".join(fragments).strip():
                 raise ValueError("Answer provider returned no text output")
         except Exception as exc:
-            if not self.allow_generation_fallback or fragments:
+            if not self._template_fallback_allowed(answer_generator) or fragments:
                 raise
             fallback = TemplateAnswerGenerator().generate(question, citations, trace)
             fallback_answer = fallback["answer"]
@@ -392,13 +1481,31 @@ class RagEngine:
             return 0.0
         return float(ranked[0].get("rerank_score", ranked[0]["score"]))
 
-    def _should_refuse(self, ranked: list[dict], confidence: float, threshold: float) -> tuple[bool, str]:
+    def _should_refuse(
+        self,
+        query: str,
+        ranked: list[dict],
+        confidence: float,
+        threshold: float,
+        *,
+        reference_query: str | None = None,
+    ) -> tuple[bool, str]:
         if not ranked:
             return True, "no_evidence"
         if confidence < threshold:
             return True, "below_threshold"
         matched_terms = {str(term).lower() for term in ranked[0].get("matched_terms", [])}
-        substantive_terms = matched_terms - LOW_INFORMATION_MATCHES
+        substantive_terms = {
+            term
+            for term in matched_terms - LOW_INFORMATION_MATCHES
+            if not (
+                len(term) == 2
+                and (
+                    term[0] in LOW_INFORMATION_BOUNDARY_CHARS
+                    or term[-1] in LOW_INFORMATION_BOUNDARY_CHARS
+                )
+            )
+        }
         mock_embeddings = isinstance(
             getattr(self.retriever, "embedding_provider", None),
             MockEmbeddingProvider,
@@ -407,6 +1514,86 @@ class RagEngine:
             return True, "weak_grounding"
         if not matched_terms and confidence < self.grounding_min_confidence:
             return True, "weak_grounding"
+        # Gate on retrieved leaves, not expanded parent windows.  Parent and
+        # adjacent context helps the generator read a passage, but it is not an
+        # independently ranked source and must not make a missing version look
+        # supported.  Conversely, a comparison may legitimately place the two
+        # exact identifiers in different ranked leaves, so identifier coverage
+        # is checked across the complete final evidence set.
+        leaf_evidence_texts = [str(item["chunk"].text or "") for item in ranked]
+        query_context_text = " ".join(str(query).split())
+        reference_context_text = " ".join(str(reference_query or query).split())
+        availability_question = _is_availability_question(query_context_text)
+        direct_identifiers = {
+            identifier
+            for identifier, _start, _end in _identifier_occurrences(
+                reference_context_text
+            )
+        }
+        evidence_identifiers = {
+            identifier
+            for leaf_text in leaf_evidence_texts
+            for identifier, _start, _end in _identifier_occurrences(leaf_text)
+        }
+        identifier_contexts = _extract_identifier_contexts(reference_context_text)
+        evidence_identifier_contexts = {
+            context
+            for leaf_text in leaf_evidence_texts
+            for context in _extract_identifier_contexts(leaf_text)
+        }
+        identifier_mismatch = bool(
+            direct_identifiers
+            and (
+                not direct_identifiers.issubset(evidence_identifiers)
+                or not identifier_contexts.issubset(evidence_identifier_contexts)
+            )
+        )
+        if (
+            not identifier_mismatch
+            and identifier_contexts
+        ):
+            query_entities = {
+                entity for entity, _identifier in identifier_contexts
+            }
+            query_field_tokens = _query_field_tokens(
+                query_context_text,
+                direct_identifiers,
+                query_entities,
+            )
+            if query_field_tokens:
+                target_leaf_texts = [
+                    leaf_text
+                    for leaf_text in leaf_evidence_texts
+                    if query_field_tokens.intersection(
+                        retrieval_tokens(leaf_text)
+                    )
+                ]
+                if target_leaf_texts:
+                    target_leaf_contexts = [
+                        _extract_identifier_contexts(leaf_text)
+                        for leaf_text in target_leaf_texts
+                    ]
+                    if _is_comparison_query(
+                        reference_context_text, identifier_contexts
+                    ):
+                        identifier_mismatch = not all(
+                            any(
+                                context in leaf_contexts
+                                for leaf_contexts in target_leaf_contexts
+                            )
+                            for context in identifier_contexts
+                        )
+                    elif len(identifier_contexts) == 1:
+                        identifier_mismatch = not any(
+                            identifier_contexts.issubset(leaf_contexts)
+                            for leaf_contexts in target_leaf_contexts
+                        )
+        if not availability_question and _evidence_gap_matches_query(
+            query_context_text, leaf_evidence_texts
+        ):
+            return True, "explicit_evidence_gap"
+        if identifier_mismatch:
+            return True, "identifier_mismatch"
         return False, ""
 
     def _chunk_to_dict(self, item: dict) -> dict:
@@ -423,7 +1610,8 @@ class RagEngine:
             "modality": chunk.modality,
             "parent_element_id": chunk.parent_element_id,
             "metadata": redact_private_metadata(chunk.metadata),
-            "parent_context": self._parent_context(chunk, int(item.get("parent_window", 1))),
+            "parent_context": item.get("parent_context")
+            or self._parent_context(chunk, int(item.get("parent_window", 1))),
             "score": round(float(item["score"]), 4),
             "bm25_score": round(float(item["bm25_score"]), 4),
             "vector_score": round(float(item["vector_score"]), 4),
@@ -455,18 +1643,23 @@ class RagEngine:
         return f"{prefix}{cleaned[start:end]}{suffix}"
 
     def _parent_context(self, chunk, radius: int = 1) -> dict:
-        siblings = sorted(
-            [
+        radius = max(0, min(int(radius), 3))
+        vector_store = self.retriever.vector_store
+        if hasattr(vector_store, "context_chunks"):
+            context_chunks = vector_store.context_chunks(chunk.chunk_id, radius)
+        else:
+            context_chunks = [
                 item
-                for item in self.retriever.vector_store.chunks.values()
+                for item in getattr(vector_store, "chunks", {}).values()
                 if item.document_id == chunk.document_id
-            ],
+            ]
+        siblings = sorted(
+            context_chunks,
             key=lambda item: item.chunk_index,
         )
         index = next((idx for idx, item in enumerate(siblings) if item.chunk_id == chunk.chunk_id), -1)
         if index < 0:
             return {"strategy": "parent_child", "text": chunk.text, "chunk_ids": [chunk.chunk_id]}
-        radius = max(0, min(int(radius), 3))
         window = siblings[max(0, index - radius) : min(len(siblings), index + radius + 1)]
         return {
             "strategy": "parent_child",

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, watch } from 'vue'
+import { computed, nextTick, watch } from 'vue'
 
 import { useWorkbenchContext } from '../composables/workbenchContext'
 import RetrievalTrace from './RetrievalTrace.vue'
@@ -19,7 +19,7 @@ const emit = defineEmits<{
   focusQuestion: []
 }>()
 
-const tabs = [
+const allTabs = [
   { id: 'trace', label: '过程' },
   { id: 'graph', label: '图谱' },
   { id: 'citation', label: '引用' },
@@ -27,6 +27,12 @@ const tabs = [
   { id: 'quality', label: '质量' },
   { id: 'eval', label: '评测' },
 ] as const
+type InspectorTab = typeof allTabs[number]['id']
+const tabs = computed(() => allTabs.filter((tab) => {
+  if (tab.id === 'quality') return workbench.canAdmin.value
+  if (tab.id === 'eval') return workbench.canEdit.value
+  return true
+}))
 
 function percent(value?: number) {
   return `${Math.round((value || 0) * 100)}%`
@@ -36,7 +42,7 @@ function elementDomId(id: string) {
   return `element-${id.replace(/[^A-Za-z0-9_-]/g, '-')}`
 }
 
-async function selectInspectorTab(id: typeof tabs[number]['id']) {
+async function selectInspectorTab(id: InspectorTab) {
   workbench.inspectorTab.value = id
   await nextTick()
   document.getElementById(`tab-${id}`)?.focus()
@@ -44,13 +50,13 @@ async function selectInspectorTab(id: typeof tabs[number]['id']) {
 
 function onInspectorTabKeydown(event: KeyboardEvent, index: number) {
   let targetIndex = index
-  if (event.key === 'ArrowRight') targetIndex = (index + 1) % tabs.length
-  else if (event.key === 'ArrowLeft') targetIndex = (index - 1 + tabs.length) % tabs.length
+  if (event.key === 'ArrowRight') targetIndex = (index + 1) % tabs.value.length
+  else if (event.key === 'ArrowLeft') targetIndex = (index - 1 + tabs.value.length) % tabs.value.length
   else if (event.key === 'Home') targetIndex = 0
-  else if (event.key === 'End') targetIndex = tabs.length - 1
+  else if (event.key === 'End') targetIndex = tabs.value.length - 1
   else return
   event.preventDefault()
-  void selectInspectorTab(tabs[targetIndex].id)
+  void selectInspectorTab(tabs.value[targetIndex].id)
 }
 
 watch(() => workbench.focusedElementId.value, async (id) => {
@@ -58,6 +64,12 @@ watch(() => workbench.focusedElementId.value, async (id) => {
   await nextTick()
   document.getElementById(elementDomId(id))?.focus()
 })
+
+watch(tabs, (available) => {
+  if (!available.some((tab) => tab.id === workbench.inspectorTab.value)) {
+    workbench.inspectorTab.value = 'trace'
+  }
+}, { immediate: true })
 </script>
 
 <template>
@@ -332,7 +344,7 @@ watch(() => workbench.focusedElementId.value, async (id) => {
       <section class="eval-review-summary" aria-live="polite">
         <strong>1.0 人工复核：{{ workbench.evalReviewSummary.value?.human_reviewed || 0 }}/200</strong>
         <span>剩余 {{ workbench.evalReviewSummary.value?.remaining_for_1_0 ?? 200 }} 条；只有逐条确认并留存复核人 ID 的评测项才计数。</span>
-        <label>
+        <label v-if="workbench.canAdmin.value">
           <span>复核人 ID</span>
           <input v-model="workbench.evalReviewerId.value" type="text" autocomplete="off" placeholder="使用团队内稳定的非敏感 ID" />
         </label>
@@ -341,7 +353,7 @@ watch(() => workbench.focusedElementId.value, async (id) => {
         <article v-for="item in workbench.evalDrafts.value.slice(0, 200)" :key="`${item.id}-${item.question}`">
           <span class="status-badge neutral">{{ item.failure_type ? localizedFailureType(item.failure_type) : localizedStatus(item.status) }}</span>
           <strong>{{ item.question }}</strong>
-          <template v-if="item.status !== 'reviewed'">
+          <template v-if="item.status !== 'reviewed' && workbench.canAdmin.value">
             <label>
               <span>期望答案</span>
               <textarea v-model="item.expected_answer" rows="3" placeholder="可回答问题必须填写答案或关键词"></textarea>

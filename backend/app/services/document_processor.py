@@ -21,15 +21,35 @@ SUPPORTED_EXTENSIONS = {".txt", ".md", ".markdown", ".pdf", ".docx", ".png", ".j
 class DocumentProcessor:
     def __init__(
         self,
-        chunk_size: int = 520,
-        overlap: int = 90,
+        chunk_size: int | None = None,
+        overlap: int = 80,
+        min_chunk_size: int = 350,
+        target_chunk_size: int = 650,
+        max_chunk_size: int = 900,
         ocr_adapter: ImageOCRAdapter | None = None,
         docx_max_entries: int = 500,
         docx_max_uncompressed_bytes: int = 64 * 1024 * 1024,
         docx_max_compression_ratio: int = 200,
     ):
-        self.chunk_size = chunk_size
-        self.overlap = overlap
+        # An explicit ``chunk_size`` keeps the legacy single-limit behaviour
+        # used by tests and callers that deliberately request small chunks.
+        if chunk_size is not None:
+            selected = max(1, int(chunk_size))
+            self.min_chunk_size = min(selected, max(1, selected // 2))
+            self.target_chunk_size = selected
+            self.max_chunk_size = selected
+        else:
+            self.min_chunk_size = max(1, int(min_chunk_size))
+            self.target_chunk_size = max(
+                self.min_chunk_size,
+                int(target_chunk_size),
+            )
+            self.max_chunk_size = max(
+                self.target_chunk_size,
+                int(max_chunk_size),
+            )
+        self.chunk_size = self.target_chunk_size
+        self.overlap = max(0, min(int(overlap), self.max_chunk_size - 1))
         self.ocr_adapter = ocr_adapter or ImageOCRAdapter()
         self.docx_max_entries = docx_max_entries
         self.docx_max_uncompressed_bytes = docx_max_uncompressed_bytes
@@ -115,32 +135,83 @@ class DocumentProcessor:
         chunks: list[Chunk] = []
         current = ""
         current_meta = {"page_number": None, "heading_path": [], "element_ids": [], "modality": "text", "metadata": {}}
+        current_boundary: tuple[int | None, tuple[str, ...]] | None = None
 
         for paragraph, meta in paragraphs:
             if meta.get("modality") in {"image", "table", "equation", "code"}:
                 if current.strip():
                     chunks.append(self._make_chunk(doc, len(chunks), current, current_meta))
                     current = ""
-                chunks.append(self._make_chunk(doc, len(chunks), paragraph, meta))
+                    current_boundary = None
+                parts = (
+                    self._split_table(paragraph, meta)
+                    if meta.get("modality") == "table"
+                    else [
+                        (part, dict(meta))
+                        for part in (
+                            self._hard_split(paragraph)
+                            if len(paragraph) > self.max_chunk_size
+                            else [paragraph]
+                        )
+                    ]
+                )
+                for part, part_meta in parts:
+                    chunks.append(
+                        self._make_chunk(doc, len(chunks), part, part_meta)
+                    )
                 current_meta = {"page_number": None, "heading_path": [], "element_ids": [], "modality": "text", "metadata": {}}
                 continue
-            if len(paragraph) > self.chunk_size:
+
+            boundary = (
+                meta.get("page_number"),
+                tuple(str(item) for item in meta.get("heading_path", [])),
+            )
+            if current.strip() and boundary != current_boundary:
+                chunks.append(self._make_chunk(doc, len(chunks), current, current_meta))
+                current = ""
+                current_boundary = None
+
+            if len(paragraph) > self.max_chunk_size:
                 if current.strip():
                     chunks.append(self._make_chunk(doc, len(chunks), current, current_meta))
                     current = ""
                 for part in self._hard_split(paragraph):
                     chunks.append(self._make_chunk(doc, len(chunks), part, meta))
+                current_boundary = None
                 continue
 
+            had_current = bool(current)
             candidate = f"{current}\n\n{paragraph}".strip() if current else paragraph
-            if len(candidate) <= self.chunk_size:
+            if (
+                len(candidate) <= self.target_chunk_size
+                or (
+                    current
+                    and len(current) < self.min_chunk_size
+                    and len(candidate) <= self.max_chunk_size
+                )
+            ):
                 current = candidate
-                current_meta = self._merge_chunk_meta(current_meta, meta) if current else meta
+                current_meta = (
+                    self._merge_chunk_meta(current_meta, meta)
+                    if had_current
+                    else dict(meta)
+                )
+                current_boundary = boundary
             else:
                 if current.strip():
                     chunks.append(self._make_chunk(doc, len(chunks), current, current_meta))
-                current = f"{self._tail(current)}\n\n{paragraph}".strip()
-                current_meta = meta
+                carry = self._tail(current) if current_boundary == boundary else ""
+                next_text = f"{carry}\n\n{paragraph}".strip() if carry else paragraph
+                if len(next_text) > self.max_chunk_size:
+                    carry = ""
+                    next_text = paragraph
+                current = next_text
+                current_meta = (
+                    self._merge_chunk_meta(current_meta, meta)
+                    if carry
+                    else dict(meta)
+                )
+                current_boundary = boundary
 
         if current.strip():
             chunks.append(self._make_chunk(doc, len(chunks), current, current_meta))
@@ -422,6 +493,10 @@ class DocumentProcessor:
             for element in sorted(doc.elements, key=lambda item: item.order):
                 if not element.text.strip():
                     continue
+                # Headings live in ``heading_path`` and embedding text. They do
+                # not become citation-visible leaf evidence on their own.
+                if element.type == "heading":
+                    continue
                 retrieval_text = element.text.strip()
                 enrichment = element.metadata.get("enrichment")
                 if isinstance(enrichment, dict):
@@ -444,6 +519,7 @@ class DocumentProcessor:
                                 "modality": element.type,
                                 "bbox": element.bbox,
                                 "asset_id": element.asset_id,
+                                "table_rows": element.table,
                             },
                         },
                     )
@@ -474,15 +550,118 @@ class DocumentProcessor:
         return paragraphs
 
     def _hard_split(self, text: str) -> list[str]:
-        parts = []
+        parts: list[str] = []
         start = 0
         while start < len(text):
-            end = start + self.chunk_size
-            parts.append(text[start:end])
+            hard_end = min(len(text), start + self.max_chunk_size)
+            target_end = min(len(text), start + self.target_chunk_size)
+            minimum_end = min(len(text), start + self.min_chunk_size)
+            end = self._preferred_boundary(
+                text,
+                minimum_end=minimum_end,
+                target_end=target_end,
+                hard_end=hard_end,
+            )
+            if end <= start:
+                end = hard_end
+            parts.append(text[start:end].strip())
             if end >= len(text):
                 break
             start = max(end - self.overlap, start + 1)
-        return parts
+        return [part for part in parts if part]
+
+    @staticmethod
+    def _preferred_boundary(
+        text: str,
+        *,
+        minimum_end: int,
+        target_end: int,
+        hard_end: int,
+    ) -> int:
+        boundaries = [
+            match.end()
+            for match in re.finditer(r"[\n。！？；.!?;]", text[minimum_end:hard_end])
+        ]
+        absolute = [minimum_end + offset for offset in boundaries]
+        before_target = [position for position in absolute if position <= target_end]
+        if before_target:
+            return before_target[-1]
+        if absolute:
+            return absolute[0]
+        return hard_end
+
+    def _split_table(self, text: str, meta: dict) -> list[tuple[str, dict]]:
+        if len(text) <= self.max_chunk_size:
+            return [(text, dict(meta))]
+        raw_rows = meta.get("metadata", {}).get("table_rows")
+        rows = [
+            " | ".join(str(cell) for cell in row)
+            for row in raw_rows
+            if isinstance(row, list)
+        ] if isinstance(raw_rows, list) else []
+        if len(rows) < 2:
+            rows = [row for row in text.splitlines() if row.strip()]
+        if len(rows) < 2:
+            return [(part, dict(meta)) for part in self._hard_split(text)]
+
+        header = rows[0]
+        windows: list[tuple[str, dict]] = []
+        current_rows: list[str] = []
+        row_start = 1
+        for row_index, row in enumerate(rows[1:], start=1):
+            candidate = "\n".join([header, *current_rows, row])
+            if current_rows and len(candidate) > self.target_chunk_size:
+                windows.append(
+                    self._table_window(
+                        header,
+                        current_rows,
+                        meta,
+                        row_start=row_start,
+                        row_end=row_index - 1,
+                    )
+                )
+                current_rows = []
+                row_start = row_index
+            current_rows.append(row)
+        if current_rows:
+            windows.append(
+                self._table_window(
+                    header,
+                    current_rows,
+                    meta,
+                    row_start=row_start,
+                    row_end=len(rows) - 1,
+                )
+            )
+        expanded: list[tuple[str, dict]] = []
+        for rendered, window_meta in windows:
+            if len(rendered) <= self.max_chunk_size:
+                expanded.append((rendered, window_meta))
+            else:
+                expanded.extend(
+                    (part, dict(window_meta)) for part in self._hard_split(rendered)
+                )
+        return expanded
+
+    @staticmethod
+    def _table_window(
+        header: str,
+        rows: list[str],
+        meta: dict,
+        *,
+        row_start: int,
+        row_end: int,
+    ) -> tuple[str, dict]:
+        window_meta = {
+            **meta,
+            "metadata": {
+                **meta.get("metadata", {}),
+                "table_row_start": row_start,
+                "table_row_end": row_end,
+                "table_header_repeated": True,
+            },
+        }
+        return "\n".join([header, *rows]), window_meta
 
     def _tail(self, text: str) -> str:
         if not text:
@@ -491,9 +670,29 @@ class DocumentProcessor:
 
     def _make_chunk(self, doc: Document, index: int, text: str, meta: dict) -> Chunk:
         normalized = text.strip()
-        heading_path = meta.get("heading_path", [])
-        if heading_path and not all(str(heading).lower() in normalized.lower() for heading in heading_path):
-            normalized = f"{' > '.join(str(heading) for heading in heading_path)}\n\n{normalized}"
+        heading_path = [str(item) for item in meta.get("heading_path", [])]
+        embedding_parts = [str(doc.title or doc.file_name).strip()]
+        if heading_path:
+            embedding_parts.append(" > ".join(heading_path))
+        embedding_parts.append(normalized)
+        source_metadata = dict(meta.get("metadata", {}))
+        source_metadata.pop("table_rows", None)
+        metadata = {
+            **source_metadata,
+            "embedding_text": "\n\n".join(
+                part for part in embedding_parts if part
+            ),
+            "knowledge_base_id": str(
+                doc.metadata.get("knowledge_base_id") or "default"
+            ),
+            "content_hash": str(doc.metadata.get("content_hash") or ""),
+            "chunker_version": "structure-v2",
+            "parser_version": str(
+                doc.metadata.get("parser_version")
+                or doc.metadata.get("parser")
+                or "builtin"
+            ),
+        }
         return Chunk(
             chunk_id=f"{doc.document_id}:{index}",
             document_id=doc.document_id,
@@ -505,7 +704,7 @@ class DocumentProcessor:
             element_ids=meta.get("element_ids", []),
             modality=meta.get("modality", "text"),
             parent_element_id=(meta.get("element_ids") or [None])[0],
-            metadata=meta.get("metadata", {}),
+            metadata=metadata,
         )
 
     def _text_elements(self, document_id: str, text: str, page_number: int | None) -> list[DocumentElement]:

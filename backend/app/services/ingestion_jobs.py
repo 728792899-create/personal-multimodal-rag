@@ -37,6 +37,7 @@ class IngestionWorker:
         enrichment_service=None,
         graph_store=None,
         job_signal_queue=None,
+        shadow_index_handler=None,
     ):
         self.registry = registry
         self.processor = processor
@@ -48,6 +49,7 @@ class IngestionWorker:
         self.enrichment_service = enrichment_service
         self.graph_store = graph_store
         self.job_signal_queue = job_signal_queue
+        self.shadow_index_handler = shadow_index_handler
         self.worker_id = f"local-{uuid.uuid4().hex[:10]}"
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -210,6 +212,35 @@ class IngestionWorker:
 
     def _process(self, job: dict) -> None:
         self._check_cancel(job["id"])
+        if job["source_type"] == "shadow_index":
+            if self.shadow_index_handler is None:
+                raise ValueError("未配置影子索引重建处理器。")
+
+            def update_progress(stage: str, progress: int) -> None:
+                self._check_cancel(job["id"])
+                self.registry.update_index_job(
+                    job["id"],
+                    stage=stage,
+                    progress=progress,
+                )
+
+            report = self.shadow_index_handler(
+                job,
+                update_progress,
+                lambda: self._cancel_requested(job["id"]),
+            )
+            self._check_cancel(job["id"])
+            self.registry.complete_index_job(job["id"], "")
+            self.registry.log_operation(
+                "shadow_index_rebuild_succeeded",
+                f"影子索引重建完成：{job['source_name']}",
+                {
+                    "job_id": job["id"],
+                    "index_id": str(job.get("payload", {}).get("index_id") or ""),
+                    "report": report,
+                },
+            )
+            return
         self.registry.update_index_job(job["id"], stage="parse", progress=20)
         parse_started = datetime.utcnow()
         parser_provider = "builtin"

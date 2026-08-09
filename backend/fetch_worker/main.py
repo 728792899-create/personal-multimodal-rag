@@ -20,7 +20,7 @@ class FetchRequest(BaseModel):
     last_modified: str = Field("", max_length=500)
 
 
-app = FastAPI(title="RAG isolated fetch worker", version="0.4.0-rc.1")
+app = FastAPI(title="RAG isolated fetch worker", version="1.0.0-rc.1")
 
 
 @app.get("/health")

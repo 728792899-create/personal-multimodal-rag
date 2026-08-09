@@ -72,8 +72,15 @@ watch(
           </div>
           <div class="control-grid">
             <label>
+              <span>查询路由</span>
+              <select v-model="workbench.routingMode.value" name="routing-mode">
+                <option value="auto">自动规划（推荐）</option>
+                <option value="manual">手动覆盖</option>
+              </select>
+            </label>
+            <label>
               <span>检索模式</span>
-              <select v-model="workbench.searchMode.value" name="search-mode">
+              <select v-model="workbench.searchMode.value" name="search-mode" :disabled="workbench.routingMode.value === 'auto'">
                 <option value="hybrid">混合检索</option>
                 <option value="keyword">仅 BM25</option>
                 <option value="semantic">仅向量</option>
@@ -81,7 +88,7 @@ watch(
             </label>
             <label>
               <span>检索配置</span>
-              <select v-model="workbench.searchProfile.value" name="search-profile">
+              <select v-model="workbench.searchProfile.value" name="search-profile" :disabled="workbench.routingMode.value === 'auto'">
                 <option value="balanced">均衡</option>
                 <option value="precision">精准</option>
                 <option value="recall">召回优先</option>
@@ -89,7 +96,7 @@ watch(
             </label>
             <label>
               <span>证据策略</span>
-              <select v-model="workbench.retrievalStrategy.value" name="retrieval-strategy">
+              <select v-model="workbench.retrievalStrategy.value" name="retrieval-strategy" :disabled="workbench.routingMode.value === 'auto'">
                 <option value="auto">自动关系识别</option>
                 <option value="hybrid">混合检索</option>
                 <option value="hybrid_graph">混合检索 + 图谱</option>
@@ -132,6 +139,9 @@ watch(
               <input v-model.number="workbench.parentWindow.value" name="parent-window" type="number" min="0" max="3" />
             </label>
           </div>
+          <p v-if="workbench.routingMode.value === 'auto'" class="parameter-hint">
+            系统会解释所选路由；切换到“手动覆盖”后才使用下方模式、权重和图谱参数。
+          </p>
           <fieldset class="modality-filter">
             <legend>检索元素</legend>
             <button
@@ -292,7 +302,7 @@ watch(
     </div>
 
     <details
-      v-if="workbench.appMode.value === 'expert' && workbench.workMode.value === 'answer'"
+      v-if="workbench.canAdmin.value && workbench.appMode.value === 'expert' && workbench.workMode.value === 'answer'"
       class="usage-evidence"
     >
       <summary>1.0 使用证据记录</summary>

@@ -4,8 +4,10 @@ import hashlib
 import math
 import httpx
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Optional
 
+from app.models.domain import Chunk
 from app.services.text_utils import tokenize
 
 
@@ -48,12 +50,14 @@ class OpenAICompatibleEmbeddingProvider(BaseEmbeddingProvider):
 
     def __init__(
         self,
-        api_key: str,
-        model: str = "text-embedding-3-small",
+        api_key: str = "",
+        model: str = "text-embedding-3-large",
         base_url: Optional[str] = None,
-        dimensions: Optional[int] = None,
+        dimensions: Optional[int] = 1536,
         batch_size: int = 64,
+        api_key_file: str | Path | None = None,
     ):
+        api_key = _secret_value(api_key, api_key_file)
         if not api_key:
             raise ValueError("OPENAI_API_KEY is required when EMBEDDING_PROVIDER=openai")
         try:
@@ -68,6 +72,7 @@ class OpenAICompatibleEmbeddingProvider(BaseEmbeddingProvider):
         self.model = model
         self.dimensions = dimensions
         self.batch_size = max(1, min(int(batch_size), 2048))
+        self.input_tokens_used = 0
 
     def embed_text(self, text: str) -> list[float]:
         return self.embed_batch([text])[0]
@@ -84,7 +89,31 @@ class OpenAICompatibleEmbeddingProvider(BaseEmbeddingProvider):
             response = self.client.embeddings.create(**payload)
             ordered = sorted(response.data, key=lambda item: item.index)
             embeddings.extend([list(item.embedding) for item in ordered])
+            usage = getattr(response, "usage", None)
+            self.input_tokens_used = getattr(self, "input_tokens_used", 0) + int(
+                getattr(usage, "prompt_tokens", 0)
+                or getattr(usage, "total_tokens", 0)
+                or 0
+            )
         return embeddings
+
+
+def _secret_value(value: str, file_path: str | Path | None) -> str:
+    if value:
+        return value
+    if not file_path:
+        return ""
+    try:
+        return Path(file_path).read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        raise ValueError("Unable to read OPENAI_API_KEY_FILE") from exc
+
+
+def embedding_text_for_chunk(chunk: Chunk) -> str:
+    """Return retrieval-only text without changing citation-visible text."""
+
+    value = str(chunk.metadata.get("embedding_text") or "").strip()
+    return value or chunk.text
 
 
 class LocalSentenceTransformerEmbeddingProvider(BaseEmbeddingProvider):

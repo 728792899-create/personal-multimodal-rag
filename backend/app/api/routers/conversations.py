@@ -85,7 +85,7 @@ def _stream_error(exc: Exception) -> tuple[str, str]:
             "ANSWER_PROVIDER_TIMEOUT",
             public_error_message(
                 exc,
-                "回答服务在规定时间内未返回正文，请稍后重试或检查本地模型状态。",
+                "回答服务在规定时间内未返回正文，已保留检索证据，请稍后重试。",
             ),
         )
     return (
@@ -103,6 +103,9 @@ def _incomplete_response(
     *,
     status: str,
     answer_provider: str = "unknown",
+    error_code: str = "",
+    error_message: str = "",
+    retry: dict | None = None,
 ) -> dict | None:
     """Build a reloadable evidence snapshot for interrupted answer generation."""
 
@@ -122,6 +125,44 @@ def _incomplete_response(
         "incomplete": True,
         "status": status,
     }
+    if status == "failed":
+        response["generation_trace"].update(
+            {
+                "grounded": False,
+                "failure_stage": "generation",
+                "error_code": error_code or "STREAM_FAILED",
+                "message": error_message,
+                "retryable": True,
+            }
+        )
+        response["retryable"] = True
+        response["retry"] = copy.deepcopy(
+            retry
+            or {
+                "action": "resubmit_same_request",
+                "preserve_retrieval_scope": True,
+            }
+        )
+        retrieval_trace = response.get("retrieval_trace")
+        if not isinstance(retrieval_trace, dict):
+            retrieval_trace = {}
+            response["retrieval_trace"] = retrieval_trace
+        pipeline = retrieval_trace.get("pipeline")
+        if not isinstance(pipeline, dict):
+            pipeline = {}
+            retrieval_trace["pipeline"] = pipeline
+        pipeline["generation"] = {
+            "status": "failed",
+            "reason": "answer_provider_failed",
+            "error_code": error_code or "STREAM_FAILED",
+        }
+        response["citation_audit"] = {
+            "coverage": 0,
+            "grounding": 0,
+            "checked": False,
+            "status": "skipped",
+            "reason": "generation_failed",
+        }
     return response
 
 
@@ -150,35 +191,69 @@ def _conversation_retrieval_query(question: str, context: list[dict]) -> tuple[s
     return f"{question}\n\n最近会话中的相关问题：\n{history}"[:4_000], len(previous_questions)
 
 
+def _conversation_owner(request: Request) -> tuple[str, str]:
+    identity = request.scope.get("state", {}).get("identity")
+    if identity is None:
+        # Authentication-disabled developer/test instances retain the legacy
+        # single-owner namespace. Session-authenticated requests never use it.
+        return "owner", "default"
+    return identity.user_id, identity.workspace_id
+
+
 @router.get("")
-def list_conversations(limit: int = 50):
-    return {"conversations": registry.list_conversations(limit)}
+def list_conversations(request: Request, limit: int = 50):
+    user_id, workspace_id = _conversation_owner(request)
+    return {
+        "conversations": registry.list_conversations(
+            limit,
+            user_id=user_id,
+            workspace_id=workspace_id,
+        )
+    }
 
 
 @router.post("", status_code=201)
-def create_conversation(payload: ConversationCreate):
+def create_conversation(payload: ConversationCreate, request: Request):
+    user_id, workspace_id = _conversation_owner(request)
     try:
-        conversation = registry.create_conversation(payload.title, payload.knowledge_base_ids)
+        conversation = registry.create_conversation(
+            payload.title,
+            payload.knowledge_base_ids,
+            user_id=user_id,
+            workspace_id=workspace_id,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"conversation": conversation}
 
 
 @router.get("/{conversation_id}")
-def get_conversation(conversation_id: str):
-    conversation = registry.get_conversation(conversation_id)
+def get_conversation(conversation_id: str, request: Request):
+    user_id, workspace_id = _conversation_owner(request)
+    conversation = registry.get_conversation(
+        conversation_id,
+        user_id=user_id,
+        workspace_id=workspace_id,
+    )
     if not conversation:
         raise HTTPException(status_code=404, detail="会话不存在或已被删除。")
     return {"conversation": conversation}
 
 
 @router.patch("/{conversation_id}")
-def update_conversation(conversation_id: str, payload: ConversationUpdate):
+def update_conversation(
+    conversation_id: str,
+    payload: ConversationUpdate,
+    request: Request,
+):
+    user_id, workspace_id = _conversation_owner(request)
     try:
         conversation = registry.update_conversation(
             conversation_id,
             title=payload.title,
             knowledge_base_ids=payload.knowledge_base_ids,
+            user_id=user_id,
+            workspace_id=workspace_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -188,17 +263,38 @@ def update_conversation(conversation_id: str, payload: ConversationUpdate):
 
 
 @router.delete("/{conversation_id}")
-def delete_conversation(conversation_id: str):
-    if not registry.delete_conversation(conversation_id):
+def delete_conversation(conversation_id: str, request: Request):
+    user_id, workspace_id = _conversation_owner(request)
+    if not registry.delete_conversation(
+        conversation_id,
+        user_id=user_id,
+        workspace_id=workspace_id,
+    ):
         raise HTTPException(status_code=404, detail="会话不存在或已被删除。")
     return {"deleted": True}
 
 
 @router.get("/{conversation_id}/messages")
-def list_conversation_messages(conversation_id: str, limit: int = 200):
-    if not registry.get_conversation(conversation_id):
+def list_conversation_messages(
+    conversation_id: str,
+    request: Request,
+    limit: int = 200,
+):
+    user_id, workspace_id = _conversation_owner(request)
+    if not registry.get_conversation(
+        conversation_id,
+        user_id=user_id,
+        workspace_id=workspace_id,
+    ):
         raise HTTPException(status_code=404, detail="会话不存在或已被删除。")
-    return {"messages": registry.list_conversation_messages(conversation_id, limit)}
+    return {
+        "messages": registry.list_conversation_messages(
+            conversation_id,
+            limit,
+            user_id=user_id,
+            workspace_id=workspace_id,
+        )
+    }
 
 
 @router.post("/{conversation_id}/messages:stream")
@@ -207,7 +303,12 @@ def stream_conversation_message(
     payload: ConversationMessageRequest,
     request: Request,
 ):
-    conversation = registry.get_conversation(conversation_id)
+    user_id, workspace_id = _conversation_owner(request)
+    conversation = registry.get_conversation(
+        conversation_id,
+        user_id=user_id,
+        workspace_id=workspace_id,
+    )
     if not conversation:
         raise HTTPException(status_code=404, detail="会话不存在或已被删除。")
     identity = request.scope.get("state", {}).get("identity")
@@ -222,6 +323,11 @@ def stream_conversation_message(
             raise HTTPException(
                 status_code=401,
                 detail="记录真实使用证据前，需要已登录的管理员明确确认。",
+            )
+        if identity.role not in {"admin", "owner"}:
+            raise HTTPException(
+                status_code=403,
+                detail="只有管理员可以确认并记录真实使用证据。",
             )
         usage_evidence = {
             "attestation": "human-originated",
@@ -282,6 +388,8 @@ def stream_conversation_message(
                     retrieval_query,
                     payload.attachments,
                     conversation["knowledge_base_ids"],
+                    user_id=user_id,
+                    workspace_id=workspace_id,
                 )
                 yield encode(
                     "query.enrichment.completed",
@@ -365,17 +473,30 @@ def stream_conversation_message(
             )
             code, message = _stream_error(exc)
             partial_answer = "".join(answer_fragments)
+            retry = {
+                "action": "resubmit_same_request",
+                "method": "POST",
+                "endpoint": (
+                    f"/api/conversations/{conversation_id}/messages:stream"
+                ),
+                "preserve_retrieval_scope": True,
+            }
             failed_response = _incomplete_response(
                 retrieval_snapshot,
                 partial_answer,
                 status="failed",
                 answer_provider=answer_provider,
+                error_code=code,
+                error_message=message,
+                retry=retry,
             )
             failed_metadata = {
                 "error": message,
                 "error_code": code,
                 "request_id": request_id,
                 "partial": bool(partial_answer),
+                "retryable": True,
+                "retry": retry,
             }
             if failed_response is not None:
                 failed_metadata["response"] = failed_response
@@ -395,8 +516,28 @@ def stream_conversation_message(
                 message_id=assistant_message_id,
             )
             message_finalized = True
-            yield encode("error", {"code": code, "message": message})
-            yield encode("done", {"status": "failed"})
+            yield encode(
+                "error",
+                {
+                    "code": code,
+                    "message": message,
+                    "retryable": True,
+                    "retry": retry,
+                    **(
+                        {"response": failed_response}
+                        if failed_response is not None
+                        else {}
+                    ),
+                },
+            )
+            yield encode(
+                "done",
+                {
+                    "status": "failed",
+                    "retryable": True,
+                    "retry": retry,
+                },
+            )
         finally:
             if not message_finalized:
                 partial_answer = "".join(answer_fragments)

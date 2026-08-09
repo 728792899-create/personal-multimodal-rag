@@ -176,11 +176,11 @@ function openCitation(item: ChunkResult) {
     <section v-if="workbench.answer.value.answer && workbench.answerFinalized.value" class="answer-actions" aria-labelledby="answer-actions-title">
       <h3 id="answer-actions-title" class="sr-only">回答操作与反馈</h3>
       <div class="inline-actions answer-tool-row">
-        <button type="button" class="answer-tool" :disabled="workbench.rewriting.value" @click="workbench.handleRewrite('highlights')">整理为要点</button>
-        <button type="button" class="answer-tool" :disabled="workbench.rewriting.value" @click="workbench.handleRewrite('study')">转为笔记</button>
-        <button type="button" class="answer-tool" @click="workbench.handleSaveCard">保存</button>
+        <button v-if="workbench.canEdit.value" type="button" class="answer-tool" :disabled="workbench.rewriting.value" @click="workbench.handleRewrite('highlights')">整理为要点</button>
+        <button v-if="workbench.canEdit.value" type="button" class="answer-tool" :disabled="workbench.rewriting.value" @click="workbench.handleRewrite('study')">转为笔记</button>
+        <button v-if="workbench.canEdit.value" type="button" class="answer-tool" @click="workbench.handleSaveCard">保存</button>
         <a
-          v-if="workbench.answer.value.history_id"
+          v-if="workbench.canAdmin.value && workbench.answer.value.history_id"
           class="answer-tool"
           :href="exportHistoryUrl(workbench.answer.value.history_id)"
           download

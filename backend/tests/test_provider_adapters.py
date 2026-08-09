@@ -46,7 +46,9 @@ def test_generation_prompt_is_bounded_and_does_not_embed_full_debug_trace():
     )
 
     assert "不应进入生成上下文" not in prompt
-    assert prompt.count('"filename"') <= 8
+    assert prompt.count('"filename"') == 10
+    assert "source-9.md" in prompt
+    assert "source-10.md" not in prompt
     assert len(prompt) < MAX_PROMPT_EVIDENCE_CHARS + 4_000
     assert "父级证据" in prompt
 
@@ -114,6 +116,29 @@ def test_openai_compatible_chat_can_disable_thinking_and_limit_output():
         {"type": "disabled"},
     ]
     assert [payload["max_tokens"] for payload in payloads] == [512, 512]
+
+
+def test_openai_compatible_chat_structured_calls_use_json_mode_and_zero_temperature():
+    payloads = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payloads.append(json.loads(request.read()))
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": '{"route":"semantic"}'}}]},
+        )
+
+    client = OpenAICompatibleChatClient(
+        "https://api.deepseek.example",
+        "deepseek-planner",
+        api_key="test-key",
+        temperature=0,
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    assert client.create_json("route this query") == {"route": "semantic"}
+    assert payloads[0]["temperature"] == 0
+    assert payloads[0]["response_format"] == {"type": "json_object"}
 
 
 def test_openai_compatible_chat_rejects_partial_stream_without_terminal_event():

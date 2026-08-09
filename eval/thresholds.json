@@ -1,14 +1,18 @@
 {
   "recall_at_5": 0.9,
-  "mrr": 0.75,
-  "citation_accuracy": 0.75,
-  "refusal_accuracy": 0.8,
+  "mrr": 0.78,
+  "citation_accuracy": 0.9,
+  "citation_coverage": 0.9,
+  "valid_citation_rate": 1.0,
+  "refusal_f1": 0.88,
+  "refusal_recall": 0.9,
+  "answerable_misrefusal_complement": 0.92,
   "answer_acceptance_accuracy": 0.85,
-  "modality_recall_at_5": 0.85,
+  "modality_recall_at_10": 0.85,
   "table_cell_accuracy": 0.9,
   "caption_alignment": 0.9,
   "formula_accuracy": 0.9,
   "graph_path_precision": 0.9,
   "graph_evidence_coverage": 0.95,
-  "multihop_recall_at_5": 0.85
+  "multihop_complete_evidence_at_10": 0.8
 }

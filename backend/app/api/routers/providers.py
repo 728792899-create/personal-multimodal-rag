@@ -152,6 +152,12 @@ def _enrichment_status() -> dict:
     return {"provider": normalized, "configured": False, "health": "unavailable", "mode": "unknown", "capabilities": []}
 
 
+def _runtime_configuration_allowed() -> bool:
+    """Runtime credentials are a local-development convenience, never a production path."""
+
+    return settings.app_environment.strip().lower() not in {"production", "prod"}
+
+
 @router.get("/status")
 def provider_status():
     answer = _answer_status()
@@ -163,6 +169,7 @@ def provider_status():
         "status": "degraded" if degraded else "ready",
         "environment": settings.app_environment,
         "fallback_allowed": settings.provider_fallback_allowed,
+        "runtime_configuration_allowed": _runtime_configuration_allowed(),
         "runtime": {"deepseek": deepseek},
         "providers": {
             "answer": answer,
@@ -180,6 +187,7 @@ def connect_runtime_answer_provider(
     request: Request,
 ):
     _require_owner_session(request)
+    _require_runtime_configuration_allowed()
     try:
         provider = get_runtime_answer_provider().connect_deepseek(
             api_key=payload.api_key.get_secret_value(),
@@ -203,6 +211,7 @@ def connect_runtime_answer_provider(
 @router.delete("/deepseek/runtime")
 def clear_runtime_answer_provider(request: Request):
     _require_owner_session(request)
+    _require_runtime_configuration_allowed()
     cleared = get_runtime_answer_provider().clear()
     provider = _deepseek_runtime_status()
     return {
@@ -221,4 +230,15 @@ def _require_owner_session(request: Request) -> None:
         raise HTTPException(
             status_code=403,
             detail="必须使用管理员会话才能修改回答 Provider，匿名或只读会话无权执行此操作。",
+        )
+
+
+def _require_runtime_configuration_allowed() -> None:
+    if not _runtime_configuration_allowed():
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "生产环境禁止通过运行时接口配置模型密钥；"
+                "请使用 Docker secrets 或 *_API_KEY_FILE 配置。"
+            ),
         )

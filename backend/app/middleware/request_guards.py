@@ -10,10 +10,16 @@ from collections import defaultdict, deque
 from collections.abc import Awaitable, Callable
 
 from app.services.auth import AuthService
+from app.services.authorization import is_authorized, required_permission
 
 
 _REQUEST_ID = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 _PUBLIC_AUTH_PATHS = {"/api/auth/login", "/api/auth/session"}
+_PASSWORD_CHANGE_PATHS = {
+    "/api/auth/session",
+    "/api/auth/password",
+    "/api/auth/logout",
+}
 _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
 
@@ -97,8 +103,13 @@ class RequestGuardMiddleware:
                     extra_headers=[(b"retry-after", str(retry_after).encode("ascii"))],
                 )
                 return
-            bearer_authorized = self.auth_token and self._authorized(
-                headers.get(b"authorization", b"")
+            # A legacy bearer token is supported only when session auth is
+            # disabled. Combining both modes must never turn the token into a
+            # bypass for membership, password-change, RBAC, or CSRF checks.
+            bearer_authorized = bool(
+                self.auth_service is None
+                and self.auth_token
+                and self._authorized(headers.get(b"authorization", b""))
             )
             if path not in _PUBLIC_AUTH_PATHS:
                 if self.auth_service and not (identity or bearer_authorized):
@@ -109,6 +120,38 @@ class RequestGuardMiddleware:
                 if not self.auth_service and self.auth_token and not bearer_authorized:
                     await self._guard_response(
                         scope, send, 401, "请先登录后再继续。", request_id, started_at
+                    )
+                    return
+                if (
+                    identity
+                    and getattr(identity, "must_change_password", False)
+                    and not bearer_authorized
+                    and path not in _PASSWORD_CHANGE_PATHS
+                ):
+                    await self._guard_response(
+                        scope,
+                        send,
+                        403,
+                        "首次登录后必须先修改临时密码。",
+                        request_id,
+                        started_at,
+                    )
+                    return
+                if (
+                    identity
+                    and not bearer_authorized
+                    and not is_authorized(
+                        identity.role,
+                        required_permission(method, path),
+                    )
+                ):
+                    await self._guard_response(
+                        scope,
+                        send,
+                        403,
+                        "当前账号没有执行此操作的权限。",
+                        request_id,
+                        started_at,
                     )
                     return
                 if (

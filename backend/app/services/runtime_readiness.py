@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 import httpx
 
@@ -26,10 +26,35 @@ _REAL_ANSWERS = {
 }
 
 
+def _is_official_openai_base_url(value: str) -> bool:
+    """Allow the SDK default or the canonical OpenAI API root only."""
+
+    candidate = str(value or "").strip()
+    if not candidate:
+        return True
+    try:
+        parsed = urlparse(candidate)
+        port = parsed.port
+    except ValueError:
+        return False
+    return (
+        parsed.scheme.lower() == "https"
+        and (parsed.hostname or "").lower() == "api.openai.com"
+        and port in {None, 443}
+        and not parsed.username
+        and not parsed.password
+        and not parsed.query
+        and not parsed.fragment
+        and parsed.path.rstrip("/") in {"", "/v1"}
+    )
+
+
 def validate_runtime_settings(settings: Settings) -> None:
     mode = settings.runtime_mode.strip().lower()
     if mode not in {"demo", "local-production", "production"}:
         raise ValueError("RAG_RUNTIME_MODE 必须是 demo、local-production 或 production")
+    if settings.auth_mode.strip().lower() == "session" and settings.api_auth_token:
+        raise ValueError("会话认证模式禁止配置可绕过成员 RBAC 的 API_AUTH_TOKEN")
     if mode == "demo":
         return
 
@@ -50,6 +75,39 @@ def validate_runtime_settings(settings: Settings) -> None:
         if settings.vector_store.lower() not in {"chroma", "pgvector"}:
             errors.append("local-production 模式的 VECTOR_STORE 必须是 chroma 或 pgvector")
     else:
+        if settings.app_environment.strip().lower() not in {"production", "prod"}:
+            errors.append("production 必须设置 APP_ENVIRONMENT=production")
+        if settings.api_auth_token:
+            errors.append("production 禁止使用绕过成员 RBAC 的 API_AUTH_TOKEN")
+        if settings.embedding_provider.lower() != "openai":
+            errors.append("production 必须使用 OpenAI 云端 embedding")
+        if not _is_official_openai_base_url(settings.openai_base_url):
+            errors.append(
+                "production OpenAI embedding 只允许官方 api.openai.com endpoint"
+            )
+        if (
+            settings.embedding_model != "text-embedding-3-large"
+            or settings.resolved_embedding_dimension() != 1536
+        ):
+            errors.append(
+                "production 必须使用 text-embedding-3-large 的 1536 维输出"
+            )
+        if settings.answer_provider.lower() not in {
+            "openai-compatible-chat",
+            "openai_compatible_chat",
+        } or settings.answer_base_url.rstrip("/") != "https://api.deepseek.com":
+            errors.append("production 必须使用 DeepSeek 官方云端回答接口")
+        if settings.reranker.lower() != "deepseek":
+            errors.append("production 必须使用选择性 DeepSeek 重排")
+        if (
+            settings.retrieval_aux_provider.lower() != "deepseek"
+            or settings.retrieval_aux_base_url.rstrip("/")
+            != "https://api.deepseek.com"
+            or not settings.retrieval_aux_api_key
+        ):
+            errors.append("production 必须配置 DeepSeek 查询规划与重排辅助客户端")
+        if settings.query_rewrite_provider.lower() != "deepseek":
+            errors.append("production 必须使用受控 DeepSeek 查询改写")
         if settings.metadata_backend.lower() != "postgres" or not settings.metadata_dsn:
             errors.append("必须配置 METADATA_BACKEND=postgres 和 METADATA_DSN")
         if settings.vector_store.lower() != "pgvector" or not settings.pgvector_dsn:
@@ -170,6 +228,15 @@ def build_readiness_report(
             "configured": settings.embedding_provider.lower()
             in {"mock", "local", "sentence-transformers", "sentence_transformers", "huggingface"}
             or bool(settings.openai_api_key or settings.openai_base_url or settings.ollama_base_url),
+        },
+        "retrieval_aux": {
+            "provider": settings.retrieval_aux_provider.lower(),
+            "configured": settings.retrieval_aux_provider.lower() in {"none", "off"}
+            or bool(
+                settings.retrieval_aux_base_url
+                and settings.retrieval_aux_model
+                and settings.retrieval_aux_api_key
+            ),
         },
         "fetch_worker": {
             "provider": "isolated" if settings.fetch_worker_url else "in-process",

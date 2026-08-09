@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from abc import ABC, abstractmethod
 
 from app.services.responses_client import ResponsesClient
@@ -8,7 +9,7 @@ from app.services.responses_client import ResponsesClient
 
 MAX_PROMPT_EVIDENCE_CHARS = 12_000
 MAX_PROMPT_EVIDENCE_ITEM_CHARS = 2_400
-MAX_PROMPT_EVIDENCE_ITEMS = 8
+MAX_PROMPT_EVIDENCE_ITEMS = 10
 
 
 def _bounded_text(value: object, limit: int) -> str:
@@ -66,25 +67,38 @@ class TemplateAnswerGenerator(BaseAnswerGenerator):
     name = "template"
 
     def generate(self, question: str, citations: list[dict], trace: dict) -> dict:
+        citation_group = ",".join(str(index) for index in range(1, min(len(citations), 3) + 1))
+        overview_reference = f" [{citation_group}]" if citation_group else ""
+        auditable_question = re.sub(r"[。！？!?]+", "", question).strip()
         lines = [
             "答案：",
-            f"针对“{question}”，当前可检索证据支持以下结论：",
+            f"针对“{auditable_question}”，当前可检索证据支持以下结论。{overview_reference}",
             "",
         ]
         for idx, item in enumerate(citations[:3], start=1):
             snippet = item["text"].replace("\n", " ")
             if len(snippet) > 150:
                 snippet = snippet[:150] + "..."
+            # Keep each evidence bullet as one auditable claim. Source prose can
+            # contain many sentence boundaries but one trailing marker would only
+            # support the final sentence after splitting.
+            snippet = re.sub(r"[。！？!?]+", "；", snippet).strip("； ")
+            # Preserve decimal points only when both adjacent characters are
+            # digits; list markers and English sentence periods become clauses.
+            snippet = re.sub(r"(?<!\d)\.|\.(?!\d)", "；", snippet)
             location = f"第 {item['page_number']} 页" if item.get("page_number") else f"chunk {item['index'] + 1}"
-            lines.append(f"{idx}. {snippet} [{item['filename']}, {location}]")
+            lines.append(f"{idx}. {snippet} [{idx}]")
         lines.extend(
             [
                 "",
                 "依据：",
-                *[self._citation_line(item) for item in citations[:3]],
+                *[
+                    self._citation_line(item, index)
+                    for index, item in enumerate(citations[:3], start=1)
+                ],
                 "",
                 "不确定性：",
-                "当前回答严格依据检索片段生成；如果证据不足，系统会拒答或提示需要补充资料。",
+                "无补充。",
             ]
         )
         return {
@@ -96,9 +110,9 @@ class TemplateAnswerGenerator(BaseAnswerGenerator):
             },
         }
 
-    def _citation_line(self, item: dict) -> str:
+    def _citation_line(self, item: dict, index: int) -> str:
         location = f"第 {item['page_number']} 页" if item.get("page_number") else f"chunk {item['index'] + 1}"
-        return f"- {item['filename']}，{location}，相关度 {item['score']:.4f}"
+        return f"- {item['filename']}，{location}，相关度 {item['score']:.4f} [{index}]"
 
 
 class ResponsesAnswerGenerator(BaseAnswerGenerator):
@@ -128,10 +142,19 @@ class ResponsesAnswerGenerator(BaseAnswerGenerator):
     def _build_prompt(self, question: str, citations: list[dict], trace: dict) -> str:
         evidence = []
         remaining_characters = MAX_PROMPT_EVIDENCE_CHARS
-        for idx, item in enumerate(citations[:MAX_PROMPT_EVIDENCE_ITEMS], start=1):
+        prompt_citations = citations[:MAX_PROMPT_EVIDENCE_ITEMS]
+        for idx, item in enumerate(prompt_citations, start=1):
             parent_context = item.get("parent_context") if isinstance(item.get("parent_context"), dict) else {}
             source_text = parent_context.get("text") or item.get("text") or item.get("snippet") or ""
-            text_limit = min(MAX_PROMPT_EVIDENCE_ITEM_CHARS, remaining_characters)
+            # Reserve a fair share for every selected leaf. Composite and
+            # multihop retrieval can intentionally return ten evidence items;
+            # allowing early parent contexts to consume the whole budget would
+            # silently drop the evidence kept for a later sub-question.
+            remaining_items = len(prompt_citations) - idx + 1
+            text_limit = min(
+                MAX_PROMPT_EVIDENCE_ITEM_CHARS,
+                max(1, remaining_characters // max(1, remaining_items)),
+            )
             bounded_source = _bounded_text(source_text, text_limit)
             if not bounded_source:
                 continue

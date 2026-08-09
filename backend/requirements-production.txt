@@ -1,6 +1,7 @@
 -r requirements.txt
 psycopg[binary]==3.3.4
 pgvector==0.5.0
+openai==2.53.0
 boto3==1.43.54
 redis==8.0.1
 sentry-sdk[fastapi]==2.66.1

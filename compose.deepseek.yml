@@ -4,12 +4,19 @@ services:
       ANSWER_PROVIDER: openai_compatible_chat
       ANSWER_BASE_URL: https://api.deepseek.com
       ANSWER_MODEL: deepseek-v4-flash
-      ANSWER_API_KEY_FILE: /run/secrets/answer_api_key
+      ANSWER_API_KEY_FILE: /run/secrets/deepseek_api_key
       ANSWER_THINKING_MODE: disabled
       ANSWER_MAX_TOKENS: "512"
+      RERANKER: deepseek
+      RETRIEVAL_AUX_PROVIDER: deepseek
+      RETRIEVAL_AUX_BASE_URL: https://api.deepseek.com
+      RETRIEVAL_AUX_MODEL: deepseek-v4-flash
+      RETRIEVAL_AUX_API_KEY_FILE: /run/secrets/deepseek_api_key
+      RETRIEVAL_AUX_TIMEOUT_SECONDS: "3"
+      QUERY_REWRITE_PROVIDER: deepseek
     secrets:
-      - answer_api_key
+      - deepseek_api_key
 
 secrets:
-  answer_api_key:
-    file: ${ANSWER_API_KEY_FILE:-./secrets/answer_api_key}
+  deepseek_api_key:
+    file: ${DEEPSEEK_API_KEY_FILE:-./secrets/deepseek_api_key}

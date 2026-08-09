@@ -32,6 +32,30 @@ def test_optional_bearer_auth_protects_api_but_not_health():
     assert client.get("/api/value", headers={"Authorization": "Bearer secret"}).status_code == 200
 
 
+def test_bearer_token_cannot_bypass_session_authentication():
+    class SessionAuth:
+        def resolve_cookie_header(self, _cookie_header: str):
+            return None
+
+        def verify_csrf(self, _identity, _supplied: str) -> bool:
+            return False
+
+    client = TestClient(guarded_app(
+        auth_token="legacy-token",
+        auth_service=SessionAuth(),
+        rate_limit_requests=20,
+        rate_limit_window_seconds=60,
+    ))
+
+    response = client.get(
+        "/api/value",
+        headers={"Authorization": "Bearer legacy-token"},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "请先登录后再继续。"
+
+
 def test_rate_limit_returns_retry_after_and_request_id():
     client = TestClient(guarded_app(auth_token="", rate_limit_requests=2, rate_limit_window_seconds=60))
 

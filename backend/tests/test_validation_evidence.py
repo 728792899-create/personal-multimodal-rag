@@ -424,10 +424,10 @@ def test_release_evidence_refuses_to_count_unmatched_or_unreviewed_artifacts(tmp
     result = build_release_evidence.build(evidence_dir, manifest)
 
     assert result["corpus"]["licensed_materials"] == 20
-    assert result["corpus"]["non_fixture_documents"] == 0
+    assert result["corpus"]["non_fixture_documents"] is None
     assert result["corpus"]["annotated_questions"] == 0
-    assert result["operations"]["soak_days"] == 0
-    assert result["operations"]["no_data_loss_defect"] is False
+    assert result["operations"]["soak_days"] is None
+    assert result["operations"]["data_loss_incidents"] is None
 
 
 def test_release_evidence_uses_current_verified_soak_window(tmp_path, monkeypatch):
@@ -476,4 +476,117 @@ def test_release_evidence_uses_current_verified_soak_window(tmp_path, monkeypatc
     result = build_release_evidence.build(evidence_dir, manifest)
 
     assert result["operations"]["soak_days"] == 14
-    assert result["operations"]["no_data_loss_defect"] is True
+    assert result["operations"]["availability"] == pytest.approx(
+        (4_100 - 4) / 4_100
+    )
+    assert result["audit"]["soak_chain_valid"] is True
+
+
+def test_release_evidence_collects_all_rc_gate_artifacts(tmp_path, monkeypatch):
+    evidence_dir = tmp_path / "evidence"
+    evidence_dir.mkdir()
+    manifest = tmp_path / "corpus-manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "licensed_materials": 20,
+                "documents": [{"sha256": "expected", "license_name": "MIT"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    artifacts = {
+        "indexing-summary.json": {
+            "indexed_documents": 200,
+            "corpus_sha256": ["expected"],
+        },
+        "annotation-summary.json": {
+            "human_reviewed": 200,
+            "locked_regression": 140,
+            "second_reviewed": 40,
+            "label_agreement_kappa": 0.76,
+            "evidence_agreement_f1": 0.81,
+        },
+        "usage-summary.json": {"human_originated_questions": 500},
+        "soak-state.json": {
+            "continuous_seconds": 14 * 86_400,
+            "sample_count": 1_000,
+            "success_count": 999,
+        },
+        "restore-summary.json": {
+            "passed": True,
+            "full_stack_rollback_passed": True,
+            "rollback_rto_minutes": 8,
+            "source_rpo_lost_records": 0,
+        },
+        "chaos-summary.json": {
+            "provider_failure_contract_passed": True,
+            "five_xx_rollback_trigger_verified": True,
+        },
+        "security-summary.json": {
+            "rbac_authorization_pass_rate": 1.0,
+            "permission_bypass_incidents": 0,
+            "index_pollution_incidents": 0,
+            "data_loss_incidents": 0,
+            "fabricated_citation_incidents": 0,
+            "secret_leak_incidents": 0,
+            "unresolved_sev1": 0,
+        },
+        "real-benchmark.json": {
+            "recall_at_5": 0.91,
+            "mrr_at_10": 0.79,
+            "multihop_chain_at_10": 0.81,
+            "table_recall_at_10": 0.86,
+            "image_recall_at_10": 0.86,
+            "formula_recall_at_10": 0.86,
+            "citation_accuracy": 0.91,
+            "factual_coverage": 0.91,
+            "fabricated_or_invalid_citations": 0,
+            "refusal_f1": 0.89,
+            "answerable_false_refusal_rate": 0.07,
+            "blind_test_cases": 100,
+            "blind_acceptance_rate": 0.86,
+        },
+        "ann-benchmark.json": {
+            "hnsw_recall_at_50": 0.99,
+            "primary_strata_recall_at_50": {"table": 0.96},
+        },
+        "regression-summary.json": {
+            "difficult_core_best_improvement": 0.06,
+            "overall_worst_regression": 0.005,
+        },
+        "rerank-summary.json": {
+            "enabled": True,
+            "trigger_subset_mrr_improvement": 0.04,
+            "trigger_rate": 0.40,
+        },
+        "performance-summary.json": {
+            "benchmark_chunks": 50_000,
+            "benchmark_concurrency": 5,
+            "hnsw_p95_ms": 190,
+            "simple_retrieval_p95_ms": 1_900,
+            "complex_retrieval_p95_ms": 5_900,
+            "simple_ttft_p95_ms": 5_900,
+            "complex_ttft_p95_ms": 9_900,
+            "automatic_routing_cost_ratio": 1.30,
+        },
+    }
+    for filename, payload in artifacts.items():
+        (evidence_dir / filename).write_text(
+            json.dumps(payload), encoding="utf-8"
+        )
+    monkeypatch.setattr(
+        build_release_evidence,
+        "verify_evidence",
+        lambda _directory: {"eligible": True},
+    )
+
+    result = build_release_evidence.build(evidence_dir, manifest)
+
+    assert result["schema_version"] == 2
+    assert result["candidate_version"] == "1.0.0-rc.1"
+    assert result["quality"]["multihop_chain_at_10"] == 0.81
+    assert result["ann"]["primary_strata_recall_at_50"] == {"table": 0.96}
+    assert result["reranking"]["enabled"] is True
+    assert result["performance"]["automatic_routing_cost_ratio"] == 1.30
+    assert result["operations"]["availability"] == 0.999

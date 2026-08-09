@@ -165,6 +165,97 @@ def test_auto_graph_requires_provenance_backed_multi_entity_path(tmp_path: Path)
     assert path_trace["pipeline"]["graph"]["status"] == "success"
 
 
+def test_auto_multihop_derives_hop_two_only_from_first_hop_provenance(tmp_path: Path):
+    registry = DocumentRegistry(str(tmp_path / "registry.sqlite3"))
+    document = _relationship_document()
+    registry.save_document(document)
+    graph = NativeGraphStore(registry)
+    graph.build_document(document)
+    processor = DocumentProcessor()
+    retriever = HybridRetriever(graph_store=graph)
+    retriever.add_document(document, processor.split(document))
+
+    ranked, trace = retriever.search(
+        "Alpha 与 Gamma 有什么关系？",
+        routing_mode="auto",
+        rerank_enabled=False,
+    )
+
+    assert ranked
+    assert trace["plan"]["route"] == "multihop"
+    assert len(trace["plan"]["hops"]) == 2
+    second = trace["plan"]["hops"][1]
+    assert second["entity"] == "Beta"
+    assert second["provenance"]
+    assert second["source_chunk_ids"]
+    assert trace["rewritten_queries"] == [
+        "Alpha 与 Gamma 有什么关系？",
+        "Alpha 与 Gamma 有什么关系？\n桥接实体：Beta",
+    ]
+
+
+def test_auto_multihop_without_provenance_source_is_blocked_by_evidence_gate():
+    document = _relationship_document()
+    processor = DocumentProcessor()
+    retriever = HybridRetriever()
+    retriever.add_document(document, processor.split(document))
+
+    ranked, trace = retriever.search(
+        "Alpha 与 Gamma 有什么关系？",
+        routing_mode="auto",
+        rerank_enabled=False,
+    )
+
+    assert ranked == []
+    assert trace["block"] == {
+        "stage": "evidence_gate",
+        "code": "incomplete_multihop_evidence",
+        "message": "多跳查询没有取得完整、可验证的两跳证据链。",
+        "retryable": False,
+    }
+    assert trace["plan"]["hops"][1]["status"] == "blocked_incomplete_evidence"
+
+
+def test_auto_multihop_blocks_when_second_path_provenance_cannot_be_resolved():
+    document = _relationship_document()
+    element_id = document.elements[0].element_id
+
+    class IncompleteGraphStore:
+        def search(self, query: str, **kwargs):
+            return {
+                "seed_nodes": [],
+                "seed_count": 2,
+                "paths": [
+                    {
+                        "labels": ["Alpha", "Beta", "Gamma"],
+                        "relations": ["uses", "supports"],
+                        "evidence_element_ids": [element_id, "missing:second-hop"],
+                    }
+                ],
+                "evidence_element_ids": [element_id, "missing:second-hop"],
+                "eligible": True,
+                "max_hops": 2,
+            }
+
+    processor = DocumentProcessor()
+    retriever = HybridRetriever(graph_store=IncompleteGraphStore())
+    retriever.add_document(document, processor.split(document))
+
+    ranked, trace = retriever.search(
+        "Alpha 与 Gamma 有什么关系？",
+        routing_mode="auto",
+        rerank_enabled=False,
+    )
+
+    second_hop = trace["plan"]["hops"][1]
+    assert second_hop["entity"] == "Beta"
+    assert second_hop["status"] == "blocked_incomplete_evidence"
+    assert second_hop["missing_evidence_element_ids"] == ["missing:second-hop"]
+    assert ranked == []
+    assert trace["block"]["stage"] == "evidence_gate"
+    assert trace["block"]["code"] == "incomplete_multihop_evidence"
+
+
 def test_responses_vision_enrichment_uses_current_structured_contract():
     captured = {}
 

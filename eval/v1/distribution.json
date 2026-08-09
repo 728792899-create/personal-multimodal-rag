@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "total_annotations": 200,
+  "splits": {
+    "tune": 60,
+    "regression": 140
+  },
+  "categories": {
+    "exact": 45,
+    "semantic": 45,
+    "composite": 35,
+    "multihop": 30,
+    "summary": 20,
+    "unanswerable_or_conflict": 25
+  },
+  "cross_labels_minimum": {
+    "table": 30,
+    "image_or_ocr": 20,
+    "formula": 10,
+    "cross_document": 30,
+    "version_conflict": 20
+  },
+  "double_reviewed": 40,
+  "minimum_category_kappa": 0.75,
+  "minimum_evidence_f1": 0.8,
+  "blind_questions": 100
+}

@@ -11,6 +11,16 @@ from app.config import settings
 from app.middleware.request_guards import RequestGuardMiddleware
 from app.services.observability import configure_opentelemetry, configure_sentry
 from app.services.production_metrics import production_metrics
+from app.services.runtime_readiness import (
+    build_readiness_report,
+    collect_runtime_checks,
+    validate_runtime_settings,
+)
+
+# Validate the production/provider boundary before importing the composition
+# root, which constructs model and storage clients as module singletons.
+validate_runtime_settings(settings)
+
 from app.core.store import (
     auth_service,
     ingestion_worker,
@@ -21,14 +31,16 @@ from app.core.store import (
     job_signal_queue,
     fetch_worker_client,
     retriever,
+    index_registry,
+    create_shadow_vector_store,
 )
 from app.api.routers.auth import build_auth_router
-from app.api.routers.providers import provider_status
-from app.services.runtime_readiness import (
-    build_readiness_report,
-    collect_runtime_checks,
-    validate_runtime_settings,
+from app.api.routers.indexes import (
+    build_durable_shadow_rebuild_enqueuer,
+    build_indexes_router,
 )
+from app.api.routers.providers import provider_status
+from app.services.authorization import require_roles
 
 configure_sentry(
     dsn=settings.sentry_dsn,
@@ -57,7 +69,7 @@ async def lifespan(_: FastAPI):
 app = FastAPI(
     title="Personal Multimodal RAG",
     description="本地优先的多模态知识库问答服务，支持混合检索与可核验引用。",
-    version="0.4.0-rc.1",
+    version="1.0.0-rc.1",
     lifespan=lifespan,
 )
 
@@ -88,6 +100,15 @@ app.add_middleware(
 
 app.include_router(router, prefix="/api")
 app.include_router(build_auth_router(auth_service), prefix="/api")
+app.include_router(
+    build_indexes_router(
+        index_registry,
+        require_admin=require_roles("admin"),
+        store_factory=create_shadow_vector_store,
+        enqueue_rebuild=build_durable_shadow_rebuild_enqueuer(registry),
+    ),
+    prefix="/api",
+)
 
 
 @app.exception_handler(RequestValidationError)

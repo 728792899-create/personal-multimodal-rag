@@ -10,18 +10,23 @@ const props = withDefaults(defineProps<{
   libraryOpen?: boolean
   inspectorOpen?: boolean
   modelConnectionOpen?: boolean
+  memberManagementOpen?: boolean
+  canManageMembers?: boolean
 }>(), {
   showLogout: false,
   signingOut: false,
   libraryOpen: false,
   inspectorOpen: false,
   modelConnectionOpen: false,
+  memberManagementOpen: false,
+  canManageMembers: false,
 })
 const emit = defineEmits<{
   signOut: []
   openLibrary: []
   openInspector: []
   openModelConnection: []
+  openMemberManagement: []
 }>()
 </script>
 
@@ -85,6 +90,16 @@ const emit = defineEmits<{
       >
         <span>模型连接</span>
       </button>
+      <button
+        v-if="props.canManageMembers"
+        id="open-member-management"
+        type="button"
+        class="header-tool"
+        data-testid="open-member-management"
+        :aria-expanded="props.memberManagementOpen"
+        aria-controls="member-management-drawer"
+        @click="emit('openMemberManagement')"
+      ><span>成员</span></button>
       <button
         id="open-library"
         type="button"

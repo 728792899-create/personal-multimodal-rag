@@ -331,7 +331,7 @@ def test_runtime_provider_routes_require_owner_session_csrf_and_never_persist_se
         headers={"Authorization": "Bearer break-glass-token"},
         json=payload,
     )
-    assert bearer_only.status_code == 403
+    assert bearer_only.status_code == 401
 
     client.cookies.set("rag_session", "valid-session")
     assert client.post(
@@ -466,6 +466,39 @@ def test_provider_status_recognizes_startup_deepseek_without_exposing_credential
     assert status["runtime"]["deepseek"]["temporary"] is False
     assert "test-startup-credential-value" not in repr(status)
     assert "api_key" not in repr(status).lower()
+
+
+def test_production_provider_status_is_read_only_and_runtime_credentials_are_rejected(
+    tmp_path,
+    monkeypatch,
+):
+    from app.config import settings
+
+    manager = RuntimeAnswerProviderManager(
+        SimpleNamespace(answer_generator=TemplateAnswerGenerator()),
+        client_factory=lambda **kwargs: FakeDeepSeekClient(**kwargs),
+        probe_client=_successful_probe_client(),
+    )
+    client, csrf, registry = _authenticated_provider_client(
+        tmp_path,
+        monkeypatch,
+        manager,
+    )
+    monkeypatch.setattr(settings, "app_environment", "production")
+
+    status = client.get("/api/providers/status")
+    assert status.status_code == 200
+    assert status.json()["runtime_configuration_allowed"] is False
+
+    response = client.post(
+        "/api/providers/deepseek/runtime",
+        headers={"X-CSRF-Token": csrf},
+        json={"api_key": "test-runtime-credential-value"},
+    )
+    assert response.status_code == 403
+    assert "Docker secrets" in response.json()["detail"]
+    assert manager.status() is None
+    registry.close()
 
 
 def test_startup_deepseek_is_not_configured_without_a_key(

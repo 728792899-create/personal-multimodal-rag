@@ -96,13 +96,13 @@ watch(
           {{ item.name }}（{{ item.document_count }}）
         </option>
       </select>
-      <form class="inline-create" aria-label="创建知识库" @submit.prevent="workbench.addKnowledgeBase">
+      <form v-if="workbench.canEdit.value" class="inline-create" aria-label="创建知识库" @submit.prevent="workbench.addKnowledgeBase">
         <input v-model="workbench.newKnowledgeBaseName.value" maxlength="120" placeholder="新知识库名称" />
         <button class="button secondary-button" type="submit" :disabled="!workbench.newKnowledgeBaseName.value.trim()">新增</button>
       </form>
     </section>
 
-    <section class="ingest-group" aria-labelledby="upload-title">
+    <section v-if="workbench.canEdit.value" class="ingest-group" aria-labelledby="upload-title">
       <h3 id="upload-title" class="sr-only">上传文件</h3>
       <label
         class="file-drop"
@@ -135,7 +135,7 @@ watch(
       </button>
     </section>
 
-    <form class="url-form" aria-label="导入网页资料" @submit.prevent="workbench.handleImportUrl">
+    <form v-if="workbench.canEdit.value" class="url-form" aria-label="导入网页资料" @submit.prevent="workbench.handleImportUrl">
       <label for="url-import">从网页采集证据</label>
       <div class="field-action">
         <input
@@ -158,7 +158,7 @@ watch(
       </div>
     </form>
 
-    <details class="task-section" :open="Boolean(workbench.activeJobs.value.length)">
+    <details v-if="workbench.canAdmin.value" class="task-section" :open="Boolean(workbench.activeJobs.value.length)">
       <summary>索引任务 <span>{{ workbench.indexJobs.value.length }}</span></summary>
       <div v-if="workbench.indexJobs.value.length" class="task-list" aria-live="polite">
         <article v-for="job in workbench.indexJobs.value.slice(0, 6)" :key="job.id">
@@ -188,7 +188,7 @@ watch(
       <p v-else class="muted-copy">上传和 URL 导入会在这里显示可恢复进度。</p>
     </details>
 
-    <SourceManager />
+    <SourceManager v-if="workbench.canEdit.value" />
 
     <div class="list-toolbar">
       <label for="document-filter" class="sr-only">筛选文档</label>
@@ -199,6 +199,7 @@ watch(
         placeholder="搜索知识库资料"
       />
       <button
+        v-if="workbench.canAdmin.value"
         type="button"
         class="button icon-button"
         aria-label="重建全部索引"
@@ -215,7 +216,7 @@ watch(
     </div>
     <div v-else-if="!workbench.filteredDocuments.value.length" class="empty-state compact-empty">
       <strong>{{ workbench.documentFilter.value ? '没有匹配文档' : '知识库还是空的' }}</strong>
-      <p>{{ workbench.documentFilter.value ? '清除筛选条件后重试。' : '上传文件或导入公开 URL 开始构建证据。' }}</p>
+      <p>{{ workbench.documentFilter.value ? '清除筛选条件后重试。' : workbench.canEdit.value ? '上传文件或导入公开 URL 开始构建证据。' : '请联系工作区编辑者添加资料。' }}</p>
     </div>
     <ul v-else class="document-list" aria-label="知识库文档">
       <li v-for="doc in visibleDocuments" :key="doc.id" :class="{ scoped: workbench.scopeSet.value.has(doc.id) }">
@@ -233,8 +234,9 @@ watch(
           <span>{{ localizedSourceType(doc.source_type) }} · {{ doc.chunk_count }} 片段</span>
           <small>{{ qualityLabel(doc.quality?.score) }} · 质量 {{ doc.quality?.score ?? '—' }}</small>
         </button>
-        <div class="row-actions">
+        <div v-if="workbench.canEdit.value" class="row-actions">
           <button
+            v-if="workbench.canAdmin.value"
             type="button"
             class="button icon-button"
             :aria-label="`重建 ${doc.filename}`"
@@ -303,7 +305,7 @@ watch(
       <p v-else class="muted-copy">从可信回答保存卡片后可在这里导出。</p>
     </details>
 
-    <details class="history-section">
+    <details v-if="workbench.canAdmin.value" class="history-section">
       <summary>问答历史 <span>{{ workbench.history.value.length }}</span></summary>
       <div v-if="workbench.history.value.length" class="history-list">
         <button

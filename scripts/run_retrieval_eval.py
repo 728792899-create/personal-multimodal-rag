@@ -22,15 +22,19 @@ METRIC_LABELS = {
     "recall_at_5": "Recall@5",
     "mrr": "MRR",
     "citation_accuracy": "引用准确率",
-    "refusal_accuracy": "拒答准确率",
+    "citation_coverage": "可验证事实引用覆盖率",
+    "valid_citation_rate": "有效引用率",
+    "refusal_f1": "拒答 F1",
+    "refusal_recall": "无答案拒答召回率",
+    "answerable_misrefusal_complement": "可回答问题非误拒率",
     "answer_acceptance_accuracy": "可回答接受率",
-    "modality_recall_at_5": "多模态 Recall@5",
+    "modality_recall_at_10": "多模态 Recall@10",
     "table_cell_accuracy": "表格单元准确率",
     "caption_alignment": "Caption 对齐率",
     "formula_accuracy": "公式准确率",
     "graph_path_precision": "Graph 路径精度",
     "graph_evidence_coverage": "Graph 证据覆盖率",
-    "multihop_recall_at_5": "多跳 Recall@5",
+    "multihop_complete_evidence_at_10": "多跳完整证据链@10",
 }
 
 
@@ -122,26 +126,42 @@ def evaluate_cases(cases: list[dict], engine: RagEngine, top_k: int = 5) -> list
         should_answer = bool(case.get("should_answer", True))
         context = [str(item) for item in case.get("conversation_context", []) if item]
         effective_question = "\n".join([*context[-4:], case["question"]])
+        retrieval_options = {
+            "query_rewrite": False,
+            "knowledge_base_ids": case.get("knowledge_base_ids") or [],
+            "min_score": case.get("min_score"),
+            "strategy": case.get("strategy", "hybrid"),
+            "graph_weight": case.get("graph_weight", 0.25),
+            "graph_max_hops": case.get("graph_max_hops", 2),
+        }
+        retrieval = engine.search(
+            effective_question,
+            top_k=max(10, top_k),
+            **retrieval_options,
+        )
         result = engine.ask(
             effective_question,
             top_k=top_k,
-            query_rewrite=False,
-            knowledge_base_ids=case.get("knowledge_base_ids") or [],
-            min_score=case.get("min_score"),
-            strategy=case.get("strategy", "hybrid"),
-            graph_weight=case.get("graph_weight", 0.25),
-            graph_max_hops=case.get("graph_max_hops", 2),
+            **retrieval_options,
         )
         citations = result.get("citations", [])
+        retrieval_results = retrieval.get("results", [])
         trace = result.get("retrieval_trace", {})
         relevant_ranks = [
             index
-            for index, citation in enumerate(citations, start=1)
+            for index, citation in enumerate(retrieval_results, start=1)
             if _is_relevant(citation, case)
         ]
         refusal_reason = result.get("retrieval_trace", {}).get("refusal_reason")
         refused = bool(refusal_reason) or not citations
         citation_texts = [f"{item.get('text', '')}\n{item.get('snippet', '')}".lower() for item in citations]
+        citation_audit = result.get("citation_audit") if isinstance(result.get("citation_audit"), dict) else {}
+        valid_citations = [
+            item for item in citations
+            if item.get("id") and item.get("document_id") and str(item.get("text") or "").strip()
+        ]
+        expected_sources = _expected_sources(case)
+        top_ten_sources = {str(item.get("filename") or "") for item in retrieval_results[:10]}
         expected_cells = [str(item).lower() for item in case.get("expected_cells", [])]
         expected_caption = [str(item).lower() for item in case.get("expected_caption_terms", [])]
         expected_formula = "".join(str(case.get("expected_formula") or "").lower().split())
@@ -168,9 +188,12 @@ def evaluate_cases(cases: list[dict], engine: RagEngine, top_k: int = 5) -> list
                 "should_answer": should_answer,
                 "decision": "refused" if refused else "answered",
                 "decision_correct": (not refused) if should_answer else refused,
-                "recall_hit": bool(relevant_ranks) if should_answer else None,
+                "recall_hit": any(rank <= top_k for rank in relevant_ranks) if should_answer else None,
                 "first_relevant_rank": relevant_ranks[0] if relevant_ranks else None,
                 "citation_correct": bool(citations and _is_relevant(citations[0], case)) if should_answer else not citations,
+                "citation_coverage": float(citation_audit.get("coverage") or 0) if should_answer else None,
+                "valid_citation_rate": len(valid_citations) / max(len(citations), 1) if citations else (1.0 if not should_answer else 0.0),
+                "multihop_complete": expected_sources.issubset(top_ten_sources) if should_answer and case.get("category") == "multihop-graph" else None,
                 "expected_sources": sorted(_expected_sources(case)),
                 "top_sources": [citation.get("filename", "") for citation in citations[:3]],
                 "refusal_reason": refusal_reason,
@@ -200,10 +223,20 @@ def evaluate_cases(cases: list[dict], engine: RagEngine, top_k: int = 5) -> list
 def summarize_rows(rows: list[dict], top_k: int = 5) -> dict:
     answerable = [row for row in rows if row["should_answer"]]
     refusal = [row for row in rows if not row["should_answer"]]
+    def was_refused(row: dict) -> bool:
+        if "decision" in row:
+            return row.get("decision") == "refused"
+        return bool(row.get("decision_correct")) if not row["should_answer"] else not bool(row.get("decision_correct"))
     recall = sum(bool(row["recall_hit"]) for row in answerable) / max(len(answerable), 1)
     mrr = sum(1 / row["first_relevant_rank"] if row["first_relevant_rank"] else 0 for row in answerable) / max(len(answerable), 1)
     citation_accuracy = sum(bool(row["citation_correct"]) for row in answerable) / max(len(answerable), 1)
-    refusal_accuracy = sum(bool(row["decision_correct"]) for row in refusal) / max(len(refusal), 1)
+    refusal_true_positive = sum(was_refused(row) for row in refusal)
+    refusal_false_positive = sum(was_refused(row) for row in answerable)
+    refusal_false_negative = sum(not was_refused(row) for row in refusal)
+    refusal_precision = refusal_true_positive / max(refusal_true_positive + refusal_false_positive, 1)
+    refusal_recall = refusal_true_positive / max(refusal_true_positive + refusal_false_negative, 1)
+    refusal_f1 = 2 * refusal_precision * refusal_recall / max(refusal_precision + refusal_recall, 1e-12)
+    misrefusal_rate = refusal_false_positive / max(len(answerable), 1)
     answer_acceptance = sum(bool(row["decision_correct"]) for row in answerable) / max(len(answerable), 1)
     modality = [row for row in answerable if row.get("modality")]
     table = [row for row in rows if row.get("table_cell_correct") is not None]
@@ -211,7 +244,7 @@ def summarize_rows(rows: list[dict], top_k: int = 5) -> dict:
     formulas = [row for row in rows if row.get("formula_correct") is not None]
     graph = [row for row in rows if row.get("graph_path_correct") is not None]
     graph_coverage = [row for row in rows if row.get("graph_evidence_coverage") is not None]
-    multihop = [row for row in answerable if row.get("category") == "multihop-graph"]
+    multihop = [row for row in answerable if row.get("multihop_complete") is not None]
     category_distribution = {
         category: sum(1 for row in rows if row.get("category", "general") == category)
         for category in sorted({row.get("category", "general") for row in rows})
@@ -227,15 +260,22 @@ def summarize_rows(rows: list[dict], top_k: int = 5) -> dict:
         f"recall_at_{top_k}": round(recall, 4),
         "mrr": round(mrr, 4),
         "citation_accuracy": round(citation_accuracy, 4),
-        "refusal_accuracy": round(refusal_accuracy, 4),
+        "citation_coverage": round(sum(float(row.get("citation_coverage") or 0) for row in answerable) / max(len(answerable), 1), 4),
+        "valid_citation_rate": round(sum(float(row.get("valid_citation_rate") or 0) for row in rows) / max(len(rows), 1), 4),
+        "refusal_accuracy": round(refusal_recall, 4),
+        "refusal_f1": round(refusal_f1, 4),
+        "refusal_recall": round(refusal_recall, 4),
+        "answerable_misrefusal_complement": round(1 - misrefusal_rate, 4),
         "answer_acceptance_accuracy": round(answer_acceptance, 4),
         "modality_recall_at_5": round(sum(bool(row["recall_hit"]) for row in modality) / max(len(modality), 1), 4),
+        "modality_recall_at_10": round(sum(bool(row["first_relevant_rank"] and row["first_relevant_rank"] <= 10) for row in modality) / max(len(modality), 1), 4),
         "table_cell_accuracy": round(sum(bool(row["table_cell_correct"]) for row in table) / max(len(table), 1), 4),
         "caption_alignment": round(sum(bool(row["caption_aligned"]) for row in captions) / max(len(captions), 1), 4),
         "formula_accuracy": round(sum(bool(row["formula_correct"]) for row in formulas) / max(len(formulas), 1), 4),
         "graph_path_precision": round(sum(bool(row["graph_path_correct"]) for row in graph) / max(len(graph), 1), 4),
         "graph_evidence_coverage": round(sum(float(row["graph_evidence_coverage"]) for row in graph_coverage) / max(len(graph_coverage), 1), 4),
         "multihop_recall_at_5": round(sum(bool(row["recall_hit"]) for row in multihop) / max(len(multihop), 1), 4),
+        "multihop_complete_evidence_at_10": round(sum(bool(row["multihop_complete"]) for row in multihop) / max(len(multihop), 1), 4),
         "category_distribution": category_distribution,
         "source_distribution": source_distribution,
     }

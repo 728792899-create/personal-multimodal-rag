@@ -28,6 +28,64 @@ def test_prometheus_metrics_use_bounded_paths_and_never_export_questions():
     assert "token=" not in rendered
 
 
+def test_retrieval_health_metrics_use_only_bounded_labels():
+    metrics = ProductionMetrics()
+    private_chunk_id = "private-leaf-chunk-42"
+    private_question = "what is the private launch code"
+    metrics.record_answer(
+        {
+            "citations": [{"id": private_chunk_id}],
+            "citation_audit": {"coverage": 1.0},
+            "retrieval_trace": {
+                "query_tokens": private_question.split(),
+                "plan": {"route": "semantic"},
+                "pipeline": {
+                    "decision": {"status": "answered"},
+                    "retrieval_health": {
+                        "status": "warning",
+                        "eligible": True,
+                        "alerts": [
+                            {"code": "universal_chunk"},
+                            {"code": private_chunk_id},
+                        ],
+                        "sparse_dense_top10": {"jaccard": 0.25},
+                        "cross_query": {
+                            "mean_jaccard": 0.9,
+                            "current_top_ids": [private_chunk_id],
+                        },
+                        "candidate_diversity": {"duplicate_rate": 0.0},
+                        "channel_final_evidence": {
+                            "by_kind": {
+                                "bm25": {"final_evidence_coverage": 1.0},
+                                "dense": {"final_evidence_coverage": 0.5},
+                            }
+                        },
+                    },
+                },
+            },
+        },
+        provider="deepseek",
+    )
+
+    rendered = metrics.render()
+
+    assert (
+        'rag_retrieval_health_samples_total{route="semantic",status="warning"} 1'
+        in rendered
+    )
+    assert (
+        'rag_retrieval_health_warnings_total{code="universal_chunk",route="semantic"} 1'
+        in rendered
+    )
+    assert (
+        'rag_retrieval_health_warnings_total{code="other",route="semantic"} 1'
+        in rendered
+    )
+    assert "rag_retrieval_cross_query_topk_jaccard_ratio" in rendered
+    assert private_chunk_id not in rendered
+    assert private_question not in rendered
+
+
 def test_metrics_endpoint_is_prometheus_text_and_public():
     response = TestClient(app).get("/metrics")
 
@@ -170,25 +228,77 @@ def test_release_readiness_is_blocked_without_external_evidence(tmp_path):
 
 def test_release_readiness_requires_every_real_gate(tmp_path):
     evidence = {
+        "schema_version": 2,
+        "candidate_version": "1.0.0-rc.1",
         "updated_at": "2026-07-23T00:00:00Z",
         "corpus": {
             "licensed_materials": 20,
             "non_fixture_documents": 200,
             "annotated_questions": 200,
+            "locked_regression_questions": 140,
+            "second_reviewed_questions": 40,
+            "label_agreement_kappa": 0.75,
+            "evidence_agreement_f1": 0.80,
         },
-        "usage": {"real_questions": 100},
+        "usage": {"representative_queries": 500},
         "operations": {
             "soak_days": 14,
+            "availability": 0.995,
+            "provider_failure_contract_passed": True,
+            "rbac_authorization_pass_rate": 1.0,
             "restore_drill_passed": True,
-            "no_data_loss_defect": True,
+            "full_stack_rollback_passed": True,
+            "rollback_rto_minutes": 10,
+            "source_rpo_lost_records": 0,
+            "five_xx_rollback_trigger_verified": True,
+            "permission_bypass_incidents": 0,
+            "index_pollution_incidents": 0,
+            "data_loss_incidents": 0,
+            "fabricated_citation_incidents": 0,
+            "secret_leak_incidents": 0,
+            "unresolved_sev1": 0,
         },
         "quality": {
-            "recall_at_5": 0.85,
-            "mrr": 0.75,
-            "citation_accuracy": 0.85,
-            "citation_coverage": 0.90,
-            "refusal_accuracy": 0.90,
-            "answer_acceptance": 0.85,
+            "recall_at_5": 0.90,
+            "mrr_at_10": 0.78,
+            "multihop_chain_at_10": 0.80,
+            "table_recall_at_10": 0.85,
+            "image_recall_at_10": 0.85,
+            "formula_recall_at_10": 0.85,
+            "citation_accuracy": 0.90,
+            "factual_coverage": 0.90,
+            "fabricated_or_invalid_citations": 0,
+            "refusal_f1": 0.88,
+            "answerable_false_refusal_rate": 0.08,
+            "blind_test_cases": 100,
+            "blind_acceptance_rate": 0.85,
+        },
+        "ann": {
+            "hnsw_recall_at_50": 0.98,
+            "primary_strata_recall_at_50": {
+                "exact": 0.95,
+                "semantic": 0.97,
+                "multimodal": 0.96,
+            },
+        },
+        "comparison": {
+            "difficult_core_best_improvement": 0.05,
+            "overall_worst_regression": 0.01,
+        },
+        "reranking": {"enabled": False},
+        "performance": {
+            "benchmark_chunks": 50_000,
+            "benchmark_concurrency": 5,
+            "hnsw_p95_ms": 200,
+            "simple_retrieval_p95_ms": 2_000,
+            "complex_retrieval_p95_ms": 6_000,
+            "simple_ttft_p95_ms": 6_000,
+            "complex_ttft_p95_ms": 10_000,
+            "automatic_routing_cost_ratio": 1.35,
+        },
+        "audit": {
+            "indexed_hashes_match": True,
+            "soak_chain_valid": True,
         },
     }
     path = tmp_path / "release.json"
@@ -203,3 +313,53 @@ def test_release_readiness_requires_every_real_gate(tmp_path):
     blocked = build_release_readiness(path)
     assert blocked["ready"] is False
     assert next(gate for gate in blocked["gates"] if gate["id"] == "soak_days")["passed"] is False
+
+
+def test_release_readiness_fails_closed_for_missing_zero_target_evidence(tmp_path):
+    evidence = {
+        "schema_version": 2,
+        "candidate_version": "1.0.0-rc.1",
+        "quality": {"fabricated_or_invalid_citations": None},
+        "operations": {"data_loss_incidents": None},
+    }
+    path = tmp_path / "release.json"
+    path.write_text(json.dumps(evidence), encoding="utf-8")
+
+    report = build_release_readiness(path)
+
+    assert next(
+        gate
+        for gate in report["gates"]
+        if gate["id"] == "fabricated_or_invalid_citations"
+    )["passed"] is False
+    assert next(
+        gate for gate in report["gates"] if gate["id"] == "data_loss_incidents"
+    )["passed"] is False
+
+
+def test_release_readiness_only_requires_rerank_metrics_when_enabled(tmp_path):
+    path = tmp_path / "release.json"
+    path.write_text(
+        json.dumps({"reranking": {"enabled": False}}), encoding="utf-8"
+    )
+    disabled = build_release_readiness(path)
+    assert "rerank_mrr_improvement" not in {
+        gate["id"] for gate in disabled["gates"]
+    }
+
+    path.write_text(
+        json.dumps(
+            {
+                "reranking": {
+                    "enabled": True,
+                    "trigger_subset_mrr_improvement": 0.02,
+                    "trigger_rate": 0.51,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    enabled = build_release_readiness(path)
+    gates = {gate["id"]: gate for gate in enabled["gates"]}
+    assert gates["rerank_mrr_improvement"]["passed"] is False
+    assert gates["rerank_trigger_rate"]["passed"] is False

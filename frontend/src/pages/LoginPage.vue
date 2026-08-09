@@ -7,15 +7,17 @@ import { localizedSystemText } from '../localization'
 defineProps<{
   submitting: boolean
   error: string
+  notice?: string
 }>()
 
 const emit = defineEmits<{
-  submit: [password: string]
+  submit: [username: string, password: string]
 }>()
+const username = ref('')
 const password = ref('')
 
 function handleSubmit() {
-  if (password.value) emit('submit', password.value)
+  if (username.value && password.value) emit('submit', username.value, password.value)
 }
 </script>
 
@@ -67,7 +69,7 @@ function handleSubmit() {
         <footer class="login-identity-footer">
           <span>本地生产模式</span>
           <span>单一工作区</span>
-          <span>0.4.0 候选版</span>
+          <span>1.0.0 候选版</span>
         </footer>
       </aside>
 
@@ -76,12 +78,27 @@ function handleSubmit() {
         <header class="login-access-header">
           <p class="kicker">受保护工作区</p>
           <h2 id="access-title">进入证据工作台</h2>
-          <p>使用本机管理员凭据建立受保护会话。</p>
+          <p>使用内部成员账号建立受保护会话。</p>
         </header>
 
         <form class="login-form" @submit.prevent="handleSubmit">
+          <p v-if="notice" class="login-note" role="status">{{ notice }}</p>
           <div class="login-field-heading">
-            <label for="owner-password">管理员密码</label>
+            <label for="member-username">用户名</label>
+            <span>内部成员</span>
+          </div>
+          <input
+            id="member-username"
+            v-model="username"
+            name="username"
+            type="text"
+            autocomplete="username"
+            :disabled="submitting"
+            autofocus
+            required
+          >
+          <div class="login-field-heading">
+            <label for="owner-password">密码</label>
             <span>本地会话</span>
           </div>
           <input
@@ -91,11 +108,10 @@ function handleSubmit() {
             type="password"
             autocomplete="current-password"
             :disabled="submitting"
-            autofocus
             required
           >
           <p v-if="error" class="login-error" role="alert">{{ localizedSystemText(error, '登录失败，请重试。') }}</p>
-          <button class="button primary login-submit" type="submit" :disabled="submitting || !password">
+          <button class="button primary login-submit" type="submit" :disabled="submitting || !username || !password">
             <span>{{ submitting ? '正在验证…' : '登录工作台' }}</span>
             <span aria-hidden="true">↗</span>
           </button>

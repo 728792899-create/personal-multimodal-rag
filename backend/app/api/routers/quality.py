@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
 from app.api.common import chunks_for_document, feedback_eval_case, retrieval_options
 from app.core.store import rag_engine, registry, retriever
@@ -24,11 +24,24 @@ from app.services.system_metrics import build_system_metrics
 router = APIRouter(tags=["quality"])
 
 
+def _feedback_scope(request: Request) -> tuple[str, str, str]:
+    identity = request.scope.get("state", {}).get("identity")
+    if identity is None:
+        return "owner", "default", "owner"
+    return identity.user_id, identity.workspace_id, identity.role
+
+
 @router.get("/knowledge/overview")
-def knowledge_overview():
+def knowledge_overview(request: Request):
     documents = registry.load_documents()
     chunks_by_document = {doc.document_id: chunks_for_document(doc.document_id) for doc in documents}
-    return build_knowledge_overview(documents, chunks_by_document, registry.list_history(limit=20))
+    _, _, role = _feedback_scope(request)
+    history = (
+        registry.list_history(limit=20)
+        if role in {"admin", "owner"}
+        else []
+    )
+    return build_knowledge_overview(documents, chunks_by_document, history)
 
 
 @router.post("/evaluate")
@@ -136,28 +149,52 @@ def eval_review_summary():
 
 
 @router.post("/feedback")
-def save_feedback(payload: FeedbackRequest):
+def save_feedback(payload: FeedbackRequest, request: Request):
+    user_id, workspace_id, _ = _feedback_scope(request)
     feedback_payload = payload.model_dump()
     if payload.history_id:
-        history = registry.get_history(payload.history_id)
-        if history:
-            feedback_payload["history_snapshot"] = history
+        history = registry.get_history(
+            payload.history_id,
+            user_id=user_id,
+            workspace_id=workspace_id,
+        )
+        if not history:
+            raise HTTPException(status_code=404, detail="问答记录不存在或不属于当前账号。")
+        feedback_payload["history_snapshot"] = history
     eval_case = feedback_eval_case(feedback_payload)
     if eval_case:
         feedback_payload["eval_case"] = eval_case
-    saved = registry.save_feedback(feedback_payload)
+    saved = registry.save_feedback(
+        feedback_payload,
+        user_id=user_id,
+        workspace_id=workspace_id,
+    )
     registry.log_operation(
         "feedback_saved",
         f"保存用户反馈：{payload.rating}",
         {"feedback_id": saved["id"], "history_id": payload.history_id, "rating": payload.rating, "failure_type": payload.failure_type},
         level="warning" if payload.rating == "down" else "info",
     )
-    return {"feedback": saved, "eval_case": eval_case, "stats": registry.feedback_stats()}
+    return {
+        "feedback": saved,
+        "eval_case": eval_case,
+        "stats": registry.feedback_stats(
+            user_id=user_id, workspace_id=workspace_id
+        ),
+    }
 
 
 @router.get("/feedback")
-def list_feedback(limit: int = 50):
-    return {"feedback": registry.list_feedback(limit=limit), "stats": registry.feedback_stats()}
+def list_feedback(request: Request, limit: int = 50):
+    user_id, workspace_id, role = _feedback_scope(request)
+    scope = {} if role in {"admin", "owner"} else {
+        "user_id": user_id,
+        "workspace_id": workspace_id,
+    }
+    return {
+        "feedback": registry.list_feedback(limit=limit, **scope),
+        "stats": registry.feedback_stats(**scope),
+    }
 
 
 @router.get("/eval/drafts")
@@ -225,7 +262,10 @@ def system_metrics():
         history=registry.list_history(limit=200),
         feedback_stats=registry.feedback_stats(),
         operations=registry.list_operations(limit=200),
-        chunk_count=len(retriever.vector_store.chunks),
+        chunk_count=retriever.vector_store.count_chunks(),
         index_jobs=registry.list_index_jobs(limit=200),
         conversation_metrics=registry.conversation_metrics(limit=200),
+        conversation_retrieval_traces=registry.conversation_retrieval_traces(
+            limit=200
+        ),
     )

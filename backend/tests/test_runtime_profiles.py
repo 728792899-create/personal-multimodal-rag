@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import importlib.util
+from pathlib import Path
 
 import pytest
 
@@ -53,9 +55,21 @@ def test_production_profile_accepts_complete_configuration():
     settings = replace(
         Settings(),
         runtime_mode="production",
+        app_environment="production",
         provider_fallback_allowed=False,
-        embedding_provider="ollama",
-        answer_provider="ollama",
+        embedding_provider="openai",
+        embedding_model="text-embedding-3-large",
+        embedding_dimension=1536,
+        openai_api_key="openai-contract-key",
+        answer_provider="openai_compatible_chat",
+        answer_base_url="https://api.deepseek.com",
+        answer_api_key="deepseek-contract-key",
+        reranker="deepseek",
+        retrieval_aux_provider="deepseek",
+        retrieval_aux_base_url="https://api.deepseek.com",
+        retrieval_aux_model="deepseek-v4-flash",
+        retrieval_aux_api_key="deepseek-contract-key",
+        query_rewrite_provider="deepseek",
         vector_store="pgvector",
         metadata_backend="postgres",
         metadata_dsn="postgresql://rag:secret@postgres/rag",
@@ -77,6 +91,134 @@ def test_production_profile_accepts_complete_configuration():
     report = build_readiness_report(settings)
     assert report["ready"] is True
     assert report["components"]["queue"]["provider"] == "redis"
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "http://127.0.0.1:8000/v1",
+        "https://openai.example/v1",
+        "https://api.openai.com.evil.example/v1",
+        "https://api.openai.com/v1?proxy=1",
+    ],
+)
+def test_production_rejects_non_official_openai_embedding_endpoint(base_url):
+    settings = replace(
+        Settings(),
+        runtime_mode="production",
+        app_environment="production",
+        provider_fallback_allowed=False,
+        embedding_provider="openai",
+        embedding_model="text-embedding-3-large",
+        embedding_dimension=1536,
+        openai_base_url=base_url,
+    )
+
+    with pytest.raises(ValueError, match="api.openai.com"):
+        validate_runtime_settings(settings)
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    ["", "https://api.openai.com", "https://api.openai.com/v1/", "https://api.openai.com:443/v1"],
+)
+def test_production_accepts_only_default_or_official_openai_embedding_endpoint(base_url):
+    settings = replace(
+        Settings(),
+        runtime_mode="production",
+        app_environment="production",
+        provider_fallback_allowed=False,
+        embedding_provider="openai",
+        embedding_model="text-embedding-3-large",
+        embedding_dimension=1536,
+        openai_base_url=base_url,
+        answer_provider="openai_compatible_chat",
+        answer_base_url="https://api.deepseek.com",
+        reranker="deepseek",
+        retrieval_aux_provider="deepseek",
+        retrieval_aux_base_url="https://api.deepseek.com",
+        retrieval_aux_api_key="deepseek-contract-key",
+        query_rewrite_provider="deepseek",
+        vector_store="pgvector",
+        metadata_backend="postgres",
+        metadata_dsn="postgresql://rag:secret@postgres/rag",
+        pgvector_dsn="postgresql://rag:secret@postgres/rag",
+        object_store_backend="s3",
+        s3_endpoint_url="http://minio:9000",
+        s3_bucket="rag-objects",
+        s3_access_key="rag",
+        s3_secret_key="secret",
+        job_queue_backend="redis",
+        redis_url="redis://redis:6379/0",
+        auth_mode="session",
+        admin_password_hash="$argon2id$valid-for-shape-check",
+        session_secret="a" * 32,
+        fetch_worker_url="http://fetch-worker:8091",
+    )
+
+    validate_runtime_settings(settings)
+
+
+def test_index_worker_validates_the_production_contract_before_starting():
+    worker_path = Path(__file__).resolve().parents[2] / "scripts" / "run_index_worker.py"
+    spec = importlib.util.spec_from_file_location("rag_index_worker_contract_test", worker_path)
+    assert spec is not None and spec.loader is not None
+    worker_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(worker_module)
+    worker_module.settings = replace(
+        Settings(),
+        runtime_mode="production",
+        app_environment="production",
+        provider_fallback_allowed=False,
+        embedding_provider="openai",
+        embedding_model="text-embedding-3-large",
+        embedding_dimension=1536,
+        openai_base_url="http://127.0.0.1:8000/v1",
+    )
+
+    with pytest.raises(ValueError, match="api.openai.com"):
+        worker_module.main()
+
+
+def test_production_profile_requires_production_app_environment():
+    settings = replace(
+        Settings(),
+        runtime_mode="production",
+        app_environment="staging",
+        provider_fallback_allowed=False,
+    )
+
+    with pytest.raises(ValueError, match="APP_ENVIRONMENT=production"):
+        validate_runtime_settings(settings)
+
+
+def test_session_auth_rejects_legacy_bearer_bypass_in_every_runtime_mode():
+    settings = replace(
+        Settings(),
+        runtime_mode="demo",
+        auth_mode="session",
+        api_auth_token="legacy-break-glass-token",
+    )
+
+    with pytest.raises(ValueError, match="API_AUTH_TOKEN"):
+        validate_runtime_settings(settings)
+
+
+def test_production_image_installs_the_openai_embedding_sdk():
+    requirements = (
+        Path(__file__).resolve().parents[1] / "requirements-production.txt"
+    ).read_text(encoding="utf-8")
+
+    assert any(
+        line.strip().startswith("openai==")
+        for line in requirements.splitlines()
+    )
+    local_requirements = (
+        Path(__file__).resolve().parents[1]
+        / "requirements-local-production.txt"
+    ).read_text(encoding="utf-8")
+    assert "openai==" in local_requirements
+    assert "sentence-transformers" not in local_requirements
 
 
 def test_component_failure_makes_readiness_fail_closed():

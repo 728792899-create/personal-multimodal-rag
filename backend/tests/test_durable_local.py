@@ -215,6 +215,33 @@ def test_conversations_persist_ordered_messages_and_bounded_context(tmp_path):
     ]
 
 
+def test_conversation_retrieval_traces_feed_health_rollups_without_content(tmp_path):
+    registry = DocumentRegistry(str(tmp_path / "registry.sqlite3"))
+    conversation = registry.create_conversation(
+        "Health trace", [DEFAULT_KNOWLEDGE_BASE_ID]
+    )
+    trace = {
+        "pipeline": {
+            "retrieval_health": {
+                "eligible": True,
+                "status": "healthy",
+                "alerts": [],
+            }
+        }
+    }
+    registry.save_conversation_message(
+        conversation["id"],
+        "assistant",
+        "private answer content",
+        metadata={"response": {"retrieval_trace": trace}},
+    )
+    registry.save_conversation_message(
+        conversation["id"], "user", "private question content"
+    )
+
+    assert registry.conversation_retrieval_traces() == [trace]
+
+
 def test_docx_parser_preserves_headings_and_tables(tmp_path):
     docx = pytest.importorskip("docx")
     document = docx.Document()

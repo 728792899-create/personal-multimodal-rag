@@ -36,16 +36,46 @@ def main() -> int:
     environment = services["backend"].get("environment", {})
     expected = {
         "RAG_RUNTIME_MODE": "production",
+        "APP_ENVIRONMENT": "production",
         "PROVIDER_FALLBACK_ALLOWED": "0",
         "AUTH_MODE": "session",
         "METADATA_BACKEND": "postgres",
         "OBJECT_STORE_BACKEND": "s3",
         "JOB_QUEUE_BACKEND": "redis",
         "FETCH_WORKER_URL": "http://fetch-worker:8091",
+        "VECTOR_STORE": "pgvector",
+        "EMBEDDING_PROVIDER": "openai",
+        "EMBEDDING_MODEL": "text-embedding-3-large",
+        "EMBEDDING_DIMENSION": "1536",
+        "OPENAI_API_KEY_FILE": "/run/secrets/openai_api_key",
+        "ANSWER_PROVIDER": "openai_compatible_chat",
+        "ANSWER_BASE_URL": "https://api.deepseek.com",
+        "ANSWER_API_KEY_FILE": "/run/secrets/deepseek_api_key",
+        "RERANKER": "deepseek",
+        "RETRIEVAL_AUX_PROVIDER": "deepseek",
+        "RETRIEVAL_AUX_API_KEY_FILE": "/run/secrets/deepseek_api_key",
+        "QUERY_REWRITE_PROVIDER": "deepseek",
     }
     for key, value in expected.items():
         if str(environment.get(key)) != value:
             raise SystemExit(f"backend 生产契约要求 {key}={value}")
+    forbidden_direct_secrets = {
+        "OPENAI_API_KEY",
+        "ANSWER_API_KEY",
+        "RETRIEVAL_AUX_API_KEY",
+        "QUERY_REWRITE_API_KEY",
+        "ENRICHMENT_API_KEY",
+    }
+    exposed = sorted(
+        key for key in forbidden_direct_secrets if environment.get(key)
+    )
+    if exposed:
+        raise SystemExit(
+            "backend 生产环境禁止直接注入模型密钥：" + ", ".join(exposed)
+        )
+    postgres_image = str(services["postgres"].get("image") or "")
+    if not postgres_image.startswith("pgvector/pgvector:0.8."):
+        raise SystemExit("postgres 必须使用 pgvector >= 0.8 的固定版本镜像")
     for name, service in services.items():
         image = str(service.get("image") or "")
         if image.endswith(":latest"):

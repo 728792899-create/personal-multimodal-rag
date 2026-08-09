@@ -63,6 +63,12 @@ function serverDeepSeekReadyFor(status: ProviderStatus | null) {
 const effectiveProviderStatus = computed(() => (
   refreshedProviderStatus.value || props.providerStatus
 ))
+const providerStatusKnown = computed(() => effectiveProviderStatus.value !== null)
+const runtimeConfigurationAllowed = computed(() => {
+  const status = effectiveProviderStatus.value
+  if (!status || status.runtime_configuration_allowed !== true) return false
+  return !['production', 'prod'].includes(String(status.environment || '').toLowerCase())
+})
 const runtimeActive = computed(() => runtimeActiveFor(effectiveProviderStatus.value))
 const serverDeepSeekReady = computed(() => (
   serverDeepSeekReadyFor(effectiveProviderStatus.value)
@@ -74,6 +80,8 @@ const connectionLabel = computed(() => {
   return '未连接'
 })
 const connectionNote = computed(() => {
+  if (!providerStatusKnown.value) return '正在读取模型状态；在服务端明确允许前，密钥配置保持关闭。'
+  if (!runtimeConfigurationAllowed.value) return '当前连接由部署系统管理，此页仅显示模型与健康状态。'
   if (runtimeActive.value) return '输入新的 API 密钥可替换当前临时连接。'
   if (serverDeepSeekReady.value) {
     return '服务端已有 DeepSeek 配置；输入新密钥将仅在当前服务进程中临时替换。'
@@ -82,6 +90,8 @@ const connectionNote = computed(() => {
 })
 const isLoading = computed(() => phase.value === 'loading')
 const canConnect = computed(() => (
+  runtimeConfigurationAllowed.value
+  &&
   props.canManageProviders
   && dataTransferConfirmed.value
   && !isLoading.value
@@ -98,6 +108,7 @@ const inputDescriptionIds = computed(() => [
   'deepseek-data-transfer-note',
   'deepseek-connection-context',
   ...(!props.canManageProviders ? ['deepseek-permission-note'] : []),
+  ...(!runtimeConfigurationAllowed.value ? ['deepseek-production-note'] : []),
 ].join(' '))
 
 function safeError(error: unknown, action: 'connect' | 'clear') {
@@ -207,7 +218,7 @@ async function refreshWhenOpened() {
 }
 
 async function connect() {
-  if (!canConnect.value) return
+  if (!canConnect.value || !runtimeConfigurationAllowed.value) return
   actionController?.abort()
   actionController = new AbortController()
   const secret = apiKey.value.trim()
@@ -240,7 +251,7 @@ async function connect() {
 }
 
 async function clearConnection() {
-  if (isLoading.value || !props.canManageProviders) return
+  if (isLoading.value || !props.canManageProviders || !runtimeConfigurationAllowed.value) return
   actionController?.abort()
   actionController = new AbortController()
   apiKey.value = ''
@@ -328,15 +339,32 @@ onBeforeUnmount(() => actionController?.abort())
       </div>
     </dl>
 
-    <p id="deepseek-security-note" class="model-connection-note">
+    <p v-if="runtimeConfigurationAllowed && props.canManageProviders" id="deepseek-security-note" class="model-connection-note">
       密钥会发送到当前服务端，再由服务端转发到 DeepSeek 官方接口进行验证。密钥不会写入浏览器存储，也不会在页面回显。
     </p>
 
-    <p id="deepseek-data-transfer-note" class="model-connection-disclosure">
+    <p v-if="runtimeConfigurationAllowed && props.canManageProviders" id="deepseek-data-transfer-note" class="model-connection-disclosure">
       连接生效后，后续回答会把你的问题和检索命中的证据片段发送给 DeepSeek 生成回答。请只提交允许发送给第三方的内容。
     </p>
 
     <p id="deepseek-connection-context" class="model-connection-context">{{ connectionNote }}</p>
+
+    <p
+      v-if="providerStatusKnown && !runtimeConfigurationAllowed"
+      id="deepseek-production-note"
+      class="model-connection-disclosure"
+      role="note"
+    >
+      生产环境仅显示模型与健康状态。密钥由部署系统通过 Docker secrets 或密钥文件管理，不在页面中输入、保存或返回。
+    </p>
+
+    <p
+      v-else-if="!providerStatusKnown"
+      class="model-connection-disclosure"
+      role="status"
+    >
+      正在读取模型状态。密钥配置暂时关闭。
+    </p>
 
     <p
       v-if="!props.canManageProviders"
@@ -347,7 +375,7 @@ onBeforeUnmount(() => actionController?.abort())
       当前会话没有模型连接管理权限。请使用受保护的所有者或管理员会话登录后再操作。
     </p>
 
-    <form class="model-connection-form" @submit.prevent="connect">
+    <form v-if="runtimeConfigurationAllowed && props.canManageProviders" class="model-connection-form" @submit.prevent="connect">
       <label for="deepseek-api-key">
         <span>接口密钥</span>
         <small>粘贴从 DeepSeek 控制台创建的密钥</small>
@@ -388,7 +416,7 @@ onBeforeUnmount(() => actionController?.abort())
       </button>
     </form>
 
-    <div v-if="runtimeActive" class="model-connected-actions">
+    <div v-if="runtimeActive && runtimeConfigurationAllowed && props.canManageProviders" class="model-connected-actions">
       <p>当前回答优先使用临时连接；清除后将恢复服务端配置。</p>
       <button
         type="button"
@@ -416,7 +444,9 @@ onBeforeUnmount(() => actionController?.abort())
     >
       {{
         message
-          || (runtimeActive
+          || (!runtimeConfigurationAllowed
+            ? (connected ? '部署模型可用。' : '部署模型尚未就绪。')
+            : runtimeActive
             ? '临时连接可用。'
             : serverDeepSeekReady
               ? '服务端连接可用。'

@@ -21,6 +21,14 @@ const reasonLabels: Record<string, string> = {
   evidence_accepted: '证据通过',
 }
 
+const routeLabels: Record<string, string> = {
+  exact: '精确事实',
+  semantic: '语义问答',
+  composite: '复合问题',
+  multihop: '多跳推理',
+  summary: '范围总结',
+}
+
 const stages = computed(() => {
   const pipeline = props.trace.pipeline || {}
   const decision = pipeline.decision
@@ -134,8 +142,14 @@ const chainSummary = computed(() => {
         <p class="kicker">证据链路</p>
         <h2 id="trace-title">检索证据链</h2>
       </div>
-      <span class="status-badge neutral">{{ localizedSearchProfile(trace.search_profile) }}</span>
+      <span class="status-badge neutral">{{ trace.plan ? routeLabels[trace.plan.route] || trace.plan.route : localizedSearchProfile(trace.search_profile) }}</span>
     </header>
+
+    <section v-if="trace.plan" class="inline-notice" aria-label="自动检索规划">
+      <strong>{{ routeLabels[trace.plan.route] || trace.plan.route }} · 置信度 {{ Math.round(trace.plan.confidence * 100) }}%</strong>
+      <span>{{ trace.plan.decision_factors.join('；') || '使用默认混合检索计划' }}</span>
+      <small>规划来源：{{ trace.plan.source || 'rules' }} · 索引：{{ trace.index_version || '当前版本' }}</small>
+    </section>
 
     <section class="chain-map" aria-label="检索链路摘要">
       <div class="chain-sources">
@@ -201,6 +215,14 @@ const chainSummary = computed(() => {
     <details class="trace-details">
       <summary>查看查询与性能细节</summary>
       <dl class="definition-grid">
+        <div>
+          <dt>路由模式</dt>
+          <dd>{{ trace.plan ? `${routeLabels[trace.plan.route] || trace.plan.route} / ${trace.plan.source || 'rules'}` : '兼容模式' }}</dd>
+        </div>
+        <div>
+          <dt>索引版本</dt>
+          <dd>{{ trace.index_version || '—' }}</dd>
+        </div>
         <div>
           <dt>查询改写</dt>
           <dd>{{ localizedStatus(trace.rewrite_status) }} · {{ localizedQueryRewriter(trace.query_rewriter) }}</dd>

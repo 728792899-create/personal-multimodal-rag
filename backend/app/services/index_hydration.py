@@ -18,6 +18,9 @@ def hydrate_retriever(
 ) -> int:
     """Restore document metadata and rebuild only indexes missing from the vector store."""
     retriever.load_documents(documents)
+    persistent_versioned = bool(
+        getattr(retriever.vector_store, "supports_persistent_sparse", False)
+    )
     compatible_documents: list[Document] = []
     for document in documents:
         expected = {
@@ -34,7 +37,11 @@ def hydrate_retriever(
             if str(stored_value) != str(expected_value):
                 mismatch[key] = {"stored": stored_value, "expected": expected_value}
         if mismatch:
-            retriever.vector_store.delete_by_document_id(document.document_id)
+            # Active versioned indexes are immutable service snapshots. A
+            # metadata mismatch schedules a shadow rebuild; web startup must
+            # never delete or re-embed the serving table in place.
+            if not persistent_versioned:
+                retriever.vector_store.delete_by_document_id(document.document_id)
             document.metadata["index_status"] = "needs_rebuild"
             document.metadata["index_mismatch"] = mismatch
             if on_mismatch:
@@ -44,6 +51,9 @@ def hydrate_retriever(
             if expected_value not in {None, "", 0}:
                 document.metadata.setdefault(key, expected_value)
         compatible_documents.append(document)
+
+    if persistent_versioned:
+        return 0
 
     indexed_document_ids = {
         chunk.document_id for chunk in retriever.vector_store.chunks.values()

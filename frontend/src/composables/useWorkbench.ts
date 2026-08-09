@@ -1,4 +1,4 @@
-import { computed, onBeforeUnmount, ref, shallowRef } from 'vue'
+import { computed, onBeforeUnmount, ref, shallowRef, unref, type MaybeRef } from 'vue'
 
 import {
   clearHistory,
@@ -47,6 +47,7 @@ import {
   type SearchMode,
   type SearchProfile,
   type RetrievalStrategy,
+  type RoutingMode,
   type SystemMetrics,
   type WorkMode,
   type ConversationStreamEvent,
@@ -62,7 +63,14 @@ import { useMultimodalQuery } from './useMultimodalQuery'
 import { useQualityAudit } from './useQualityAudit'
 
 
-export function useWorkbench() {
+type WorkbenchRole = 'admin' | 'editor' | 'viewer' | 'owner' | ''
+const MAX_RETRIEVAL_SCOPE_DOCUMENTS = 200
+
+
+export function useWorkbench(role: MaybeRef<WorkbenchRole> = 'admin') {
+  const currentRole = computed(() => unref(role) || 'viewer')
+  const canAdmin = computed(() => ['admin', 'owner'].includes(currentRole.value))
+  const canEdit = computed(() => canAdmin.value || currentRole.value === 'editor')
   const knowledgeBaseState = useKnowledgeBases()
   const ingestionState = useIngestionJobs()
   const conversationState = useConversations()
@@ -106,6 +114,7 @@ export function useWorkbench() {
   const searchMode = ref<SearchMode>('hybrid')
   const searchProfile = ref<SearchProfile>('balanced')
   const retrievalStrategy = ref<RetrievalStrategy>('auto')
+  const routingMode = ref<RoutingMode>('auto')
   const graphWeight = ref(0.25)
   const graphMaxHops = ref(2)
   const parentWindow = ref(1)
@@ -213,38 +222,50 @@ export function useWorkbench() {
   }
 
   async function refreshActivity() {
-    const [nextHistory, nextOperations, nextCards, nextDrafts, nextMetrics, nextReviewSummary, nextUsageSummary] = await Promise.all([
-      listHistory(),
-      listOperations(20),
-      listKnowledgeCards(20),
-      listEvalDrafts(220),
-      getSystemMetrics(),
-      getEvalReviewSummary(),
-      getRealUsageSummary(),
-    ])
-    history.value = nextHistory
-    operations.value = nextOperations
-    cards.value = nextCards
-    evalDrafts.value = nextDrafts
-    metrics.value = nextMetrics
-    evalReviewSummary.value = nextReviewSummary
-    realUsageSummary.value = nextUsageSummary
+    const tasks: Promise<void>[] = [
+      listKnowledgeCards(20).then((items) => { cards.value = items }),
+    ]
+    if (canEdit.value) {
+      tasks.push(
+        listEvalDrafts(220).then((items) => { evalDrafts.value = items }),
+        getEvalReviewSummary().then((summary) => { evalReviewSummary.value = summary }),
+      )
+    } else {
+      evalDrafts.value = []
+      evalReviewSummary.value = null
+    }
+    if (canAdmin.value) {
+      tasks.push(
+        listHistory().then((items) => { history.value = items }),
+        listOperations(20).then((items) => { operations.value = items }),
+        getSystemMetrics().then((nextMetrics) => { metrics.value = nextMetrics }),
+        getRealUsageSummary().then((summary) => { realUsageSummary.value = summary }),
+      )
+    } else {
+      history.value = []
+      operations.value = []
+      metrics.value = null
+      realUsageSummary.value = null
+    }
+    await Promise.all(tasks)
   }
 
   async function boot() {
     booting.value = true
     clearError()
     const knowledgeResult = await Promise.allSettled([knowledgeBaseState.refreshKnowledgeBases()])
-    const results = await Promise.allSettled([
+    const startupTasks = [
       refreshDocuments(),
       refreshActivity(),
-      ingestionState.refreshIndexJobs(),
       conversationState.refreshConversations(),
       providerState.refreshProviderStatus(),
       graphState.load(knowledgeBaseState.selectedKnowledgeBaseId.value),
-    ])
+    ]
+    if (canAdmin.value) startupTasks.push(ingestionState.refreshIndexJobs())
+    else ingestionState.indexJobs.value = []
+    const results = await Promise.allSettled(startupTasks)
     results.push(...knowledgeResult)
-    if (results[3]?.status === 'fulfilled') {
+    if (results[2]?.status === 'fulfilled') {
       try {
         if (await conversationState.restoreActiveConversation()) {
           await alignKnowledgeBaseWithActiveConversation()
@@ -262,12 +283,13 @@ export function useWorkbench() {
   function buildRetrievalOptions(): RetrievalOptions {
     if (appMode.value === 'user') {
       return {
+        routing_mode: 'auto',
         top_k: 5,
         candidate_k: 24,
         search_mode: 'hybrid',
         search_profile: 'balanced',
         strategy: 'auto',
-        document_ids: scopedDocumentIds.value,
+        document_ids: scopedDocumentIds.value.slice(0, MAX_RETRIEVAL_SCOPE_DOCUMENTS),
         knowledge_base_ids: [knowledgeBaseState.selectedKnowledgeBaseId.value],
         bm25_weight: 0.62,
         vector_weight: 0.38,
@@ -281,12 +303,13 @@ export function useWorkbench() {
       }
     }
     return {
+      routing_mode: routingMode.value,
       top_k: topK.value,
       candidate_k: candidateK.value,
       search_mode: searchMode.value,
       search_profile: searchProfile.value,
       strategy: retrievalStrategy.value,
-      document_ids: scopedDocumentIds.value,
+      document_ids: scopedDocumentIds.value.slice(0, MAX_RETRIEVAL_SCOPE_DOCUMENTS),
       knowledge_base_ids: [knowledgeBaseState.selectedKnowledgeBaseId.value],
       bm25_weight: bm25Weight.value,
       vector_weight: vectorWeight.value,
@@ -374,6 +397,8 @@ export function useWorkbench() {
               answer.value = { ...answer.value, answer: partialText }
             } else if (event.type === 'answer.completed' || event.type === 'refusal') {
               answer.value = event.response
+            } else if (event.type === 'error' && event.response) {
+              answer.value = event.response
             }
           },
         )
@@ -417,6 +442,7 @@ export function useWorkbench() {
   }
 
   async function handleUpload() {
+    if (!canEdit.value) return
     if (!selectedFile.value) return
     uploadController?.abort()
     uploadController = new AbortController()
@@ -439,6 +465,7 @@ export function useWorkbench() {
   }
 
   async function handleImportUrl() {
+    if (!canEdit.value) return
     if (!urlToImport.value.trim()) return
     importController?.abort()
     importController = new AbortController()
@@ -519,6 +546,7 @@ export function useWorkbench() {
   }
 
   async function removeDocument(documentId: string) {
+    if (!canEdit.value) return
     if (!window.confirm('确认删除这份文档及其索引吗？')) return
     clearError()
     try {
@@ -532,6 +560,7 @@ export function useWorkbench() {
   }
 
   async function rebuildOne(documentId: string) {
+    if (!canAdmin.value) return
     rebuildingId.value = documentId
     clearError()
     try {
@@ -546,6 +575,7 @@ export function useWorkbench() {
   }
 
   async function rebuildAll() {
+    if (!canAdmin.value) return
     if (!window.confirm('确认重建全部文档索引吗？')) return
     rebuildingId.value = 'all'
     clearError()
@@ -560,12 +590,24 @@ export function useWorkbench() {
   }
 
   function toggleScope(documentId: string) {
+    if (
+      !scopeSet.value.has(documentId)
+      && scopedDocumentIds.value.length >= MAX_RETRIEVAL_SCOPE_DOCUMENTS
+    ) {
+      error.value = `单次检索最多选择 ${MAX_RETRIEVAL_SCOPE_DOCUMENTS} 份资料；清除筛选可检索当前知识库的全部资料。`
+      errorCode.value = 'RETRIEVAL_SCOPE_LIMIT'
+      errorRequestId.value = ''
+      lastRetry.value = null
+      return
+    }
+    if (errorCode.value === 'RETRIEVAL_SCOPE_LIMIT') clearError()
     scopedDocumentIds.value = scopeSet.value.has(documentId)
       ? scopedDocumentIds.value.filter((id) => id !== documentId)
       : [...scopedDocumentIds.value, documentId]
   }
 
   function clearScope() {
+    if (errorCode.value === 'RETRIEVAL_SCOPE_LIMIT') clearError()
     scopedDocumentIds.value = []
   }
 
@@ -581,6 +623,7 @@ export function useWorkbench() {
   }
 
   async function addKnowledgeBase() {
+    if (!canEdit.value) return
     try {
       const created = await knowledgeBaseState.addKnowledgeBase()
       if (created) {
@@ -685,6 +728,7 @@ export function useWorkbench() {
   }
 
   async function eraseHistory() {
+    if (!canAdmin.value) return
     if (!window.confirm('确认清空全部问答历史吗？')) return
     await clearHistory()
     history.value = []
@@ -716,6 +760,7 @@ export function useWorkbench() {
   }
 
   async function handleRewrite(style: RewriteStyle) {
+    if (!canEdit.value) return
     if (!answer.value?.answer) return
     rewriting.value = true
     clearError()
@@ -729,6 +774,7 @@ export function useWorkbench() {
   }
 
   async function handleSaveCard() {
+    if (!canEdit.value) return
     if (!answer.value?.answer) return
     clearError()
     try {
@@ -741,6 +787,7 @@ export function useWorkbench() {
   }
 
   async function handleCreateEvalCase() {
+    if (!canEdit.value) return
     if (!evalQuestion.value.trim()) return
     const keywords = evalKeywords.value.split(/[,，\s]+/).map((item) => item.trim()).filter(Boolean)
     try {
@@ -754,6 +801,7 @@ export function useWorkbench() {
   }
 
   async function handleRunEvalDrafts() {
+    if (!canEdit.value) return
     evalRunning.value = true
     try {
       const result = await runEvalDrafts(50)
@@ -767,6 +815,7 @@ export function useWorkbench() {
   }
 
   async function handleReviewEvalCase(item: EvalDraft) {
+    if (!canAdmin.value) return
     if (!item.id || !evalReviewerId.value.trim()) return
     evalReviewingId.value = item.id
     evalReviewMessage.value = ''
@@ -803,7 +852,12 @@ export function useWorkbench() {
     }
     if (action.id === 'view_evidence_only') workMode.value = 'search'
     if (action.id === 'rebuild_all_indexes') return rebuildAll()
-    if (Array.isArray(payload.document_ids)) scopedDocumentIds.value = payload.document_ids as string[]
+    if (Array.isArray(payload.document_ids)) {
+      scopedDocumentIds.value = (payload.document_ids as string[]).slice(
+        0,
+        MAX_RETRIEVAL_SCOPE_DOCUMENTS,
+      )
+    }
     if (typeof payload.min_score === 'number') minScore.value = payload.min_score
     if (typeof payload.candidate_k_multiplier === 'number') candidateK.value = Math.min(80, Math.max(12, candidateK.value * payload.candidate_k_multiplier))
     if (['hybrid', 'keyword', 'semantic'].includes(String(payload.search_mode))) searchMode.value = payload.search_mode as SearchMode
@@ -813,6 +867,7 @@ export function useWorkbench() {
   }
 
   function resetRetrievalControls() {
+    routingMode.value = 'auto'
     topK.value = 5
     candidateK.value = 24
     vectorBalance.value = 0.38
@@ -844,12 +899,13 @@ export function useWorkbench() {
 
   return {
     documents, history, overview, operations, cards, evalDrafts, metrics,
+    currentRole, canEdit, canAdmin,
     selectedDocument, selectedFile, urlToImport, question, answer, selectedCitation,
     citationContext, compareResult, feedbackStats, feedbackText, feedbackMessage,
     rewriteResult, cardMessage, evalQuestion, evalKeywords, evalResults,
     evalReviewSummary, evalReviewerId, evalReviewingId, evalReviewMessage,
     realUsageConsent, realUsageSummary,
-    appMode, workMode, searchMode, searchProfile, retrievalStrategy, graphWeight,
+    appMode, workMode, routingMode, searchMode, searchProfile, retrievalStrategy, graphWeight,
     graphMaxHops, parentWindow, modalityFilters, topK, candidateK, vectorBalance,
     mmrLambda, minScore, queryRewrite, scopedDocumentIds, documentFilter, inspectorTab,
     booting, loading, uploading, importingUrl, comparing, rebuildingId, loadingDocument,
