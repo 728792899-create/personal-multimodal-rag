@@ -1,7 +1,8 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 from app.services.document_processor import DocumentProcessor
-from app.services.rag_engine import RagEngine
+from app.services.rag_engine import RagEngine, _extract_direct_identifiers
 from app.services.retriever import HybridRetriever
 
 
@@ -146,3 +147,36 @@ def test_deterministic_idempotency_alias_finds_explicit_evidence(tmp_path):
 
     assert result["citations"]
     assert "幂等键" in result["citations"][0]["text"]
+
+
+def test_direct_identifier_parser_preserves_version_identifiers():
+    assert _extract_direct_identifiers(
+        "A100、release-v2.1 与 module_name-3；123invalid 以及 no-digits"
+    ) == ["a100", "release-v2.1", "module_name-3"]
+
+
+def test_direct_identifier_parser_preserves_unicode_boundaries_and_trailing_underscore():
+    assert _extract_direct_identifiers("解释模型v2、v3配置和 module3_") == ["module3_"]
+
+
+def test_similar_identifier_cannot_bypass_explicit_evidence_gap():
+    ranked = [
+        {
+            "score": 0.9,
+            "rerank_score": 0.9,
+            "matched_terms": ["配置"],
+            "chunk": SimpleNamespace(text="模型 v20 的配置未提供"),
+        }
+    ]
+    engine = RagEngine(StaticRetriever(ranked))
+
+    assert engine._should_refuse("解释 v2 的缺失配置", ranked, 0.9, 0.05) == (
+        True,
+        "explicit_evidence_gap",
+    )
+
+
+def test_direct_identifier_parser_handles_adversarial_long_input_linearly():
+    query = ("segment-without-digits-" * 20_000) + "tail"
+
+    assert _extract_direct_identifiers(query) == []

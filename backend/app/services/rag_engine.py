@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import re
 import time
+from urllib.parse import urlsplit
 
 from app.services.answer_generator import BaseAnswerGenerator, TemplateAnswerGenerator
 from app.services.citation_audit import audit_answer
@@ -36,6 +36,86 @@ AVAILABILITY_QUESTION_MARKERS = (
     "覆盖哪些",
     "已经覆盖",
 )
+ASCII_LOWERCASE = frozenset("abcdefghijklmnopqrstuvwxyz")
+ASCII_DIGITS = frozenset("0123456789")
+IDENTIFIER_BODY = ASCII_LOWERCASE | ASCII_DIGITS | frozenset("_.-")
+DNS_LABEL_CHARACTERS = ASCII_LOWERCASE | ASCII_DIGITS | frozenset("-")
+DEEPSEEK_DOMAIN = "deepseek.com"
+
+
+def _is_legal_dns_hostname(hostname: str) -> bool:
+    """Validate the ASCII DNS form used for provider trust decisions."""
+
+    if not hostname or len(hostname) > 253:
+        return False
+    labels = hostname.split(".")
+    return all(
+        1 <= len(label) <= 63
+        and label[0] != "-"
+        and label[-1] != "-"
+        and all(character in DNS_LABEL_CHARACTERS for character in label)
+        for label in labels
+    )
+
+
+def _is_deepseek_base_url(value: object) -> bool:
+    """Recognize only DeepSeek itself or a syntactically valid subdomain."""
+
+    try:
+        hostname = (urlsplit(str(value or "").strip()).hostname or "").lower()
+    except (TypeError, ValueError):
+        return False
+    # A single trailing dot is the canonical fully-qualified DNS spelling.
+    if hostname.endswith("."):
+        hostname = hostname[:-1]
+    if not _is_legal_dns_hostname(hostname):
+        return False
+    return hostname == DEEPSEEK_DOMAIN or hostname.endswith(f".{DEEPSEEK_DOMAIN}")
+
+
+def _extract_direct_identifiers(value: object) -> list[str]:
+    """Extract version-like ASCII identifiers with a single linear scan.
+
+    Identifiers start with a letter, contain at least one digit, and may use
+    dots, underscores, or hyphens internally. Trailing separators are omitted.
+    """
+
+    text = str(value or "").lower()
+    identifiers: list[str] = []
+    start: int | None = None
+    has_digit = False
+
+    def is_word_character(character: str | None) -> bool:
+        # Match Python's Unicode-aware ``\b`` behavior closely enough for the
+        # former regex: letters/digits from any script and underscore are word
+        # characters. This prevents a suffix such as Chinese ``模型v2`` from
+        # being reinterpreted as the standalone identifier ``v2``.
+        return character is not None and (character == "_" or character.isalnum())
+
+    for index in range(len(text) + 1):
+        character = text[index] if index < len(text) else None
+        if start is None:
+            if character in ASCII_LOWERCASE:
+                previous = text[index - 1] if index else None
+                if not is_word_character(previous):
+                    start = index
+                    has_digit = False
+            continue
+
+        if character in IDENTIFIER_BODY:
+            has_digit = has_digit or character in ASCII_DIGITS
+            continue
+
+        end = index
+        while end > start and text[end - 1] in ".-":
+            end -= 1
+        has_end_boundary = end < index or not is_word_character(character)
+        if has_digit and end > start and has_end_boundary:
+            identifiers.append(text[start:end])
+        start = None
+        has_digit = False
+
+    return identifiers
 
 
 class RagEngine:
@@ -93,11 +173,11 @@ class RagEngine:
         provider = str(getattr(answer_generator, "name", "") or "").lower()
         client = getattr(answer_generator, "client", None)
         model = str(getattr(client, "model", "") or "").lower()
-        base_url = str(getattr(client, "base_url", "") or "").lower()
+        base_url = getattr(client, "base_url", "")
         is_deepseek = (
             provider.startswith("deepseek")
             or model.startswith("deepseek")
-            or "deepseek.com" in base_url
+            or _is_deepseek_base_url(base_url)
         )
         return self.allow_generation_fallback and not is_deepseek
 
@@ -572,11 +652,10 @@ class RagEngine:
         availability_question = any(
             marker in normalized_query for marker in AVAILABILITY_QUESTION_MARKERS
         )
-        direct_identifiers = re.findall(
-            r"\b[a-z][a-z0-9_.-]*\d[a-z0-9_.-]*\b", normalized_query
-        )
-        has_direct_identifier_evidence = any(
-            identifier in normalized_evidence for identifier in direct_identifiers
+        direct_identifiers = set(_extract_direct_identifiers(normalized_query))
+        evidence_identifiers = set(_extract_direct_identifiers(normalized_evidence))
+        has_direct_identifier_evidence = bool(
+            direct_identifiers.intersection(evidence_identifiers)
         )
         if not availability_question and not has_direct_identifier_evidence and any(
             marker in normalized_evidence for marker in EVIDENCE_GAP_MARKERS

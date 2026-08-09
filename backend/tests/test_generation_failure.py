@@ -110,6 +110,47 @@ def test_openai_compatible_name_still_detects_deepseek_model():
     assert response["citations"]
 
 
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "https://deepseek.com/v1",
+        "https://api.deepseek.com/v1",
+        "https://regional.api.deepseek.com./v1",
+    ],
+)
+def test_official_deepseek_hostname_disables_template_fallback(base_url):
+    generator = SimpleNamespace(
+        name="openai_compatible_chat",
+        client=SimpleNamespace(model="chat-model", base_url=base_url),
+    )
+    engine = RagEngine(StaticEvidenceRetriever(), allow_generation_fallback=True)
+
+    assert engine._template_fallback_allowed(generator) is False
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "https://deepseek.com.evil.example/v1",
+        "https://notdeepseek.com/v1",
+        "https://api.deepseek.com@evil.example/v1",
+        "https://evil.example/v1/deepseek.com",
+        "https://api..deepseek.com/v1",
+        "https://-api.deepseek.com/v1",
+        "https://api_deepseek.com/v1",
+        "https://api.deepseek.com%2eevil.example/v1",
+    ],
+)
+def test_lookalike_deepseek_hostname_is_not_trusted(base_url):
+    generator = SimpleNamespace(
+        name="openai_compatible_chat",
+        client=SimpleNamespace(model="chat-model", base_url=base_url),
+    )
+    engine = RagEngine(StaticEvidenceRetriever(), allow_generation_fallback=True)
+
+    assert engine._template_fallback_allowed(generator) is True
+
+
 def test_deepseek_stream_failure_never_emits_template_deltas():
     engine = RagEngine(
         StaticEvidenceRetriever(),

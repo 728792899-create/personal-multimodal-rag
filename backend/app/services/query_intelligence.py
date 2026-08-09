@@ -9,6 +9,7 @@ SUMMARY_TERMS = {"总结", "概括", "梳理", "归纳", "摘要", "全文要点
 COMPARISON_TERMS = {"对比", "比较", "区别", "差异", "优劣", "分别", "各自", "哪个更"}
 MULTIHOP_TERMS = {"什么关系", "如何影响", "为什么导致", "导致", "因此", "依赖", "关系", "链路", "经过"}
 EXACT_TERMS = {"多少", "什么时间", "哪一页", "哪页", "是否", "有没有", "谁", "哪里", "提到", "编号"}
+MULTI_PART_CONNECTORS = ("分别", "同时", "以及", "并且")
 
 
 def analyze_query(query: str) -> dict:
@@ -33,8 +34,9 @@ def analyze_query(query: str) -> dict:
         or re.search(r"\b\d{4}[-/.年]\d{1,2}(?:[-/.月]\d{1,2})?", cleaned)
         or re.search(r"第\s*\d+\s*(?:页|章|节|条)", cleaned)
     )
-    multi_part = cleaned.count("？") + cleaned.count("?") >= 2 or bool(
-        re.search(r"(?:分别|同时|以及|并且).*(?:？|\?)", cleaned)
+    multi_part = (
+        cleaned.count("？") + cleaned.count("?") >= 2
+        or _has_connector_before_question_mark(cleaned)
     )
     multi_entity_relation = bool(
         multihop_hits
@@ -79,6 +81,18 @@ def analyze_query(query: str) -> dict:
 
 def _hits(lowered: str, tokens: set[str], terms: set[str]) -> list[str]:
     return sorted(term for term in terms if term in lowered or term in tokens)
+
+
+def _has_connector_before_question_mark(text: str) -> bool:
+    """Detect a multi-part connector followed by a question mark in linear time."""
+
+    last_question_mark = max(text.rfind("?"), text.rfind("？"))
+    if last_question_mark < 0:
+        return False
+    return any(
+        text.find(connector, 0, last_question_mark) >= 0
+        for connector in MULTI_PART_CONNECTORS
+    )
 
 
 def _recommended_profile(route: str) -> dict:
